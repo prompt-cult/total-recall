@@ -1,4 +1,4 @@
-#!/usr/bin/env uv -S
+#!/usr/bin/env -S uv run
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -89,7 +89,7 @@ the other language model:\
 """
 
 # Prune tool outputs larger than this many characters
-PRUNE_TOOL_OUTPUT_CHARS = 4000
+PRUNE_TOOL_OUTPUT_CHARS = 1000
 # Preserve the most recent N messages verbatim alongside the summary
 PRESERVE_RECENT_MESSAGES = 10
 
@@ -188,8 +188,41 @@ def extract_messages_for_compaction(messages: list[dict], since_index: int) -> l
     return extracted
 
 
+def _summarize_tool_call(name: str, args_str: str) -> str:
+    """Produce a compact one-line summary of a tool call."""
+    try:
+        args = json.loads(args_str)
+    except (json.JSONDecodeError, TypeError):
+        return f"{name}({str(args_str)[:200]})"
+    if name == "bash":
+        cmd = args.get("command", "")
+        return f"bash: {cmd[:300]}"
+    if name in ("write_file", "edit"):
+        fp = args.get("file_path", "?")
+        if name == "write_file":
+            content = args.get("content", "")
+            return f"write_file({fp}, {len(content)} chars)"
+        old = args.get("old_string", "")
+        return f"edit({fp}, {len(old)} chars replaced)"
+    if name == "read_file":
+        return f"read_file({args.get('file_path', '?')})"
+    if name == "grep":
+        return f"grep({args.get('pattern', '?')}, {args.get('path', '.')})"
+    if name == "task":
+        return f"task({args.get('agent', '?')})"
+    if name == "todo":
+        return f"todo({args.get('action', '?')})"
+    if name == "skill":
+        return f"skill({args.get('name', '?')})"
+    return f"{name}({json.dumps(args)[:300]})"
+
+
 def messages_to_text(messages: list[dict]) -> str:
-    """Convert messages to a text representation for the LLM."""
+    """Convert messages to a compact text representation for the LLM.
+
+    Tool calls and results are summarized, not dumped verbatim — Mercury needs
+    conversational context, not raw file contents.
+    """
     lines = []
     for msg in messages:
         role = msg.get("role", "unknown").upper()
@@ -200,19 +233,19 @@ def messages_to_text(messages: list[dict]) -> str:
                 fn = tc.get("function", {})
                 name = fn.get("name", "?")
                 args = fn.get("arguments", "")
-                lines.append(f"[{role} TOOL CALL: {name}]")
-                try:
-                    parsed = json.loads(args)
-                    lines.append(json.dumps(parsed, indent=2)[:500])
-                except (json.JSONDecodeError, TypeError):
-                    lines.append(str(args)[:500])
-                lines.append("")
+                lines.append(f"  {role} -> {_summarize_tool_call(name, args)}")
 
         if content:
-            lines.append(f"[{role}]")
-            lines.append(str(content)[:2000])
-            if len(str(content)) > 2000:
-                lines.append("... (truncated)")
+            content_str = str(content)
+            if role == "TOOL":
+                lines.append(f"  TOOL RESULT: {content_str[:500]}")
+                if len(content_str) > 500:
+                    lines.append("  ... (truncated)")
+            else:
+                lines.append(f"[{role}]")
+                lines.append(content_str[:1500])
+                if len(content_str) > 1500:
+                    lines.append("... (truncated)")
             lines.append("")
 
     return "\n".join(lines)
