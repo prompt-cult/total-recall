@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: {\n  \"winner\": \"A\",\n  \"score_A\": 88,\n  \"score_B\": 80,\n  \"confidence\": 70,\n  \"reasoning\": \"Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv s"
+  }
+}

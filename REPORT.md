@@ -5,10 +5,9 @@
 Based on the pairwise blind evaluation pattern from
 [gist b60a4d9af6d7789e70220fb3901ec9ea](https://gist.github.com/simbo1905/b60a4d9af6d7789e70220fb3901ec9ea).
 
-- **Summarization models**: Mistral Small (via Mistral API) vs Inception Mercury 2.5
+- **Summarization models**: Claude Haiku 4.5 (via Zen Anthropic Messages API) vs Inception Mercury 2.5
 - **Rollouts**: Small sessions from Vibe, OpenCode, Codex CLI, Claude Code
-- **Judges**: 3 Mistral models (mistral-large, ministral-8b, magistral-small)
-- **Note**: OpenCode Go API was returning 500 errors, so Mistral used as fallback for both summarization comparison and judge panel
+- **Judges**: 3 Zen models (glm-5.3-flash, gpt-5.4-mini, kimi-k3) across all 3 endpoint types
 - **Orderings**: Each pair evaluated in both A-B and B-A to detect ordering bias
 - **Scoring**: Each judge returns winner (A/B/tie), score_A (0-100), score_B (0-100), confidence, reasoning
 
@@ -16,28 +15,28 @@ Based on the pairwise blind evaluation pattern from
 
 | Metric | Haiku | Mercury |
 |--------|-------|---------|
-| Wins | 8 | 9 |
-| Ties | 3 | |
-| Errors | 4 | |
-| Avg Score | 74.7 | 76.0 |
+| Wins | 7 | 2 |
+| Ties | 0 | |
+| Errors | 15 | |
+| Avg Score | 32.0 | 29.5 |
 | Total Evaluations | 24 | |
 
 ## Per-Rollout Results
 
 | Rollout | Haiku Wins | Mercury Wins | Ties | Haiku Avg | Mercury Avg |
 |---------|-----------|-------------|------|-----------|-------------|
-| claude | 2 | 2 | 1 | 76.66666666666667 | 76.66666666666667 |
-| codex | 2 | 3 | 0 | 73.33333333333333 | 76.66666666666667 |
-| opencode | 2 | 2 | 1 | 73.33333333333333 | 74.16666666666667 |
-| vibe | 2 | 2 | 1 | 75.5 | 76.66666666666667 |
+| claude | 2 | 0 | 0 | 29.5 | 27.166666666666668 |
+| codex | 1 | 2 | 0 | 40.166666666666664 | 42.166666666666664 |
+| opencode | 2 | 0 | 0 | 29.333333333333332 | 24.5 |
+| vibe | 2 | 0 | 0 | 29.0 | 24.0 |
 
 ## Per-Judge Results
 
 | Judge | Haiku Wins | Mercury Wins | Ties | Errors |
 |-------|-----------|-------------|------|--------|
-| magistral-small | 4 | 4 | 0 | 0 |
-| ministral-8b | 0 | 1 | 3 | 4 |
-| mistral-large | 4 | 4 | 0 | 0 |
+| glm-5.3-flash | 0 | 0 | 0 | 8 |
+| gpt-5.4-mini | 6 | 2 | 0 | 0 |
+| kimi-k3 | 1 | 0 | 0 | 7 |
 
 ## Order Bias Check
 
@@ -45,190 +44,181 @@ Comparing A-B vs B-A results to detect ordering bias:
 
 | Order | Haiku Wins | Mercury Wins | Ties |
 |-------|-----------|-------------|------|
-| A-B (A=Haiku) | 8 | 0 | 0 |
-| B-A (B=Haiku) | 0 | 9 | 3 |
+| A-B (A=Haiku) | 3 | 1 | 0 |
+| B-A (B=Haiku) | 4 | 1 | 0 |
 
 If the results are consistent across orderings, there is no ordering bias.
 If A-B favors A and B-A favors A (regardless of model), there is an ordering bias.
 
 ## Individual Evaluations
 
-### vibe | AB | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 90
-- Confidence: 90
-- Reasoning: Both summaries are strong, but Summary A edges out slightly due to better clarity and structure. It explicitly lists the number of messages extracted for each source, which adds precision, and separates accomplishments, current work, files, next steps, and key constraints/decisions into distinct sections, making it easier to scan. Summary B is also accurate and complete but is slightly less concise and mixes some details (e.g., 'increased message extraction from 0 to 21' is less precise than stating the final count). Both summaries cover all key points, but Summary A's organization and specificity give it a slight advantage.
-
-### vibe | AB | ministral-8b
+### vibe | AB | glm-5.3-flash
 - Winner: **error**
 - Score A: 0 | Score B: 0
 - Confidence: 0
-- Reasoning: Failed to parse: ```json
-{
-  "winner": "tie",
-  "score_A": 95,
-  "score_B": 95,
-  "confidence": 98,
-  "reasoning": {
-    "accuracy": {
-      "A": 100,
-      "B": 100,
-      "note": "Both summaries accurately reflect t
+- Reasoning: Failed to parse: 
 
-### vibe | AB | magistral-small
+### vibe | AB | gpt-5.4-mini
 - Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more detailed and structured, providing specific numbers (e.g., 200 messages for Vibe, 21 for OpenCode) and clearer breakdowns of accomplished work, current WIP, and key constraints. Summary B is concise but lacks some granularity (e.g., exact message counts for Vibe and Claude) and mixes some points (e.g., 'increased message extraction' is less precise than 'successfully extracted'). Both are clear and complete, but A edges out due to its thoroughness and organization.
+- Score A: 88 | Score B: 72
+- Confidence: 86
+- Reasoning: A is more complete and accurate: it captures the full 3-phase evaluation workflow, the blind scoring/judge panel, the exact files/results involved, the evaluation rerun plan, and the discovered ordering bias. B is concise but misses important details like the phased process, specific next steps beyond commit/push, and the bias finding, and it is less precise about the evaluation setup.
 
-### vibe | BA | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Both summaries are accurate and clear, but Summary A is more complete and concise. Summary A provides specific details about the iterative fixes and the increase in message extraction (e.g., '0 to 21 for OpenCode' and '3 to 8 for Codex'), which adds valuable context. It also explicitly mentions the handling of nested data structures and the decision to adapt extraction logic for provider-specific schemas, which are critical details. Summary B, while accurate, omits some of these specifics and includes slightly less relevant details (e.g., exact message counts for all providers, which may not be as critical as the iterative improvements). Both summaries are well-structured, but Summary A edges out in completeness and conciseness.
-
-### vibe | BA | ministral-8b
-- Winner: **tie**
-- Score A: 95 | Score B: 93
-- Confidence: 95
-- Reasoning: {'accuracy': {'A': 98, 'B': 95, 'note': 'Both summaries accurately reflect the key accomplishments (e.g., message extraction improvements for OpenCode and Codex). Summary B slightly overstates Claude’s extracted messages (7 vs. 8 in A) and omits the initial 0/3 baseline for OpenCode/Codex, though the intent is clear.'}, 'completeness': {'A': 98, 'B': 90, 'note': 'Summary A includes all critical details (e.g., nested data structures, session files, and provider-specific schema decisions). Summary B omits the *why* behind key decisions (e.g., adapting to schema differences) and lacks specifics on session file locations.'}, 'conciseness': {'A': 95, 'B': 90, 'note': "Summary A is more concise by grouping related points (e.g., 'Key Decisions') and avoiding redundancy. Summary B repeats the script path and includes less critical details (e.g., Claude’s message count)."}, 'clarity': {'A': 98, 'B': 95, 'note': "Summary A’s structure (bullet points, clear labels) improves readability. Summary B’s phrasing (e.g., 'Key Constraints/Decisions') is slightly less intuitive, though still understandable."}, 'overall': {'note': 'Both summaries are strong, but **A** edges out due to its precision, completeness of technical context, and tighter organization. **B** is slightly less detailed in explaining *how* decisions were made and includes minor inaccuracies (e.g., Claude’s message count).'}}
-
-### vibe | BA | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more accurate and complete, capturing the iterative process of fixing the script (e.g., increasing message extraction counts) and explicitly mentioning schema parsing logic adjustments. Summary B provides concrete message counts but misses some key details like the initial zero extraction counts and the provider-specific schema differences (e.g., SQLite vs. JSONL). Both summaries are clear and concise, but A's additional context gives it an edge.
-
-### opencode | AB | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more accurate and complete, capturing all key details such as the number of models, comparisons, judges, and the exact next steps (no further action needed). It is also concise and clear, directly stating the accomplishments and constraints without ambiguity. Summary B, while accurate, is less complete as it frames the work as ongoing ('Current Work') and does not explicitly state the final outcome (reconstruction of the methodology). It also lacks some specifics (e.g., 5 models, 10 pairwise comparisons, 60 judgments) and is slightly less concise due to its procedural tone.
-
-### opencode | AB | ministral-8b
+### vibe | AB | kimi-k3
 - Winner: **error**
 - Score A: 0 | Score B: 0
 - Confidence: 0
-- Reasoning: Failed to parse: ```json
-{
-  "winner": "A",
-  "score_A": 95,
-  "score_B": 75,
-  "confidence": 95,
-  "reasoning": "
-  **Accuracy & Completeness**:
-  - **Summary A** correctly captures the **verbatim methodology** (5 mo
+- Reasoning: HTTP Error 400: Bad Request
 
-### opencode | AB | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more accurate and complete, capturing all key details (verbatim methodology, file paths, constraints, and next steps) concisely. Summary B is clear but less concise, includes redundant phrasing (e.g., 'user messages about the TurboFieldfare project'), and omits the explicit count of models/judgments. Both summaries are accurate, but A's brevity and precision give it the edge.
-
-### opencode | BA | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more comprehensive and detailed in capturing the current work and next steps, which are critical for understanding the ongoing process. It also explicitly mentions the constraints and the nature of the task (read-only research). Summary B, while accurate and concise, omits the ongoing extraction process and jumps directly to the outcome, which may not fully reflect the conversation's progression. Both summaries are clear and easy to understand, but A provides a more complete picture of the workflow and next actions. However, B is more concise and directly states the key findings, which is valuable. The scores reflect A's slight edge in completeness and accuracy of the current state.
-
-### opencode | BA | ministral-8b
-- Winner: **tie**
-- Score A: 85 | Score B: 85
-- Confidence: 95
-- Reasoning: {'accuracy': {'A': 90, 'B': 90, 'note': 'Both summaries accurately reflect the core details of the conversation, though **Summary B** incorrectly claims the methodology was *already recovered* (a claim not supported by the context—only extraction/analysis was completed). **Summary A** is more precise in stating the task is ongoing.'}, 'completeness': {'A': 95, 'B': 85, 'note': '**Summary A** includes all key points (files, constraints, next steps) explicitly. **Summary B** omits critical details like the *read-only* constraint and the *ongoing extraction* of verbatim quotes, instead overstating completion.'}, 'conciseness': {'A': 95, 'B': 80, 'note': "**Summary A** is concise and structured. **Summary B** is slightly verbose (e.g., redundant phrasing like 'recovered the user's verbatim...') and misleads by implying full recovery."}, 'clarity': {'A': 95, 'B': 85, 'note': "**Summary A** is unambiguous. **Summary B**’s phrasing ('recovered the user's exact specification') risks misinterpretation as a completed task rather than an analytical step."}, 'overall': {'note': 'Both summaries are strong but **Summary A** avoids inaccuracies and maintains precision. **Summary B**’s overstatement of progress and minor omissions (e.g., constraints) slightly undermine its reliability.'}}
-
-### opencode | BA | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 80
-- Confidence: 90
-- Reasoning: Summary A is more accurate and complete, capturing the current work (extracting and analyzing user messages) and constraints (read-only task) that Summary B omits. Summary B incorrectly states that the methodology was 'recovered verbatim' and omits the ongoing extraction work, making it less accurate. Both summaries are clear and concise, but A provides a more faithful representation of the conversation.
-
-### codex | AB | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 90
-- Confidence: 90
-- Reasoning: Both summaries are strong, but Summary A edges out slightly due to better clarity and structure. Summary A explicitly separates accomplishments, files involved, and next steps, making it easier to scan. It also correctly notes the subagent's role in replicating the structure for Space Invaders, which Summary B omits. Summary B is more concise but sacrifices some completeness (e.g., missing the subagent detail) and includes minor redundancies (e.g., 'Current Work' overlaps with 'Accomplished'). Both are accurate, but Summary A's organization and slight edge in completeness give it the win.
-
-### codex | AB | ministral-8b
+### vibe | BA | glm-5.3-flash
 - Winner: **error**
 - Score A: 0 | Score B: 0
 - Confidence: 0
-- Reasoning: Failed to parse: ```json
-{
+- Reasoning: Failed to parse: 
+
+### vibe | BA | gpt-5.4-mini
+- Winner: **B**
+- Score A: 72 | Score B: 86
+- Confidence: 84
+- Reasoning: B is more complete and clearer: it captures the evaluation phases, specific files, the report-generation bug, the Zen model constraint, and the next steps. A is concise but omits important details like the 3-phase workflow, the cached outputs, and the more specific update/re-run status. B has some extra specifics that may be slightly over-detailed, but overall it better reflects the conversation summary requirements.
+
+### vibe | BA | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: Let me analyze both summaries carefully.
+
+Summary A:
+- Accomplished: Updated evaluate.py to use OpenCode Zen models, fixed report generation bugs, ran Mercury vs DeepSeek evaluation with pairwise judg
+
+### opencode | AB | glm-5.3-flash
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: 
+
+### opencode | AB | gpt-5.4-mini
+- Winner: **A**
+- Score A: 88 | Score B: 75
+- Confidence: 86
+- Reasoning: A is more complete and specific: it includes the session ID, project context, tool/database references, and several important constraints/decisions. B is clearer and concise, but omits some concrete details and is less thorough. Both appear accurate, but A better captures the full work state and next steps.
+
+### opencode | AB | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: Let me analyze both summaries against the criteria.
+
+Summary A:
+- Very detailed with structured sections
+- Includes specific session ID, project path, database path
+- Mentions 50 user messages, specif
+
+### opencode | BA | glm-5.3-flash
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: 
+
+### opencode | BA | gpt-5.4-mini
+- Winner: **B**
+- Score A: 72 | Score B: 88
+- Confidence: 86
+- Reasoning: B is more complete and clearer: it captures the key methodology details, the relevant session, the project, database, constraints, and next steps. A is concise but misses important specifics such as the 50 messages, 5 models/10 comparisons/3 judges/60 judgments, and the distinction between Codex CLI and opencode.
+
+### opencode | BA | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: {
   "winner": "B",
-  "score_A": 75,
-  "score_B": 95,
-  "confidence": 90,
-  "reasoning": {
-    "accuracy": {
-      "A": 85,
-      "B": 95,
-      "_note": "B correctly includes additional detail
+  "score_A": 74,
+  "score_B": 88,
+  "confidence": 72,
+  "reasoning": "Both summaries cover
 
-### codex | AB | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more accurate (correctly notes subagent usage for Space Invaders), more concise (avoids redundant details like FPS), and clearer in structure. Summary B includes unnecessary details (FPS, 'classic mechanics') and slightly misrepresents constraints ('must mirror Snake's code structure' is less precise than 'replicate the Snake game’s structure'). Both are complete, but A's brevity and precision give it the edge.
-
-### codex | BA | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more comprehensive and detailed, covering all key points including the FPS specifications, the identical structure of both games, and the constraints explicitly mentioned in the conversation. It is also concise and clear. Summary B is accurate but misses some details like the FPS specifications, the completeness of both games, and the specific constraints, making it slightly less complete. Both summaries are clear and concise, but A edges out B in completeness and accuracy.
-
-### codex | BA | ministral-8b
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 95
-- Reasoning: {'accuracy': {'A': 100, 'B': 90, 'note': 'Summary A correctly specifies the FPS (10 FPS for Snake, 60 FPS for Space Invaders) and explicitly states both games are complete and ready to execute. Summary B omits FPS details and is less precise about execution readiness.'}, 'completeness': {'A': 100, 'B': 80, 'note': 'Summary A includes all key constraints (single executable scripts, shebang/env setup, Space Invaders mirroring Snake’s structure) and explicitly mentions no further development is requested. Summary B omits constraints and next-step execution specifics.'}, 'conciseness': {'A': 95, 'B': 80, 'note': "Summary A is more concise and avoids redundant phrasing (e.g., 'subagent' in B is unnecessary). Summary B includes less critical details (e.g., 'subagent') and is slightly verbose."}, 'clarity': {'A': 100, 'B': 90, 'note': "Summary A is clear, structured, and easy to follow. Summary B’s phrasing (e.g., 'Spawned a subagent') is less professional and slightly confusing."}}
-
-### codex | BA | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 80
-- Confidence: 90
-- Reasoning: Summary A is more accurate (correctly notes both games are complete and ready to execute), more complete (includes FPS details and constraints), and more concise. Summary B inaccurately states the Space Invaders game was 'spawned' via a subagent and omits key details like FPS and constraints. Both are clear, but A's additional precision gives it the edge.
-
-### claude | AB | mistral-large
-- Winner: **A**
-- Score A: 95 | Score B: 90
-- Confidence: 90
-- Reasoning: Both summaries are accurate, complete, concise, and clear. However, Summary A is slightly more concise and structured, making it easier to quickly grasp the key points. Summary B includes a bit more detail (e.g., 'Current Work in Progress' and explicit mention of not overwriting existing `.tmp` contents), but this additional information does not significantly improve clarity or completeness. Summary A's phrasing is more direct and avoids redundancy, giving it a slight edge.
-
-### claude | AB | ministral-8b
+### codex | AB | glm-5.3-flash
 - Winner: **error**
 - Score A: 0 | Score B: 0
 - Confidence: 0
-- Reasoning: Failed to parse: ```json
-{
-  "winner": "tie",
-  "score_A": 95,
-  "score_B": 95,
-  "confidence": 98,
-  "reasoning": "
-Both summaries are highly accurate, complete, concise, and clear. They effectively capture:
-- **Accu
+- Reasoning: Failed to parse: 
 
-### claude | AB | magistral-small
+### codex | AB | gpt-5.4-mini
+- Winner: **B**
+- Score A: 78 | Score B: 88
+- Confidence: 86
+- Reasoning: Both summaries capture the main outcome, but B is clearer and more concise. A adds some useful details, but it incorrectly says both games are complete and ready to run in the work-in-progress section and is slightly wordier. B better balances accuracy, completeness, and brevity, though it still has a minor path issue with './tmp/snake.py' instead of '/tmp/snake.py'.
+
+### codex | AB | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: {
+  "winner": "A",
+  "score_A": 88,
+  "score_B": 80,
+  "confidence": 70,
+  "reasoning": "Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv s
+
+### codex | BA | glm-5.3-flash
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: 
+
+### codex | BA | gpt-5.4-mini
 - Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more concise and clearer in specifying the exact filenames and their purposes (e.g., 'Whisper Large V3 config/script'). It also explicitly mentions the unrelated legacy content in `.tmp/`, which Summary B omits. Summary B is accurate and complete but slightly less concise and lacks the explicit mention of legacy content, making it marginally less clear.
+- Score A: 83 | Score B: 74
+- Confidence: 77
+- Reasoning: A is more concise and captures the key outcome, files, and execution approach well. B includes useful details but is slightly less accurate/clean because it overstates readiness, adds specific mechanics that may not be fully supported, and is less concise.
 
-### claude | BA | mistral-large
+### codex | BA | kimi-k3
+- Winner: **B**
+- Score A: 82 | Score B: 89
+- Confidence: 70
+- Reasoning: Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv shebangs and PEP 723 metadata. Summary B is more complete, including specific technical details (exact shebang line, class method structure, game-over restart via spacebar, arrow key controls) and has clearer formatting with distinct sections. Summary A is accurate and concise but slightly more generic, mentioning 'consistent class methods' without specifics. A does note the alternative 'uv run' execution method, which B omits, but overall B provides richer, more actionable detail.
+
+### claude | AB | glm-5.3-flash
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: 
+
+### claude | AB | gpt-5.4-mini
 - Winner: **A**
-- Score A: 95 | Score B: 90
-- Confidence: 90
-- Reasoning: Both summaries are accurate, complete, concise, and clear. However, Summary A provides slightly more detail about the current work in progress and explicitly mentions that existing `.tmp` contents were not overwritten, which adds clarity. Summary B is also strong but omits the non-overwrite detail and is marginally less structured in its presentation of the 'next steps' and 'key constraints'. Both are high-quality, but Summary A edges out due to these minor advantages.
+- Score A: 88 | Score B: 80
+- Confidence: 79
+- Reasoning: A is slightly more complete and clearer: it captures the archived-via-git-tags constraint, mentions both spike15 and spike17 not existing locally, and includes the relevant next step. B is concise and accurate, but misses the explicit spike15/tag-history nuance and is less structured.
 
-### claude | BA | ministral-8b
-- Winner: **tie**
-- Score A: 95 | Score B: 95
-- Confidence: 98
-- Reasoning: {'accuracy': {'A': 100, 'B': 100, 'note': 'Both summaries accurately reflect the extracted files, commit tag, and purpose of the extraction.'}, 'completeness': {'A': 95, 'B': 95, 'note': 'Both summaries cover all key points (accomplished work, files, next steps, constraints). Minor redundancy in **Files Involved** in B (e.g., `.tmp/` prefix is unnecessary since context already specifies `.tmp` directory).'}, 'conciseness': {'A': 95, 'B': 90, 'note': "A is slightly more concise by avoiding redundant `.tmp/` prefix in file paths. B’s phrasing (e.g., 'Whisper Large V3 config/script') is slightly verbose."}, 'clarity': {'A': 95, 'B': 95, 'note': 'Both are clear, but A’s structure (bullet points) is marginally more straightforward for quick scanning.'}, 'overall': {'note': 'Both summaries are nearly identical in quality. The tie reflects minor stylistic differences (e.g., redundancy in B’s file paths, slight verbosity in B’s descriptions) rather than substantive errors.'}}
+### claude | AB | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: Let me analyze both summaries against the evaluation criteria.
 
-### claude | BA | magistral-small
-- Winner: **A**
-- Score A: 95 | Score B: 85
-- Confidence: 90
-- Reasoning: Summary A is more complete, covering all key points including 'Current Work in Progress' and 'Key Constraints' which Summary B omits. Summary B is slightly more concise but lacks some details (e.g., explicit mention of existing `.tmp` contents not being overwritten). Both are clear and accurate, but A's completeness gives it the edge.
+Summary A:
+- Accomplished: Located and extracted Whisper Large V3 spike files from git tag into .tmp/
+- Confirmed spike15/spike17 folder
+
+### claude | BA | glm-5.3-flash
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: 
+
+### claude | BA | gpt-5.4-mini
+- Winner: **B**
+- Score A: 83 | Score B: 89
+- Confidence: 82
+- Reasoning: Both summaries are accurate and cover the main extracted files and next-step intent. B is slightly stronger because it is clearer and more organized, and it better reflects the archived-via-git-tags constraint. A is also good, but is a bit less concise and includes a less clearly grounded note about preserving pre-existing .tmp files.
+
+### claude | BA | kimi-k3
+- Winner: **error**
+- Score A: 0 | Score B: 0
+- Confidence: 0
+- Reasoning: Failed to parse: Let me analyze both summaries against the evaluation criteria.
+
+Summary A:
+- Accomplished: Extracted files from git tag into .tmp
+- Files: README.md, whisper-3-large.py, 0000_host.mp3
+- Current Status

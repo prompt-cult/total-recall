@@ -71,36 +71,41 @@ Summary B:
 """
 
 # Models to test for summarization
-# OpenCode API is currently returning 500 for all models, so we use Mistral as fallback
+# Haiku via Anthropic Messages API, Mercury via OpenAI chat/completions
 SUMMARY_MODELS = {
     "haiku": {
-        "api_base": "https://api.mistral.ai/v1",
-        "model": "mistral-small-latest",
-        "key_env": "MISTRAL_API_KEY",
+        "api_base": "https://opencode.ai/zen/v1",
+        "model": "claude-haiku-4-5",
+        "key_env": "OPENCODE_API_KEY",
+        "api_type": "messages",
     },
     "mercury": {
         "api_base": "https://api.inceptionlabs.ai/v1",
         "model": "mercury-2.5",
         "key_env": "INCEPTION_API_KEY",
+        "api_type": "chat",
     },
 }
 
-# Judge models — using Mistral panel since OpenCode API is down
+# Judge models — one from each working Zen endpoint type
 JUDGE_MODELS = {
-    "mistral-large": {
-        "api_base": "https://api.mistral.ai/v1",
-        "model": "mistral-large-latest",
-        "key_env": "MISTRAL_API_KEY",
+    "glm-5.3-flash": {
+        "api_base": "https://opencode.ai/zen/v1",
+        "model": "glm-5.3-flash",
+        "key_env": "OPENCODE_API_KEY",
+        "api_type": "chat",
     },
-    "ministral-8b": {
-        "api_base": "https://api.mistral.ai/v1",
-        "model": "ministral-8b-latest",
-        "key_env": "MISTRAL_API_KEY",
+    "gpt-5.4-mini": {
+        "api_base": "https://opencode.ai/zen/v1",
+        "model": "gpt-5.4-mini",
+        "key_env": "OPENCODE_API_KEY",
+        "api_type": "responses",
     },
-    "magistral-small": {
-        "api_base": "https://api.mistral.ai/v1",
-        "model": "magistral-small-latest",
-        "key_env": "MISTRAL_API_KEY",
+    "kimi-k3": {
+        "api_base": "https://opencode.ai/zen/v1",
+        "model": "kimi-k3",
+        "key_env": "OPENCODE_API_KEY",
+        "api_type": "chat",
     },
 }
 
@@ -121,32 +126,93 @@ def load_env() -> dict[str, str]:
     return env
 
 
-def call_api(api_base: str, model: str, api_key: str, system: str, user: str, max_tokens: int = 2000) -> str:
-    """Call an OpenAI-compatible chat completions endpoint."""
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-    }
-    # Mercury supports reasoning_effort
-    if "mercury" in model:
-        payload["reasoning_effort"] = "low"
+def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
+             max_tokens: int = 2000, api_type: str = "chat") -> str:
+    """Call an LLM endpoint. Supports three API types:
+    - chat: OpenAI chat/completions (DeepSeek, GLM, Kimi, Mercury)
+    - messages: Anthropic Messages API (Claude, Qwen)
+    - responses: OpenAI Responses API (GPT, Grok, Muse)
+    """
+    if api_type == "messages":
+        # Anthropic Messages API
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user}],
+        }
+        req = urllib.request.Request(
+            f"{api_base}/messages",
+            data=json.dumps(payload).encode(),
+            headers={
+                "x-api-key": api_key,
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+                "User-Agent": "inception-mercury-compaction/1.0",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read())
+        # Anthropic returns content as a list of blocks
+        content = result.get("content", [])
+        if isinstance(content, list):
+            return " ".join(b.get("text", "") for b in content if b.get("type") == "text")
+        return str(content)
 
-    req = urllib.request.Request(
-        f"{api_base}/chat/completions",
-        data=json.dumps(payload).encode(),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-    )
-    resp = urllib.request.urlopen(req, timeout=120)
-    result = json.loads(resp.read())
-    return result["choices"][0]["message"]["content"]
+    elif api_type == "responses":
+        # OpenAI Responses API
+        payload = {
+            "model": model,
+            "instructions": system,
+            "input": user,
+            "max_output_tokens": max_tokens,
+        }
+        req = urllib.request.Request(
+            f"{api_base}/responses",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "inception-mercury-compaction/1.0",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read())
+        # Responses API returns output array with message objects
+        output = result.get("output", [])
+        for item in output:
+            if item.get("type") == "message":
+                content = item.get("content", [])
+                if isinstance(content, list):
+                    return " ".join(c.get("text", "") for c in content if c.get("type") == "output_text")
+        return str(output)
+
+    else:
+        # OpenAI chat/completions
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": 0.1,
+            "max_tokens": max_tokens,
+        }
+        if "mercury" in model:
+            payload["reasoning_effort"] = "low"
+
+        req = urllib.request.Request(
+            f"{api_base}/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "inception-mercury-compaction/1.0",
+            },
+        )
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read())
+        return result["choices"][0]["message"]["content"]
 
 
 def rollout_to_text(jsonl_path: Path) -> str:
@@ -209,6 +275,7 @@ def run_summarization(env: dict[str, str]) -> None:
                     "You are a helpful coding assistant that summarizes conversations.",
                     SUMMARY_PROMPT.format(conversation=conversation),
                     max_tokens=1000,
+                    api_type=model_config.get("api_type", "chat"),
                 )
                 out_path.write_text(summary)
                 print(f"    {model_key}: {len(summary)} chars written", file=sys.stderr)
@@ -274,6 +341,7 @@ def run_pairwise(env: dict[str, str]) -> list[dict]:
                         "You are an impartial judge. Return ONLY valid JSON.",
                         JUDGE_PROMPT.format(summary_A=summary_A, summary_B=summary_B),
                         max_tokens=500,
+                        api_type=judge_config.get("api_type", "chat"),
                     )
 
                     # Try to parse JSON from response
@@ -458,10 +526,9 @@ def generate_report(agg: dict, results: list[dict]) -> str:
         "Based on the pairwise blind evaluation pattern from",
         "[gist b60a4d9af6d7789e70220fb3901ec9ea](https://gist.github.com/simbo1905/b60a4d9af6d7789e70220fb3901ec9ea).",
         "",
-        "- **Summarization models**: Mistral Small (via Mistral API) vs Inception Mercury 2.5",
+        "- **Summarization models**: Claude Haiku 4.5 (via Zen Anthropic Messages API) vs Inception Mercury 2.5",
         "- **Rollouts**: Small sessions from Vibe, OpenCode, Codex CLI, Claude Code",
-        "- **Judges**: 3 Mistral models (mistral-large, ministral-8b, magistral-small)",
-        "- **Note**: OpenCode Go API was returning 500 errors, so Mistral used as fallback for both summarization comparison and judge panel",
+        "- **Judges**: 3 Zen models (glm-5.3-flash, gpt-5.4-mini, kimi-k3) across all 3 endpoint types",
         "- **Orderings**: Each pair evaluated in both A-B and B-A to detect ordering bias",
         "- **Scoring**: Each judge returns winner (A/B/tie), score_A (0-100), score_B (0-100), confidence, reasoning",
         "",

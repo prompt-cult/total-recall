@@ -1,0 +1,12 @@
+{
+  "rollout": "claude",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 80,
+    "confidence": 79,
+    "reasoning": "A is slightly more complete and clearer: it captures the archived-via-git-tags constraint, mentions both spike15 and spike17 not existing locally, and includes the relevant next step. B is concise and accurate, but misses the explicit spike15/tag-history nuance and is less structured."
+  }
+}

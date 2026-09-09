@@ -1,7 +1,7 @@
 
 
-- **Accomplished:** Created and iteratively fixed `extract_rollouts.py` to extract rollouts from Vibe, OpenCode, Codex, and Claude into a unified JSONL format; successfully increased message extraction from 0 to 21 for OpenCode and 3 to 8 for Codex by correcting schema parsing logic.
-- **Current WIP:** Finalizing the extraction script to handle all four providers robustly, ensuring proper handling of nested data structures (e.g., OpenCode `part` table, Codex `response_item` payloads).
-- **Files Involved:** `/Users/Shared/inception-mercury-compaction/extract_rollouts.py` (main script), various session files in `~/.vibe`, `~/.opencode`, `~/.codex`, and `~/.claude`.
-- **Next Steps:** Run the finalized script to generate complete rollouts, verify output consistency across providers, and potentially automate session selection for larger datasets.
-- **Key Decisions:** Adapted extraction logic to account for provider-specific schema differences (SQLite vs. JSONL, nested content fields) rather than enforcing a single rigid format.
+- **Accomplished:** Updated `evaluate.py` to use OpenCode Zen models (`deepseek-v4-flash` and GLM/Kimi) instead of Mistral, fixed report generation bugs, and successfully ran the Mercury vs. DeepSeek summarization evaluation with pairwise judging.
+- **Files Involved:** `evaluate.py`, `extract_rollouts.py`, `REPORT.md`, `results.json`, and pairwise output JSONs in `outputs/pairwise/`.
+- **Key Constraints:** OpenCode Zen returns 500 errors for Claude, Gemini, and GPT models; only DeepSeek, GLM, Kimi, and MiniMax models are functional for summarization and judging.
+- **Next Steps:** Commit and push the updated evaluation results and script changes to the repository.
+- **Decision:** Replaced Mistral fallback with working Zen models to align with user instructions while maintaining the Mercury comparison.

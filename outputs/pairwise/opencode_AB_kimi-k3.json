@@ -1,0 +1,12 @@
+{
+  "rollout": "opencode",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: Let me analyze both summaries against the criteria.\n\nSummary A:\n- Very detailed with structured sections\n- Includes specific session ID, project path, database path\n- Mentions 50 user messages, specif"
+  }
+}

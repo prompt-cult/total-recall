@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: "
+  }
+}

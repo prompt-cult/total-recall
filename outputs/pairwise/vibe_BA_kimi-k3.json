@@ -1,0 +1,12 @@
+{
+  "rollout": "vibe",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: Let me analyze both summaries carefully.\n\nSummary A:\n- Accomplished: Updated evaluate.py to use OpenCode Zen models, fixed report generation bugs, ran Mercury vs DeepSeek evaluation with pairwise judg"
+  }
+}

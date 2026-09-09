@@ -1,7 +1,7 @@
 
 
-- **Accomplished:** Extracted files from the `spike17` git tag (`20260702_120900_main_spike17`) into the `.tmp` directory for inspection.
-- **Files Involved:** Three specific files were pulled: `README.md`, `whisper-3-large.py` (Whisper Large V3 config), and `0000_host.mp3` (test audio).
-- **Current Work in Progress:** The extracted files are now in `.tmp` for the user to review as hints for a different project.
-- **Next Steps:** User will inspect the Whisper config and audio file to integrate relevant settings into their new project.
-- **Key Constraints:** Only files from the specific `spike17` commit were extracted; existing `.tmp` contents (like `spike01/02` logs) were not overwritten or affected.
+- **Accomplished:** Extracted files from git tag `20260702_120900_main_spike17` into the `.tmp` directory.
+- **Files Involved:** Three files were pulled from the tag: `README.md`, `whisper-3-large.py` (config/script), and `0000_host.mp3` (test audio).
+- **Current Status:** The extracted files are now available in `.tmp` for inspection as project hints; pre-existing files in `.tmp` remain untouched.
+- **Next Steps:** User can now inspect `whisper-3-large.py` to adapt the Whisper Large V3 configuration for their different project.
+- **Decision/Constraint:** The user clarified not to use local `spike15` folders (which don't exist) but to rely on the tag history for the other repo.

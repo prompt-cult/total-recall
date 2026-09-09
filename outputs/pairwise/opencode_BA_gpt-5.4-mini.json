@@ -1,0 +1,12 @@
+{
+  "rollout": "opencode",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 72,
+    "score_B": 88,
+    "confidence": 86,
+    "reasoning": "B is more complete and clearer: it captures the key methodology details, the relevant session, the project, database, constraints, and next steps. A is concise but misses important specifics such as the 50 messages, 5 models/10 comparisons/3 judges/60 judgments, and the distinction between Codex CLI and opencode."
+  }
+}

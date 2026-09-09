@@ -1,0 +1,12 @@
+{
+  "rollout": "opencode",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 75,
+    "confidence": 86,
+    "reasoning": "A is more complete and specific: it includes the session ID, project context, tool/database references, and several important constraints/decisions. B is clearer and concise, but omits some concrete details and is less thorough. Both appear accurate, but A better captures the full work state and next steps."
+  }
+}

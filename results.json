@@ -1,63 +1,63 @@
 {
   "total_evaluations": 24,
-  "haiku_wins": 8,
-  "mercury_wins": 9,
-  "ties": 3,
-  "errors": 4,
-  "haiku_avg_score": 74.7,
-  "mercury_avg_score": 76.0,
+  "haiku_wins": 7,
+  "mercury_wins": 2,
+  "ties": 0,
+  "errors": 15,
+  "haiku_avg_score": 32.0,
+  "mercury_avg_score": 29.5,
   "by_rollout": {
     "vibe": {
       "haiku_wins": 2,
-      "mercury_wins": 2,
-      "ties": 1,
-      "errors": 1,
-      "haiku_avg": 75.5,
-      "mercury_avg": 76.66666666666667
+      "mercury_wins": 0,
+      "ties": 0,
+      "errors": 4,
+      "haiku_avg": 29.0,
+      "mercury_avg": 24.0
     },
     "opencode": {
       "haiku_wins": 2,
-      "mercury_wins": 2,
-      "ties": 1,
-      "errors": 1,
-      "haiku_avg": 73.33333333333333,
-      "mercury_avg": 74.16666666666667
+      "mercury_wins": 0,
+      "ties": 0,
+      "errors": 4,
+      "haiku_avg": 29.333333333333332,
+      "mercury_avg": 24.5
     },
     "codex": {
-      "haiku_wins": 2,
-      "mercury_wins": 3,
+      "haiku_wins": 1,
+      "mercury_wins": 2,
       "ties": 0,
-      "errors": 1,
-      "haiku_avg": 73.33333333333333,
-      "mercury_avg": 76.66666666666667
+      "errors": 3,
+      "haiku_avg": 40.166666666666664,
+      "mercury_avg": 42.166666666666664
     },
     "claude": {
       "haiku_wins": 2,
-      "mercury_wins": 2,
-      "ties": 1,
-      "errors": 1,
-      "haiku_avg": 76.66666666666667,
-      "mercury_avg": 76.66666666666667
+      "mercury_wins": 0,
+      "ties": 0,
+      "errors": 4,
+      "haiku_avg": 29.5,
+      "mercury_avg": 27.166666666666668
     }
   },
   "by_judge": {
-    "mistral-large": {
-      "haiku_wins": 4,
-      "mercury_wins": 4,
-      "ties": 0,
-      "errors": 0
-    },
-    "ministral-8b": {
+    "glm-5.3-flash": {
       "haiku_wins": 0,
-      "mercury_wins": 1,
-      "ties": 3,
-      "errors": 4
+      "mercury_wins": 0,
+      "ties": 0,
+      "errors": 8
     },
-    "magistral-small": {
-      "haiku_wins": 4,
-      "mercury_wins": 4,
+    "gpt-5.4-mini": {
+      "haiku_wins": 6,
+      "mercury_wins": 2,
       "ties": 0,
       "errors": 0
+    },
+    "kimi-k3": {
+      "haiku_wins": 1,
+      "mercury_wins": 0,
+      "ties": 0,
+      "errors": 7
     }
   }
 }

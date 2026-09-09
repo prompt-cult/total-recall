@@ -1,12 +1,20 @@
-### **Summary**
+# Conversation Summary
 
-- **Accomplished**:
-  - Created a single-file Snake game (`/tmp/snake.py`) with PEP 723 metadata, `uv` shebang, and Pygame dependencies.
-  - Spawned a subagent to replicate the Snake game’s structure for a Space Invaders game (`/tmp/space_invaders.py`).
+**What was accomplished:**
+- Created a single-file Snake game in Python with `uv` shebang and PEP 723 metadata
+- Spawned a subagent to create a matching Space Invaders game following the same format
 
-- **Files Involved**:
-  - `/tmp/snake.py` (Snake game)
-  - `/tmp/space_invaders.py` (Space Invaders game)
+**Current work in progress:**
+- Both games are complete and ready to run
 
-- **Next Steps**:
-  - Run either game directly (`./tmp/snake.py` or `./tmp/space_invaders.py`) or via `uv run`.
+**Files involved:**
+- `/tmp/snake.py` - Snake game
+- `/tmp/space_invaders.py` - Space Invaders game
+
+**Next steps:**
+- Users can execute either game directly with `./filename.py`
+
+**Key constraints/decisions:**
+- Single-file Python scripts with `#!/usr/bin/env -S uv run` shebang for auto-dependency installation
+- Both use Pygame; consistent code structure (class-based with init/update/draw/run methods)
+- Game-over restart mechanics via spacebar; arrow keys for movement control

@@ -1,0 +1,12 @@
+{
+  "rollout": "opencode",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: {\n  \"winner\": \"B\",\n  \"score_A\": 74,\n  \"score_B\": 88,\n  \"confidence\": 72,\n  \"reasoning\": \"Both summaries cover"
+  }
+}
