@@ -1,0 +1,12 @@
+{
+  "rollout": "claude",
+  "order": "BA",
+  "judge": "mistral-large",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 90,
+    "confidence": 90,
+    "reasoning": "Both summaries are accurate, complete, concise, and clear. However, Summary A provides slightly more detail about the current work in progress and explicitly mentions that existing `.tmp` contents were not overwritten, which adds clarity. Summary B is also strong but omits the non-overwrite detail and is marginally less structured in its presentation of the 'next steps' and 'key constraints'. Both are high-quality, but Summary A edges out due to these minor advantages."
+  }
+}

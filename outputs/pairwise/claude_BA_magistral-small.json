@@ -1,0 +1,12 @@
+{
+  "rollout": "claude",
+  "order": "BA",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more complete, covering all key points including 'Current Work in Progress' and 'Key Constraints' which Summary B omits. Summary B is slightly more concise but lacks some details (e.g., explicit mention of existing `.tmp` contents not being overwritten). Both are clear and accurate, but A's completeness gives it the edge."
+  }
+}

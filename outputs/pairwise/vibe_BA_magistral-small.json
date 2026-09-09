@@ -1,0 +1,12 @@
+{
+  "rollout": "vibe",
+  "order": "BA",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more accurate and complete, capturing the iterative process of fixing the script (e.g., increasing message extraction counts) and explicitly mentioning schema parsing logic adjustments. Summary B provides concrete message counts but misses some key details like the initial zero extraction counts and the provider-specific schema differences (e.g., SQLite vs. JSONL). Both summaries are clear and concise, but A's additional context gives it an edge."
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "rollout": "claude",
+  "order": "AB",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more concise and clearer in specifying the exact filenames and their purposes (e.g., 'Whisper Large V3 config/script'). It also explicitly mentions the unrelated legacy content in `.tmp/`, which Summary B omits. Summary B is accurate and complete but slightly less concise and lacks the explicit mention of legacy content, making it marginally less clear."
+  }
+}

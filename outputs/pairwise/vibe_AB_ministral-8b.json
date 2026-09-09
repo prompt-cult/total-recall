@@ -1,0 +1,12 @@
+{
+  "rollout": "vibe",
+  "order": "AB",
+  "judge": "ministral-8b",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: ```json\n{\n  \"winner\": \"tie\",\n  \"score_A\": 95,\n  \"score_B\": 95,\n  \"confidence\": 98,\n  \"reasoning\": {\n    \"accuracy\": {\n      \"A\": 100,\n      \"B\": 100,\n      \"note\": \"Both summaries accurately reflect t"
+  }
+}

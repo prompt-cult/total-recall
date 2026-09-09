@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "BA",
+  "judge": "mistral-large",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more comprehensive and detailed, covering all key points including the FPS specifications, the identical structure of both games, and the constraints explicitly mentioned in the conversation. It is also concise and clear. Summary B is accurate but misses some details like the FPS specifications, the completeness of both games, and the specific constraints, making it slightly less complete. Both summaries are clear and concise, but A edges out B in completeness and accuracy."
+  }
+}

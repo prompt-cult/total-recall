@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "AB",
+  "judge": "mistral-large",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 90,
+    "confidence": 90,
+    "reasoning": "Both summaries are strong, but Summary A edges out slightly due to better clarity and structure. Summary A explicitly separates accomplishments, files involved, and next steps, making it easier to scan. It also correctly notes the subagent's role in replicating the structure for Space Invaders, which Summary B omits. Summary B is more concise but sacrifices some completeness (e.g., missing the subagent detail) and includes minor redundancies (e.g., 'Current Work' overlaps with 'Accomplished'). Both are accurate, but Summary A's organization and slight edge in completeness give it the win."
+  }
+}

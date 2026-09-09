@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "AB",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more accurate (correctly notes subagent usage for Space Invaders), more concise (avoids redundant details like FPS), and clearer in structure. Summary B includes unnecessary details (FPS, 'classic mechanics') and slightly misrepresents constraints ('must mirror Snake's code structure' is less precise than 'replicate the Snake game\u2019s structure'). Both are complete, but A's brevity and precision give it the edge."
+  }
+}

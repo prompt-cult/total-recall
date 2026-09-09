@@ -1,0 +1,12 @@
+{
+  "rollout": "vibe",
+  "order": "AB",
+  "judge": "mistral-large",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 90,
+    "confidence": 90,
+    "reasoning": "Both summaries are strong, but Summary A edges out slightly due to better clarity and structure. It explicitly lists the number of messages extracted for each source, which adds precision, and separates accomplishments, current work, files, next steps, and key constraints/decisions into distinct sections, making it easier to scan. Summary B is also accurate and complete but is slightly less concise and mixes some details (e.g., 'increased message extraction from 0 to 21' is less precise than stating the final count). Both summaries cover all key points, but Summary A's organization and specificity give it a slight advantage."
+  }
+}

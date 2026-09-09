@@ -1,0 +1,12 @@
+{
+  "rollout": "opencode",
+  "order": "BA",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 80,
+    "confidence": 90,
+    "reasoning": "Summary A is more accurate and complete, capturing the current work (extracting and analyzing user messages) and constraints (read-only task) that Summary B omits. Summary B incorrectly states that the methodology was 'recovered verbatim' and omits the ongoing extraction work, making it less accurate. Both summaries are clear and concise, but A provides a more faithful representation of the conversation."
+  }
+}

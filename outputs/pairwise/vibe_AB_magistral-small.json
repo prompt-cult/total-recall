@@ -1,0 +1,12 @@
+{
+  "rollout": "vibe",
+  "order": "AB",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 90,
+    "reasoning": "Summary A is more detailed and structured, providing specific numbers (e.g., 200 messages for Vibe, 21 for OpenCode) and clearer breakdowns of accomplished work, current WIP, and key constraints. Summary B is concise but lacks some granularity (e.g., exact message counts for Vibe and Claude) and mixes some points (e.g., 'increased message extraction' is less precise than 'successfully extracted'). Both are clear and complete, but A edges out due to its thoroughness and organization."
+  }
+}

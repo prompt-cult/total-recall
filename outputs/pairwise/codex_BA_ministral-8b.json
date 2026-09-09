@@ -1,0 +1,33 @@
+{
+  "rollout": "codex",
+  "order": "BA",
+  "judge": "ministral-8b",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 85,
+    "confidence": 95,
+    "reasoning": {
+      "accuracy": {
+        "A": 100,
+        "B": 90,
+        "note": "Summary A correctly specifies the FPS (10 FPS for Snake, 60 FPS for Space Invaders) and explicitly states both games are complete and ready to execute. Summary B omits FPS details and is less precise about execution readiness."
+      },
+      "completeness": {
+        "A": 100,
+        "B": 80,
+        "note": "Summary A includes all key constraints (single executable scripts, shebang/env setup, Space Invaders mirroring Snake\u2019s structure) and explicitly mentions no further development is requested. Summary B omits constraints and next-step execution specifics."
+      },
+      "conciseness": {
+        "A": 95,
+        "B": 80,
+        "note": "Summary A is more concise and avoids redundant phrasing (e.g., 'subagent' in B is unnecessary). Summary B includes less critical details (e.g., 'subagent') and is slightly verbose."
+      },
+      "clarity": {
+        "A": 100,
+        "B": 90,
+        "note": "Summary A is clear, structured, and easy to follow. Summary B\u2019s phrasing (e.g., 'Spawned a subagent') is less professional and slightly confusing."
+      }
+    }
+  }
+}

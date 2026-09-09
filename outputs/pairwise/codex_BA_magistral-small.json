@@ -1,0 +1,12 @@
+{
+  "rollout": "codex",
+  "order": "BA",
+  "judge": "magistral-small",
+  "verdict": {
+    "winner": "A",
+    "score_A": 95,
+    "score_B": 80,
+    "confidence": 90,
+    "reasoning": "Summary A is more accurate (correctly notes both games are complete and ready to execute), more complete (includes FPS details and constraints), and more concise. Summary B inaccurately states the Space Invaders game was 'spawned' via a subagent and omits key details like FPS and constraints. Both are clear, but A's additional precision gives it the edge."
+  }
+}
