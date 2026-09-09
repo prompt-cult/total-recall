@@ -93,6 +93,22 @@ PRUNE_TOOL_OUTPUT_CHARS = 1000
 # Preserve the most recent N messages verbatim alongside the summary
 PRESERVE_RECENT_MESSAGES = 10
 
+# Patterns to redact before sending to Mercury
+import re as _re
+_SECRET_PATTERNS = [
+    _re.compile(r'(sk_[a-zA-Z0-9]{20,})', _re.IGNORECASE),
+    _re.compile(r'(INCEPTION_API_KEY=\S+)', _re.IGNORECASE),
+    _re.compile(r'(MISTRAL_API_KEY=\S+)', _re.IGNORECASE),
+    _re.compile(r'(Bearer\s+[a-zA-Z0-9_\-\.]{20,})', _re.IGNORECASE),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """Redact API keys and secrets from text before sending to Mercury."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub('[REDACTED]', text)
+    return text
+
 
 def load_env() -> str:
     """Load INCEPTION_API_KEY from env or .env file."""
@@ -403,7 +419,7 @@ def main() -> None:
         print("Not enough messages to warrant compaction.", file=sys.stderr)
         sys.exit(0)
 
-    text = messages_to_text(to_summarize)
+    text = redact_secrets(messages_to_text(to_summarize))
     print(f"Text to summarize: {len(text)} chars", file=sys.stderr)
 
     if args.dry_run:
@@ -431,7 +447,7 @@ def main() -> None:
         "",
         f"## Recent messages (preserved verbatim, last {len(recent)}):",
         "",
-        messages_to_text(recent),
+        redact_secrets(messages_to_text(recent)),
     ]
 
     output = "\n".join(output_parts)
