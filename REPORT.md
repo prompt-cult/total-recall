@@ -1,74 +1,49 @@
-# Mercury 2.5 vs Claude Haiku 4.5: Summarization Comparison
+# Mercury Chunked vs Haiku Full: Summarization Comparison
 
 ## Methodology
 
-Based on the pairwise blind evaluation pattern from
-[gist b60a4d9af6d7789e70220fb3901ec9ea](https://gist.github.com/simbo1905/b60a4d9af6d7789e70220fb3901ec9ea).
+- **Haiku**: Summarizes the full rollout in one call (Anthropic Messages API via Zen)
+- **Mercury**: Splits rollout in half, summarizes each half separately, concatenates
+- **Judges**: glm-5.3-flash, gpt-5.4-mini, kimi-k3 (all via Zen, max_tokens=2000)
+- **Orderings**: A-B and B-A to detect ordering bias
 
-- **Summarization models**: Claude Haiku 4.5 (via Zen Anthropic Messages API) vs Inception Mercury 2.5
-- **Rollouts**: Small sessions from Vibe, OpenCode, Codex CLI, Claude Code
-- **Judges**: 3 Zen models (glm-5.3-flash, gpt-5.4-mini, kimi-k3) across all 3 endpoint types
-- **Orderings**: Each pair evaluated in both A-B and B-A to detect ordering bias
-- **Scoring**: Each judge returns winner (A/B/tie), score_A (0-100), score_B (0-100), confidence, reasoning
+## Timings
 
-## Overall Results
+| Rollout | Haiku (s) | Mercury Half 1 (s) | Mercury Half 2 (s) | Mercury Total (s) | Speedup |
+|---------|-----------|--------------------|--------------------|-------------------|---------|
+| vibe | 4.64 | 1.82 | 0.94 | 2.76 | 1.7x |
+| opencode | 6.27 | 1.39 | 1.5 | 2.89 | 2.2x |
+| codex | 3.98 | 1.11 | 1.18 | 2.29 | 1.7x |
+| claude | 3.8 | 1.62 | 1.17 | 2.79 | 1.4x |
 
-| Metric | Haiku | Mercury |
-|--------|-------|---------|
-| Wins | 7 | 2 |
+## Results
+
+| Metric | Haiku (full) | Mercury (concat) |
+|--------|-------------|-----------------|
+| Wins | 19 | 4 |
 | Ties | 0 | |
-| Errors | 15 | |
-| Avg Score | 32.0 | 29.5 |
-| Total Evaluations | 24 | |
-
-## Per-Rollout Results
-
-| Rollout | Haiku Wins | Mercury Wins | Ties | Haiku Avg | Mercury Avg |
-|---------|-----------|-------------|------|-----------|-------------|
-| claude | 2 | 0 | 0 | 29.5 | 27.166666666666668 |
-| codex | 1 | 2 | 0 | 40.166666666666664 | 42.166666666666664 |
-| opencode | 2 | 0 | 0 | 29.333333333333332 | 24.5 |
-| vibe | 2 | 0 | 0 | 29.0 | 24.0 |
-
-## Per-Judge Results
-
-| Judge | Haiku Wins | Mercury Wins | Ties | Errors |
-|-------|-----------|-------------|------|--------|
-| glm-5.3-flash | 0 | 0 | 0 | 8 |
-| gpt-5.4-mini | 6 | 2 | 0 | 0 |
-| kimi-k3 | 1 | 0 | 0 | 7 |
-
-## Order Bias Check
-
-Comparing A-B vs B-A results to detect ordering bias:
-
-| Order | Haiku Wins | Mercury Wins | Ties |
-|-------|-----------|-------------|------|
-| A-B (A=Haiku) | 3 | 1 | 0 |
-| B-A (B=Haiku) | 4 | 1 | 0 |
-
-If the results are consistent across orderings, there is no ordering bias.
-If A-B favors A and B-A favors A (regardless of model), there is an ordering bias.
+| Errors | 1 | |
+| Avg Score | 82.1 | 69.2 |
 
 ## Individual Evaluations
 
 ### vibe | AB | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **A**
+- Score A: 88 | Score B: 68
+- Confidence: 80
+- Reasoning: Summary A is coherent, well-structured, and accurately captures the final state: the Zen API outage, the switch to working models (DeepSeek/GLM/Kimi/MiniMax), updated files, and clear next steps. It a
 
 ### vibe | AB | gpt-5.4-mini
 - Winner: **A**
-- Score A: 88 | Score B: 72
-- Confidence: 86
-- Reasoning: A is more complete and accurate: it captures the full 3-phase evaluation workflow, the blind scoring/judge panel, the exact files/results involved, the evaluation rerun plan, and the discovered ordering bias. B is concise but misses important details like the phased process, specific next steps beyond commit/push, and the bias finding, and it is less precise about the evaluation setup.
+- Score A: 91 | Score B: 62
+- Confidence: 95
+- Reasoning: A is more accurate and internally consistent with the stated conversation: it captures the Zen API outage, the switch to working DeepSeek/GLM/Kimi models, the updated files, and the need to rerun eval
 
 ### vibe | AB | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: HTTP Error 400: Bad Request
+- Winner: **A**
+- Score A: 80 | Score B: 66
+- Confidence: 62
+- Reasoning: Summary A is coherent, well-structured, and clearly conveys the current state: Zen API outage diagnosed, working models identified, evaluate.py and REPORT.md updated, and re-run pending. Summary B app
 
 ### vibe | BA | glm-5.3-flash
 - Winner: **error**
@@ -78,147 +53,120 @@ If A-B favors A and B-A favors A (regardless of model), there is an ordering bia
 
 ### vibe | BA | gpt-5.4-mini
 - Winner: **B**
-- Score A: 72 | Score B: 86
-- Confidence: 84
-- Reasoning: B is more complete and clearer: it captures the evaluation phases, specific files, the report-generation bug, the Zen model constraint, and the next steps. A is concise but omits important details like the 3-phase workflow, the cached outputs, and the more specific update/re-run status. B has some extra specifics that may be slightly over-detailed, but overall it better reflects the conversation summary requirements.
+- Score A: 62 | Score B: 88
+- Confidence: 90
+- Reasoning: B is more accurate and concise, capturing the key issue that the Zen API only works with certain models and that the evaluation needs to be rerun. A includes useful details but mixes in conflicting or
 
 ### vibe | BA | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: Let me analyze both summaries carefully.
-
-Summary A:
-- Accomplished: Updated evaluate.py to use OpenCode Zen models, fixed report generation bugs, ran Mercury vs DeepSeek evaluation with pairwise judg
+- Winner: **B**
+- Score A: 58 | Score B: 84
+- Confidence: 78
+- Reasoning: Summary A contains two concatenated, contradictory summaries: one claims the evaluation is complete (Mercury won 9/24, committed/pushed, no next steps), while the other says work is in progress troubl
 
 ### opencode | AB | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **B**
+- Score A: 78 | Score B: 85
+- Confidence: 62
+- Reasoning: Summary B captures more concrete substance of the conversation, including the reconstructed methodology specifics (5 models, 10 pairwise comparisons, 3 judges) and the diversity-requirements check, wh
 
 ### opencode | AB | gpt-5.4-mini
 - Winner: **A**
-- Score A: 88 | Score B: 75
-- Confidence: 86
-- Reasoning: A is more complete and specific: it includes the session ID, project context, tool/database references, and several important constraints/decisions. B is clearer and concise, but omits some concrete details and is less thorough. Both appear accurate, but A better captures the full work state and next steps.
+- Score A: 89 | Score B: 78
+- Confidence: 82
+- Reasoning: A is more complete and clearly structured, capturing accomplishments, work in progress, files, next steps, and important constraints. B is also accurate but is slightly less complete and adds some lik
 
 ### opencode | AB | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: Let me analyze both summaries against the criteria.
-
-Summary A:
-- Very detailed with structured sections
-- Includes specific session ID, project path, database path
-- Mentions 50 user messages, specif
+- Winner: **A**
+- Score A: 85 | Score B: 62
+- Confidence: 78
+- Reasoning: Summary A is well-organized with a single coherent structure (Accomplished, In Progress, Files, Next Steps, Constraints), includes specific verifiable details (session ID, date, file paths, pairwise_g
 
 ### opencode | BA | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **B**
+- Score A: 78 | Score B: 88
+- Confidence: 72
+- Reasoning: Summary B is better organized with clear sections and includes richer specifics: the exact session ID and date, the pairwise_grade.py tool, 2000-character truncation boundaries, and the important cons
 
 ### opencode | BA | gpt-5.4-mini
 - Winner: **B**
-- Score A: 72 | Score B: 88
-- Confidence: 86
-- Reasoning: B is more complete and clearer: it captures the key methodology details, the relevant session, the project, database, constraints, and next steps. A is concise but misses important specifics such as the 50 messages, 5 models/10 comparisons/3 judges/60 judgments, and the distinction between Codex CLI and opencode.
+- Score A: 58 | Score B: 86
+- Confidence: 82
+- Reasoning: B is more accurate and complete: it captures the key recovery of the methodology, the single relevant session, the pasted transcript source, and the need to distinguish genuine user statements. A incl
 
 ### opencode | BA | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: {
-  "winner": "B",
-  "score_A": 74,
-  "score_B": 88,
-  "confidence": 72,
-  "reasoning": "Both summaries cover
+- Winner: **B**
+- Score A: 58 | Score B: 88
+- Confidence: 88
+- Reasoning: Summary A appears to be two partial summaries concatenated together, with redundant 'Accomplished/Files/Next Steps/Constraints' sections that overlap in content, hurting clarity and conciseness. Summa
 
 ### codex | AB | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **B**
+- Score A: 82 | Score B: 88
+- Confidence: 65
+- Reasoning: Both summaries accurately capture the two deliverables (Snake and Space Invaders games), file paths, PEP 723/uv shebang decisions, and readiness to run. Summary A is more concise and includes the suba
 
 ### codex | AB | gpt-5.4-mini
 - Winner: **B**
-- Score A: 78 | Score B: 88
-- Confidence: 86
-- Reasoning: Both summaries capture the main outcome, but B is clearer and more concise. A adds some useful details, but it incorrectly says both games are complete and ready to run in the work-in-progress section and is slightly wordier. B better balances accuracy, completeness, and brevity, though it still has a minor path issue with './tmp/snake.py' instead of '/tmp/snake.py'.
+- Score A: 78 | Score B: 92
+- Confidence: 88
+- Reasoning: B is more complete and clear: it captures both the Snake and Space Invaders work, files involved, key execution details, and next steps. A is concise but misses some specific gameplay/run details and 
 
 ### codex | AB | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: {
-  "winner": "A",
-  "score_A": 88,
-  "score_B": 80,
-  "confidence": 70,
-  "reasoning": "Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv s
+- Winner: **A**
+- Score A: 85 | Score B: 78
+- Confidence: 65
+- Reasoning: Both summaries accurately capture the two games created, the files involved, the PEP 723/uv shebang decisions, and readiness to run. Summary B includes slightly more granular detail (game mechanics, c
 
 ### codex | BA | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **A**
+- Score A: 90 | Score B: 84
+- Confidence: 62
+- Reasoning: Summary A captures more specific details (collision detection, score tracking, arrow key/spacebar controls, SpaceInvadersGame class) and contains no factual errors. Summary B is better organized and m
 
 ### codex | BA | gpt-5.4-mini
-- Winner: **A**
-- Score A: 83 | Score B: 74
-- Confidence: 77
-- Reasoning: A is more concise and captures the key outcome, files, and execution approach well. B includes useful details but is slightly less accurate/clean because it overstates readiness, adds specific mechanics that may not be fully supported, and is less concise.
+- Winner: **B**
+- Score A: 72 | Score B: 84
+- Confidence: 86
+- Reasoning: Both summaries capture the main accomplishments and files, but B is clearer and more concise. A adds some likely accurate detail, but it is more repetitive and slightly less polished. B better organiz
 
 ### codex | BA | kimi-k3
 - Winner: **B**
-- Score A: 82 | Score B: 89
-- Confidence: 70
-- Reasoning: Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv shebangs and PEP 723 metadata. Summary B is more complete, including specific technical details (exact shebang line, class method structure, game-over restart via spacebar, arrow key controls) and has clearer formatting with distinct sections. Summary A is accurate and concise but slightly more generic, mentioning 'consistent class methods' without specifics. A does note the alternative 'uv run' execution method, which B omits, but overall B provides richer, more actionable detail.
+- Score A: 74 | Score B: 85
+- Confidence: 78
+- Reasoning: Both summaries accurately capture the key facts: two games (Snake, Space Invaders) created at /tmp/ with PEP 723 metadata, uv shebang, pygame dependency, and subagent involvement. Summary A provides s
 
 ### claude | AB | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **A**
+- Score A: 88 | Score B: 74
+- Confidence: 78
+- Reasoning: Summary A is well-organized, concise, and clearly captures the key facts: the tag name, the three extracted files, the purpose (hints for another project), and the decision to use git tags since spike
 
 ### claude | AB | gpt-5.4-mini
 - Winner: **A**
-- Score A: 88 | Score B: 80
-- Confidence: 79
-- Reasoning: A is slightly more complete and clearer: it captures the archived-via-git-tags constraint, mentions both spike15 and spike17 not existing locally, and includes the relevant next step. B is concise and accurate, but misses the explicit spike15/tag-history nuance and is less structured.
+- Score A: 92 | Score B: 72
+- Confidence: 90
+- Reasoning: A is more accurate and coherent: it captures the extracted spike17 files, the use of the archived tag, and the purpose of reviewing them as hints for another project. B includes some correct details, 
 
 ### claude | AB | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: Let me analyze both summaries against the evaluation criteria.
-
-Summary A:
-- Accomplished: Located and extracted Whisper Large V3 spike files from git tag into .tmp/
-- Confirmed spike15/spike17 folder
+- Winner: **A**
+- Score A: 86 | Score B: 72
+- Confidence: 78
+- Reasoning: Both summaries capture the same core facts: extraction of 3 files (README.md, whisper-3-large.py, 0000_host.mp3) from tag 20260702_120900_main_spike17 into .tmp/, the purpose (hints for another projec
 
 ### claude | BA | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **B**
+- Score A: 76 | Score B: 86
+- Confidence: 70
+- Reasoning: Summary B is well-organized, concise, and clearly captures the core work (extracting spike17 files from the git tag into .tmp/, the three files involved, and next steps). Summary A contains more granu
 
 ### claude | BA | gpt-5.4-mini
 - Winner: **B**
-- Score A: 83 | Score B: 89
-- Confidence: 82
-- Reasoning: Both summaries are accurate and cover the main extracted files and next-step intent. B is slightly stronger because it is clearer and more organized, and it better reflects the archived-via-git-tags constraint. A is also good, but is a bit less concise and includes a less clearly grounded note about preserving pre-existing .tmp files.
+- Score A: 72 | Score B: 88
+- Confidence: 87
+- Reasoning: Both summaries capture the main actions, but B is more concise and clearer. It accurately covers the extracted files, current work, and next steps without the extra repetition and some ambiguous wordi
 
 ### claude | BA | kimi-k3
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: Let me analyze both summaries against the evaluation criteria.
-
-Summary A:
-- Accomplished: Extracted files from git tag into .tmp
-- Files: README.md, whisper-3-large.py, 0000_host.mp3
-- Current Status
+- Winner: **B**
+- Score A: 66 | Score B: 87
+- Confidence: 78
+- Reasoning: Both summaries capture the core facts accurately (spike17 tag extraction, 3 files into .tmp/, reference use for another project). However, Summary A appears to contain two overlapping summaries concat

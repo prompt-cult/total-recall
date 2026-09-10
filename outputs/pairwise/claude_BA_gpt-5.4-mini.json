@@ -4,9 +4,9 @@
   "judge": "gpt-5.4-mini",
   "verdict": {
     "winner": "B",
-    "score_A": 83,
-    "score_B": 89,
-    "confidence": 82,
-    "reasoning": "Both summaries are accurate and cover the main extracted files and next-step intent. B is slightly stronger because it is clearer and more organized, and it better reflects the archived-via-git-tags constraint. A is also good, but is a bit less concise and includes a less clearly grounded note about preserving pre-existing .tmp files."
+    "score_A": 72,
+    "score_B": 88,
+    "confidence": 87,
+    "reasoning": "Both summaries capture the main actions, but B is more concise and clearer. It accurately covers the extracted files, current work, and next steps without the extra repetition and some ambiguous wording present in A. A includes useful detail but is less streamlined and slightly muddier."
   }
 }

@@ -3,10 +3,10 @@
   "order": "AB",
   "judge": "glm-5.3-flash",
   "verdict": {
-    "winner": "error",
-    "score_A": 0,
-    "score_B": 0,
-    "confidence": 0,
-    "reasoning": "Failed to parse: "
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 74,
+    "confidence": 78,
+    "reasoning": "Summary A is well-organized, concise, and clearly captures the key facts: the tag name, the three extracted files, the purpose (hints for another project), and the decision to use git tags since spike folders no longer exist. Summary B contains some extra detail (spike15, Vosk configs, legacy files like PNGs/logs) but is structured as two redundant, overlapping bullet sections that read like two snapshots of the conversation, hurting clarity and conciseness. A is cleaner and easier to act on; B's additional details don't compensate for its confusing format and redundancy."
   }
 }

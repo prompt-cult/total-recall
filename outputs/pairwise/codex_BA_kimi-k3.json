@@ -4,9 +4,9 @@
   "judge": "kimi-k3",
   "verdict": {
     "winner": "B",
-    "score_A": 82,
-    "score_B": 89,
-    "confidence": 70,
-    "reasoning": "Both summaries accurately capture the core work: two single-file Python games (Snake, Space Invaders) with uv shebangs and PEP 723 metadata. Summary B is more complete, including specific technical details (exact shebang line, class method structure, game-over restart via spacebar, arrow key controls) and has clearer formatting with distinct sections. Summary A is accurate and concise but slightly more generic, mentioning 'consistent class methods' without specifics. A does note the alternative 'uv run' execution method, which B omits, but overall B provides richer, more actionable detail."
+    "score_A": 74,
+    "score_B": 85,
+    "confidence": 78,
+    "reasoning": "Both summaries accurately capture the key facts: two games (Snake, Space Invaders) created at /tmp/ with PEP 723 metadata, uv shebang, pygame dependency, and subagent involvement. Summary A provides slightly more granular detail (controls, class name) but is structured as two redundant, concatenated blocks that repeat the same points (PEP 723, uv run, ready-to-run status), hurting conciseness and clarity. Summary B is a single cohesive, well-organized summary covering accomplishments, files, decisions, and next steps without redundancy. B has minor flaws: a path typo ('./tmp/snake.py') and a 'work in progress' section describing completed work, but overall it is clearer and more concise while retaining all essential information."
   }
 }

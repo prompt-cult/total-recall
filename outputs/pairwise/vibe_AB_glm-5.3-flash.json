@@ -3,10 +3,10 @@
   "order": "AB",
   "judge": "glm-5.3-flash",
   "verdict": {
-    "winner": "error",
-    "score_A": 0,
-    "score_B": 0,
-    "confidence": 0,
-    "reasoning": "Failed to parse: "
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 68,
+    "confidence": 80,
+    "reasoning": "Summary A is coherent, well-structured, and accurately captures the final state: the Zen API outage, the switch to working models (DeepSeek/GLM/Kimi/MiniMax), updated files, and clear next steps. It also correctly notes prior Mistral-based results are stale. Summary B contains more raw detail (e.g., Mercury 9/24 result, ordering bias) but is internally contradictory and duplicated \u2014 one block claims the task is complete with Mistral results pushed, while the other says Mistral is unavailable and a rerun is needed. This duplication and lack of reconciliation severely hurt its clarity and conciseness, making the actual current state ambiguous. A is the cleaner, more reliable summary."
   }
 }

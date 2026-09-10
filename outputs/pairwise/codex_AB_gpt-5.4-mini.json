@@ -5,8 +5,8 @@
   "verdict": {
     "winner": "B",
     "score_A": 78,
-    "score_B": 88,
-    "confidence": 86,
-    "reasoning": "Both summaries capture the main outcome, but B is clearer and more concise. A adds some useful details, but it incorrectly says both games are complete and ready to run in the work-in-progress section and is slightly wordier. B better balances accuracy, completeness, and brevity, though it still has a minor path issue with './tmp/snake.py' instead of '/tmp/snake.py'."
+    "score_B": 92,
+    "confidence": 88,
+    "reasoning": "B is more complete and clear: it captures both the Snake and Space Invaders work, files involved, key execution details, and next steps. A is concise but misses some specific gameplay/run details and is slightly less precise about the status and execution path."
   }
 }

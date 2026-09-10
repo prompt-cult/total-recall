@@ -3,10 +3,10 @@
   "order": "BA",
   "judge": "gpt-5.4-mini",
   "verdict": {
-    "winner": "A",
-    "score_A": 83,
-    "score_B": 74,
-    "confidence": 77,
-    "reasoning": "A is more concise and captures the key outcome, files, and execution approach well. B includes useful details but is slightly less accurate/clean because it overstates readiness, adds specific mechanics that may not be fully supported, and is less concise."
+    "winner": "B",
+    "score_A": 72,
+    "score_B": 84,
+    "confidence": 86,
+    "reasoning": "Both summaries capture the main accomplishments and files, but B is clearer and more concise. A adds some likely accurate detail, but it is more repetitive and slightly less polished. B better organizes the key points and avoids unnecessary duplication."
   }
 }

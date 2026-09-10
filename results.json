@@ -1,63 +1,87 @@
 {
-  "total_evaluations": 24,
-  "haiku_wins": 7,
-  "mercury_wins": 2,
+  "total": 24,
+  "haiku_wins": 19,
+  "mercury_wins": 4,
   "ties": 0,
-  "errors": 15,
-  "haiku_avg_score": 32.0,
-  "mercury_avg_score": 29.5,
-  "by_rollout": {
-    "vibe": {
-      "haiku_wins": 2,
-      "mercury_wins": 0,
-      "ties": 0,
-      "errors": 4,
-      "haiku_avg": 29.0,
-      "mercury_avg": 24.0
+  "errors": 1,
+  "haiku_avg": 82.1,
+  "mercury_avg": 69.2,
+  "timings": {
+    "vibe_haiku_full": {
+      "time_s": 4.64,
+      "chars": 1031,
+      "input_chars": 30375
     },
-    "opencode": {
-      "haiku_wins": 2,
-      "mercury_wins": 0,
-      "ties": 0,
-      "errors": 4,
-      "haiku_avg": 29.333333333333332,
-      "mercury_avg": 24.5
+    "opencode_haiku_full": {
+      "time_s": 6.27,
+      "chars": 1793,
+      "input_chars": 13049
     },
-    "codex": {
-      "haiku_wins": 1,
-      "mercury_wins": 2,
-      "ties": 0,
-      "errors": 3,
-      "haiku_avg": 40.166666666666664,
-      "mercury_avg": 42.166666666666664
+    "codex_haiku_full": {
+      "time_s": 3.98,
+      "chars": 805,
+      "input_chars": 6036
     },
-    "claude": {
-      "haiku_wins": 2,
-      "mercury_wins": 0,
-      "ties": 0,
-      "errors": 4,
-      "haiku_avg": 29.5,
-      "mercury_avg": 27.166666666666668
-    }
-  },
-  "by_judge": {
-    "glm-5.3-flash": {
-      "haiku_wins": 0,
-      "mercury_wins": 0,
-      "ties": 0,
-      "errors": 8
+    "claude_haiku_full": {
+      "time_s": 3.8,
+      "chars": 977,
+      "input_chars": 2254
     },
-    "gpt-5.4-mini": {
-      "haiku_wins": 6,
-      "mercury_wins": 2,
-      "ties": 0,
-      "errors": 0
+    "vibe_mercury_half1": {
+      "time_s": 1.82,
+      "chars": 782,
+      "input_chars": 15495
     },
-    "kimi-k3": {
-      "haiku_wins": 1,
-      "mercury_wins": 0,
-      "ties": 0,
-      "errors": 7
+    "vibe_mercury_half2": {
+      "time_s": 0.94,
+      "chars": 746,
+      "input_chars": 14879
+    },
+    "vibe_mercury_total": {
+      "time_s": 2.76,
+      "chars": 1530
+    },
+    "opencode_mercury_half1": {
+      "time_s": 1.39,
+      "chars": 807,
+      "input_chars": 6368
+    },
+    "opencode_mercury_half2": {
+      "time_s": 1.5,
+      "chars": 912,
+      "input_chars": 6680
+    },
+    "opencode_mercury_total": {
+      "time_s": 2.89,
+      "chars": 1721
+    },
+    "codex_mercury_half1": {
+      "time_s": 1.11,
+      "chars": 559,
+      "input_chars": 2748
+    },
+    "codex_mercury_half2": {
+      "time_s": 1.18,
+      "chars": 625,
+      "input_chars": 3287
+    },
+    "codex_mercury_total": {
+      "time_s": 2.29,
+      "chars": 1186
+    },
+    "claude_mercury_half1": {
+      "time_s": 1.62,
+      "chars": 655,
+      "input_chars": 1144
+    },
+    "claude_mercury_half2": {
+      "time_s": 1.17,
+      "chars": 625,
+      "input_chars": 1109
+    },
+    "claude_mercury_total": {
+      "time_s": 2.79,
+      "chars": 1282
     }
   }
 }

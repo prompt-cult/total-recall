@@ -4,9 +4,9 @@
   "judge": "gpt-5.4-mini",
   "verdict": {
     "winner": "A",
-    "score_A": 88,
-    "score_B": 75,
-    "confidence": 86,
-    "reasoning": "A is more complete and specific: it includes the session ID, project context, tool/database references, and several important constraints/decisions. B is clearer and concise, but omits some concrete details and is less thorough. Both appear accurate, but A better captures the full work state and next steps."
+    "score_A": 89,
+    "score_B": 78,
+    "confidence": 82,
+    "reasoning": "A is more complete and clearly structured, capturing accomplishments, work in progress, files, next steps, and important constraints. B is also accurate but is slightly less complete and adds some likely unsupported specifics (e.g., exact counts like 5 models, 10 comparisons, 3 judges) that may not be grounded in the source."
   }
 }
