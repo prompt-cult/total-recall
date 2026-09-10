@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 91,
+    "confidence": 72,
+    "reasoning": "Both summaries are accurate and well-organized, but B is more complete: it captures the spike15 context and tag, the specific 'Path not found' error, the decision rationale, a useful note that other .tmp files pre-existed the extraction, and a more specific next step (reviewing whisper-3-large.py and README for config/implementation hints). A is slightly more concise but omits the spike15/error context and the artifact-tracking caveat. B's extra detail adds continuity value without significant bloat, giving it the edge on completeness and accuracy while remaining clear."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 84,
+    "score_B": 88,
+    "confidence": 65,
+    "reasoning": "Both summaries accurately capture the core task: extracting three files (README.md, whisper-3-large.py, 0000_host.mp3) from git tag 20260702_120900_main_spike17 into .tmp/ as reference hints for another project. Summary A is more concise and uniquely preserves the detail that existing .tmp/ contents were not overwritten. Summary B is better structured with clear sections, adds useful context that spike folders no longer exist in the current tree (only git tags), and identifies the Whisper Large V3 purpose of the file. However, B's 'Key decision' section slightly over-interprets the conversation, and its spike17/ file paths could momentarily confuse readers about extraction location. B edges out A on clarity and completeness of context, while A wins slightly on conciseness."
+  }
+}

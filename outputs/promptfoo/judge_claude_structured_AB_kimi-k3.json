@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 89,
+    "confidence": 68,
+    "reasoning": "Both summaries are accurate, well-structured, and clear. Summary B edges out A on completeness and precision: it correctly lists extracted files with their actual .tmp/ paths (A uses spike17/ prefixes, which is less accurate post-extraction), captures the spike15-vs-spike17 selection detail, notes the pre-existing .tmp/ files clarification, and states the temporary-inspection constraint. Summary A is slightly more concise and its 'tag-based history going forward' decision is a reasonable inference, but it omits several concrete details B includes. B's added detail comes without meaningful loss of clarity or conciseness."
+  }
+}

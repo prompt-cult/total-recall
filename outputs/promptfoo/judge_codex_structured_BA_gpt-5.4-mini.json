@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 74,
+    "score_B": 89,
+    "confidence": 89,
+    "reasoning": "B is more concise and still captures the essential accomplishments, files, and constraints. A includes extra detail that is partly useful, but some items are redundant or slightly awkward, and it overstates current work by implying both scripts are complete without emphasizing the subagent completion as clearly as B. B is clearer and better balanced overall."
+  }
+}

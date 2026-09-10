@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 92,
+    "confidence": 82,
+    "reasoning": "Summary B is more complete and accurate: it captures the initial AGENTS.md context, specific implementation details (PEP 723 metadata, Python >=3.8, pygame, game features, subagent ID), and provides a clear artifacts table and logical next steps. Summary A is more concise but contains a path typo ('./tmp/snake.py' instead of '/tmp/snake.py') and omits useful details like game features and the initial repo context. B's extra length is well-organized and does not significantly hurt clarity."
+  }
+}

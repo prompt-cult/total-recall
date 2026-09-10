@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 81,
+    "confidence": 68,
+    "reasoning": "Summary A is more accurate and complete: it correctly notes the 'Path not found' error, covers both spike15 and spike17 with their tags, and lists extracted files with their actual .tmp/ paths. Summary B is more concise and readable, but lists files as 'spike17/...' paths even though that folder doesn't exist locally (files were extracted to .tmp/), and omits spike15 and the error context. B wins on conciseness, but A's superior accuracy and completeness make it more useful for session continuation."
+  }
+}

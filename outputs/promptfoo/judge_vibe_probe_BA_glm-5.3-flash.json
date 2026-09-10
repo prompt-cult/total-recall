@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 80,
+    "confidence": 72,
+    "reasoning": "Summary A is more complete and precise: it captures the report-generation bug fix (lines.append), the cleanup of stale outputs, the rationale behind model switches, API endpoints/keys, and the exact commit state, all in a well-organized structure. Summary B is more concise and clearly written, but omits the bug fix and cleanup work, and is slightly vaguer about what was changed in REPORT.md vs. evaluate.py. A's extra length is justified by genuinely important details, giving it the edge on accuracy and completeness while remaining reasonably clear."
+  }
+}

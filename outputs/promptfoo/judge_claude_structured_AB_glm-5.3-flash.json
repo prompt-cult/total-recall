@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 84,
+    "score_B": 90,
+    "confidence": 68,
+    "reasoning": "Both summaries accurately capture the core task: extracting spike17 files (README.md, whisper-3-large.py, 0000_host.mp3) from git tag 20260702_120900_main_spike17 into .tmp/ for use as reference hints for another project. Summary B is more complete, adding valuable details such as pre-existing files in .tmp/ being distinguished from extracted ones, the spike15-vs-spike17 selection detail, the temporary-retention constraint, and the specific goal of extracting Whisper/Vosk configuration hints. Summary A is slightly more concise and includes a useful note that spike folders no longer exist in the current tree, but it omits several contextual details B captures. B's extra length is justified by its added precision, giving it the edge on completeness and clarity with only a minor conciseness penalty."
+  }
+}

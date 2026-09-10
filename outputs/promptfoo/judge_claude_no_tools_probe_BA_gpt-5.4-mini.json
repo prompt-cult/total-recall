@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "no_tools_probe",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 89,
+    "score_B": 78,
+    "confidence": 88,
+    "reasoning": "A is more complete and accurate: it captures the extraction to .tmp, the exact tag, the files retrieved, and the clarification that pre-existing .tmp files were unrelated. B is concise but misses that important clarification and is slightly less precise about the workflow and artifact tracking."
+  }
+}

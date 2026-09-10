@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 88,
+    "confidence": 68,
+    "reasoning": "B is more complete and clearly organized, capturing accomplished work, session validity, files, next steps, and key constraints such as read-only scope and superseding user statements. A is accurate and cautious but less detailed. B loses a little accuracy confidence for including a specific numeric panel example while qualifying it as approximate."
+  }
+}

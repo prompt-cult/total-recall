@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 74,
+    "score_B": 90,
+    "confidence": 87,
+    "reasoning": "Both summaries are accurate, but B is more complete and clearer. It captures the Snake game details, the subagent work, the Space Invaders output, files, next steps, and key design constraints, while A is shorter and misses important specifics like gameplay mechanics and execution options. A is concise, but B is better overall."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 72,
+    "score_B": 88,
+    "confidence": 86,
+    "reasoning": "B is more complete and clearer: it captures the user objective, the relevant session ID, excluded subagent sessions, and the reconstructed methodology details. A is concise but omits several important findings and context. Both have some risk of overclaiming specifics from partial transcripts, but B better reflects the conversation."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "baseline",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "A",
+    "score_A": 85,
+    "score_B": 79,
+    "confidence": 62,
+    "reasoning": "Both summaries are well-organized, accurate, and cover the same core narrative (mining opencode history, identifying session ses_02f7dcdc9ffeGVQl597lQdqMVn, recovering the methodology from a pasted Codex CLI transcript). Summary A edges out B because it includes the concrete methodology parameters (5 summaries, 10 comparisons, 3 judges, 60 total judgments) that are the central content of the recovery task, plus the read-only constraint and the diversity-requirements question. Summary B adds useful procedural nuances (2000-character truncations, distinguishing subagent prompts from user statements, session date) but omits the specific methodology numbers, which are the most important recovered detail. A is also slightly more concise. Confidence is moderate because both are high quality and the differences are incremental rather than decisive."
+  }
+}

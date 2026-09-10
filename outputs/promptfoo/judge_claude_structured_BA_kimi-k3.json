@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 87,
+    "score_B": 79,
+    "confidence": 70,
+    "reasoning": "Summary A is more accurate and complete: it correctly lists extracted files with their actual .tmp/ paths (Summary B lists them as spike17/ paths, which is ambiguous/misleading since files were extracted to .tmp/), captures the spike15-vs-spike17 selection detail, notes the pre-existing files in .tmp/ to avoid confusion, and states the temporary-retention constraint. Summary B is more concise and still captures the core points, but loses some fidelity on file locations and omits useful context details. Both are clear and well-structured."
+  }
+}

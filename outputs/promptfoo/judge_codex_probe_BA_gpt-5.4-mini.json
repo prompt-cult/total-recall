@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 72,
+    "score_B": 86,
+    "confidence": 84,
+    "reasoning": "Both summaries capture the main accomplishments and files, but B is clearer, more concise, and better focused on the relevant points. A includes many extra low-level details that may be inaccurate or unnecessary, and it adds speculative continuation about Rust/AGENTS instructions that is not clearly part of the summary target. B is more balanced and easier to read."
+  }
+}

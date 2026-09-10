@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 74,
+    "confidence": 84,
+    "reasoning": "A is more concise and directly captures the main outcome: spike17 was extracted from the archived tag into .tmp for review, with the key files listed and next steps clear. B adds some useful detail, but it introduces likely extraneous or unsupported information about spike15 and existing .tmp contents, making it less accurate and less focused."
+  }
+}

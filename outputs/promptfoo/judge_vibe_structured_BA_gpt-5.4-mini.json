@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 92,
+    "score_B": 78,
+    "confidence": 84,
+    "reasoning": "A is more complete and accurate: it includes the evaluation rerun, pairwise judging, report generation, commit/push, specific files, and the API/model constraints. B is clearer and more concise, but it omits several important accomplishments and file details, and seems less precise about the work completed."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools_probe",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 89,
+    "score_B": 73,
+    "confidence": 90,
+    "reasoning": "A is more complete and accurate: it includes the initial instructions context, both tasks, the created file paths, implementation details, and next steps. B is concise but weaker because it misstates the next-step path as './tmp/snake.py' and adds a less-clear 'work in progress' section despite the task being completed."
+  }
+}

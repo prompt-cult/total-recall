@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "baseline",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: We need answer only valid JSON. Need evaluate summaries based on conversation? We only have summaries, no original conversation. Need infer from content. Need be impartial. We need choose winner. Let's analyze carefully.\n\nWe have Summary A and B. Need judge accuracy/completeness/conciseness/clarity."
+  }
+}

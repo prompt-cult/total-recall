@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 72,
+    "confidence": 86,
+    "reasoning": "A is more concise and stays focused on the core outcome: extracting the spike17 files from the archived tag and using them as references. B includes useful details, but adds unsupported speculation about what the user asked and future cherry-picking, which hurts accuracy and brevity. A also better captures the key files and next steps without unnecessary clutter."
+  }
+}

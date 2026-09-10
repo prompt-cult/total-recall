@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "baseline",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 79,
+    "score_B": 88,
+    "confidence": 78,
+    "reasoning": "Both summaries are accurate, but B is slightly more concise and clearly organized while still capturing the main accomplishments, files, and next steps. A includes useful details about the subagent and executable format, but it is a bit more verbose and slightly less polished."
+  }
+}

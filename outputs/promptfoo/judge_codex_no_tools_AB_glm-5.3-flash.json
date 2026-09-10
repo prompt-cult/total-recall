@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 84,
+    "score_B": 88,
+    "confidence": 55,
+    "reasoning": "Both summaries accurately capture the core work (Snake game, subagent-created Space Invaders, file paths, uv/PEP 723 format). Summary A includes a nice extra detail (subagent name 'Hubble') but contains a minor error in its example command ('./tmp/snake.py' instead of '/tmp/snake.py'). Summary B is slightly more polished, correctly notes execution options (direct or 'uv run'), and adds plausible detail about game-over/restart functionality. The differences are small, so confidence is moderate."
+  }
+}

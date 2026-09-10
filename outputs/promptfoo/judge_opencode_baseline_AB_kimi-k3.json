@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "baseline",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 86,
+    "confidence": 62,
+    "reasoning": "Both summaries accurately capture the same core work: mining opencode session history, identifying session ses_02f7dcdc9ffeGVQl597lQdqMVn, and recovering the pairwise/panel methodology from a pasted Codex CLI transcript. Summary A is more thorough on operational constraints (2000-char truncations, distinguishing assistant vs. user statements) and has clear structure, but it leaves the panel structure as an unverified open question. Summary B is notably more concise while adding substantive specificity: the concrete panel parameters (5 summaries, 10 comparisons, 3 judges, 60 total judgments \u2014 internally consistent math suggesting genuine recovery), the diversity-requirements question, and the read-only research constraint. B's tighter format sacrifices little completeness, giving it a slight edge on conciseness and informativeness, though A's extra constraint detail keeps the gap small."
+  }
+}

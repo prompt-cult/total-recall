@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 74,
+    "score_B": 83,
+    "confidence": 65,
+    "reasoning": "Summary B is more complete and informative: it captures the actual recovered methodology specifications (5 models, 10 pairwise comparisons, 3 judges, both orders, 60 total judgments), lists all four session IDs with roles, provides project context (Swift/Metal Gemma inference), and documents concrete decisions (search strategy, truncation source, '\u203a' prefix markers). Summary A is well-organized with a clearer next-steps section, but it omits the key recovered facts\u2014treating the panel structure as still-to-verify even though it acknowledges the methodology was recovered from the pasted transcript\u2014making it less useful as a continuation artifact. Summary B loses points for its abruptly truncated final sentence ('Next Step: Complete the extraction'), but its substantive content advantage outweighs this polish issue."
+  }
+}

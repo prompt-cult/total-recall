@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 85,
+    "score_B": 82,
+    "confidence": 60,
+    "reasoning": "Both summaries accurately capture the same conversation: mining opencode session history to recover a pairwise/panel methodology spec from a pasted Codex transcript. They are nearly equivalent in accuracy and clarity. Summary A is slightly more complete \u2014 it includes a richer Key Decisions/Constraints section (scope limits, read-only constraint, data integrity rule about superseding statements, session validity) and a hedged methodology detail (5 results/10 comparisons/3 pairs/30 judgments). Summary B is marginally more concise and adds useful specifics A lacks (session date, 2000-character truncation issue), but its constraints section is thinner. A's extra completeness outweighs B's slight conciseness advantage, though the difference is small."
+  }
+}

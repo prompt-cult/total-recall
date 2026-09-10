@@ -1,0 +1,68 @@
+[
+  {
+    "variant": "baseline",
+    "haiku_wins": 11,
+    "mercury_wins": 9,
+    "ties": 1,
+    "errors": 3,
+    "haiku_avg": 72.4,
+    "mercury_avg": 71.5,
+    "avg_time_s": 0.0,
+    "total_evals": 24
+  },
+  {
+    "variant": "structured",
+    "haiku_wins": 2,
+    "mercury_wins": 22,
+    "ties": 0,
+    "errors": 0,
+    "haiku_avg": 79.1,
+    "mercury_avg": 87.0,
+    "avg_time_s": 0.0,
+    "total_evals": 24
+  },
+  {
+    "variant": "no_tools",
+    "haiku_wins": 13,
+    "mercury_wins": 7,
+    "ties": 0,
+    "errors": 4,
+    "haiku_avg": 70.4,
+    "mercury_avg": 66.9,
+    "avg_time_s": 0.0,
+    "total_evals": 24
+  },
+  {
+    "variant": "probe",
+    "haiku_wins": 7,
+    "mercury_wins": 17,
+    "ties": 0,
+    "errors": 0,
+    "haiku_avg": 78.8,
+    "mercury_avg": 81.5,
+    "avg_time_s": 0.0,
+    "total_evals": 24
+  },
+  {
+    "variant": "reasoning_medium",
+    "haiku_wins": 6,
+    "mercury_wins": 0,
+    "ties": 0,
+    "errors": 0,
+    "haiku_avg": 91.0,
+    "mercury_avg": 53.8,
+    "avg_time_s": 1.84,
+    "total_evals": 6
+  },
+  {
+    "variant": "no_tools_probe",
+    "haiku_wins": 4,
+    "mercury_wins": 17,
+    "ties": 0,
+    "errors": 3,
+    "haiku_avg": 65.9,
+    "mercury_avg": 71.7,
+    "avg_time_s": 1.58,
+    "total_evals": 24
+  }
+]

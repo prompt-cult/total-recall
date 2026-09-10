@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 85,
+    "score_B": 78,
+    "confidence": 65,
+    "reasoning": "Both summaries accurately capture the core facts (consistent session ID, task of reconstructing pairwise/panel methodology from opencode history and a pasted Codex CLI transcript). Summary A is more complete: it includes a dedicated Files Involved section with specific paths (opencode.db, project directory, pairwise_grade.py), more granular next steps, and additional constraints (2000-character truncations, distinguishing assistant-authored subagent prompts from genuine user statements). Summary B is more concise and adds one useful constraint A omits (read-only, no file modifications or model inference), but overall lacks the file-level detail and specificity valuable for continuing the work. A's header structure is also slightly more scannable despite being longer. A wins on completeness and detail; B wins modestly on conciseness, but completeness matters more for a continuation summary."
+  }
+}

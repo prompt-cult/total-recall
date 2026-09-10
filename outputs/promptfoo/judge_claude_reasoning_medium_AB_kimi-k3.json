@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "reasoning_medium",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 92,
+    "score_B": 35,
+    "confidence": 97,
+    "reasoning": "Summary A is accurate, complete, well-structured, and covers accomplishments, files, next steps, and key decisions. Summary B is truncated mid-sentence ('rather than'), lacks next steps and key decisions, and is incomplete, though what it does contain is accurate."
+  }
+}

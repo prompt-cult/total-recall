@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "reasoning_medium",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "A",
+    "score_A": 92,
+    "score_B": 68,
+    "confidence": 90,
+    "reasoning": "Summary A is complete, well-organized, and captures all key details: the git tag name, the three extracted files, the reason (spike folders no longer exist), and clear next steps. Summary B contains a useful extra detail (files were distinct from pre-existing .tmp contents) but is truncated mid-sentence ('rather than'), which significantly harms completeness and clarity. A's structured format also makes it easier to scan."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 76,
+    "score_B": 88,
+    "confidence": 78,
+    "reasoning": "Both summaries accurately capture the core work (Snake game, subagent-spawned Space Invaders, file paths, uv/PEP 723 format). Summary B is more complete, adding valuable specifics: game mechanics, class structure/method names, GameState enum, controls, FPS differences, and alternative run commands. Summary A is more concise but has a confusing 'Current work in progress' section that lists completed work, and omits implementation details that would help resume or verify the work. B's extra detail is relevant rather than padded, making it the stronger summary despite being longer."
+  }
+}

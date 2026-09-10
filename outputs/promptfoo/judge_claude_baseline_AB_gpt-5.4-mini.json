@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "baseline",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 85,
+    "score_B": 72,
+    "confidence": 84,
+    "reasoning": "A is more complete and clearer: it captures the extracted files, current context, and next steps with better structure. B is concise but appears less accurate, mentioning spike15 instead of spike17 and adding Vosk configuration details not supported by the prompt."
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools_probe",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 62,
+    "score_B": 74,
+    "confidence": 86,
+    "reasoning": "B is clearer and more concise while still covering the main actions, files, and next steps. A includes useful specifics, but it is more verbose and appears truncated mid-thought, which hurts clarity and completeness. B is somewhat less detailed on findings, but overall reads better as a summary."
+  }
+}

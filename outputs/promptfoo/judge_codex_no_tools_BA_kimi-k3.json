@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 82,
+    "confidence": 70,
+    "reasoning": "Both summaries accurately capture the same key facts: two single-file pygame games created with uv shebang/PEP 723 metadata, subagent used for Space Invaders, and file paths. Summary A is more concise and internally consistent, and adds useful detail (game-over/restart functionality, `uv run` execution option). Summary B includes the subagent name (Hubble) but has a contradictory section labeling completed work as 'Current work in progress,' which hurts clarity. A edges out B on clarity and consistency."
+  }
+}

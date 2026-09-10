@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "error",
+    "score_A": 0,
+    "score_B": 0,
+    "confidence": 0,
+    "reasoning": "Failed to parse: {\n  \"winner\": \"A\",\n  \"score_A\": 80,\n  \"score_B\": 66,\n  \"confidence\": 62,\n  \"reasoning\": \"Summary A captures the current state of work: the Zen API debugging results (which model families return 500 vs. which work), concrete file updates to evaluate.py and REPORT.md, and clear next steps (re-run eval"
+  }
+}

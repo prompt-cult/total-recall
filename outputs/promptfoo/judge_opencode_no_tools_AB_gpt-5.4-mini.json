@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 79,
+    "confidence": 78,
+    "reasoning": "Both summaries capture the main points, but A is more complete and structured: it includes files involved, explicit next steps, and important constraints about transcript truncation and distinguishing user from assistant messages. B is concise and clear, but omits some of those details and is slightly less complete."
+  }
+}

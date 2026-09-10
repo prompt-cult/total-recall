@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "baseline",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 84,
+    "score_B": 89,
+    "confidence": 65,
+    "reasoning": "Both summaries accurately capture the core work (two single-file Python games with uv shebangs and PEP 723 metadata, one created via subagent). Summary B is slightly stronger: it adds useful implementation details (score tracking, collision detection, specific class methods) and mentions the alternative 'uv run' execution path, without any confusing framing. Summary A has a well-organized header structure and names the subagent (Hubble), but contains a contradictory section labeled 'Current work in progress' that describes already-completed work, and its 'Next steps' section is essentially empty. Both share the same minor path typo ('./tmp/snake.py'). Overall B is marginally more informative and internally consistent."
+  }
+}

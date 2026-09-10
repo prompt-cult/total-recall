@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 75,
+    "score_B": 92,
+    "confidence": 85,
+    "reasoning": "Summary B is more complete and detailed, capturing the initial AGENTS.md context, specific implementation details (methods, enums, scoring mechanics), the subagent ID, and a clear artifacts table. Summary A is accurate and concise but omits significant context like the AGENTS.md instructions and specific game features. B's structure with distinct sections for requests, accomplishments, artifacts, and decisions makes it easier to understand the full conversation flow."
+  }
+}

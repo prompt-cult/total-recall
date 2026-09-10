@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "baseline",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 80,
+    "score_B": 84,
+    "confidence": 55,
+    "reasoning": "Both summaries capture the same core facts: extraction of three files (README.md, whisper-3-large.py, 0000_host.mp3) from the spike17 git tag into .tmp/ for use as reference in another project. Summary B has slightly cleaner structure with a dedicated 'Current work in progress' section and its 'Whisper Large V3' description aligns directly with the filename. Summary A includes more specific claims (spike15 folder missing, Whisper/Vosk configurations) that add value if accurate but carry higher hallucination risk since they cannot be verified from the artifact names alone. B's statements are more conservative and internally consistent. Both are concise and clear; the difference is marginal."
+  }
+}

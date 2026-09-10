@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 86,
+    "confidence": 65,
+    "reasoning": "Summary A is more concise and captures the core accomplishments, files, and constraints clearly, but omits useful specifics (game settings like FPS/scoring, agent ID, decisions rationale). Summary B is more complete, capturing game-specific details (10 FPS Snake, 60 FPS Invaders, 100 points/enemy), the subagent identity, and structured artifact tracking. B's inclusion of Rust/AGENTS.md and sandbox environment details may be tangential noise relative to the game-building task, which slightly dilutes its focus, but its superior completeness and organized structure give it the edge. Both share the same minor path typo ('./tmp/snake.py' vs '/tmp/snake.py')."
+  }
+}

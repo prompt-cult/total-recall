@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 80,
+    "score_B": 88,
+    "confidence": 78,
+    "reasoning": "Both summaries capture the main extraction task and the key files, but B is more complete and clearer. It better distinguishes extracted versus pre-existing .tmp files and includes more precise next steps and constraints. A is concise but omits some important context and is slightly less specific."
+  }
+}

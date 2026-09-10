@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 84,
+    "score_B": 90,
+    "confidence": 72,
+    "reasoning": "Both summaries accurately capture the core facts: the opencode-chat-history skill was used, session ses_02f7dcdc9ffeGVQl597lQdqMVn was identified as the only relevant one, methodology is being reconstructed from verbatim user statements, and earlier specs came from a pasted Codex CLI transcript. Summary B is more complete and actionable: it lists specific file paths (opencode.db, project directory, pairwise_grade.py), notes the 2000-character truncation issue, and highlights the need to distinguish assistant-authored subagent prompts from genuine user statements \u2014 all useful for task continuity. Summary A is more concise and uniquely captures the read-only/no-model-inference constraint, which B omits, but otherwise covers less detail. B's extra length is justified by its additional content, giving it a modest edge in completeness without a significant conciseness penalty."
+  }
+}

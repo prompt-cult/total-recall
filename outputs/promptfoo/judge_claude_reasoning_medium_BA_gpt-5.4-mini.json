@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "reasoning_medium",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 52,
+    "score_B": 90,
+    "confidence": 96,
+    "reasoning": "B is more complete and clearer: it captures the extraction of the three files, the use of the spike17 tag/archive, the lack of local spike folders, and the intended next steps. A is truncated and incomplete, ending mid-thought, so it misses important context."
+  }
+}

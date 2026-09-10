@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "baseline",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 88,
+    "confidence": 62,
+    "reasoning": "Both summaries accurately capture the core facts: extraction of three files (README.md, whisper-3-large.py, 0000_host.mp3) from the spike17 git tag into .tmp/ for use as reference in another project. Summary B is better organized with clear section headers, making it easier to scan, and correctly frames the work as reviewing a Whisper Large V3 implementation. Summary A is more compact and includes potentially valuable specifics (mention of spike15 and Vosk), but these details are slightly confusing \u2014 the spike15 reference muddles the narrative of why tag extraction was used, and its characterization of whisper-3-large.py as a 'configuration script' is less precise than B's 'primary implementation.' B's key decision section is also slightly richer (mentions README entries as part of the reference approach). B wins on clarity and structure with comparable accuracy and completeness; confidence is moderate because A's extra details (spike15, Vosk) could reflect accurate conversation content not visible to the judge."
+  }
+}

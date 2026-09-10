@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools_probe",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "A",
+    "score_A": 80,
+    "score_B": 70,
+    "confidence": 62,
+    "reasoning": "Both summaries cover the same session (matching session ID, DB path, project path, and pairwise_grade.py reference). Summary A is substantially more informative: it captures the actual recovered methodology specs (11K-token chunk, five models, ten pairwise comparisons, three judges, 60 judgments), excluded subagent session IDs, timestamps, and the truncation caveat \u2014 the key deliverables the user asked for. Summary B omits these findings entirely and instead lists 'verify the exact panel structure' as a next step, which conflicts with A's evidence that this was already recovered, making B less accurate/complete about the conversation's outcome. However, A is penalized for being truncated mid-sentence in its final section ('ses_02f7d'), losing its Decisions Made content and any next steps. B is more concise and structurally complete (with Next Steps and Constraints sections), but its lack of substantive findings makes it the weaker summary overall."
+  }
+}

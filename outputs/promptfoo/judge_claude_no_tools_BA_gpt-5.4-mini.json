@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 76,
+    "score_B": 86,
+    "confidence": 78,
+    "reasoning": "Both summaries capture the main action of extracting three spike17 files from the git tag into .tmp for inspection. B is slightly more complete and clearer, adding the important context that the spike folders no longer exist in the current tree and that tag-based history is the ongoing reference. A is accurate but more repetitive and slightly less complete."
+  }
+}

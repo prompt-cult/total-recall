@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 70,
+    "score_B": 78,
+    "confidence": 65,
+    "reasoning": "Summary B captures the substantive outcome of the conversation\u2014the actual recovered methodology specification (11K token chunk, 5 models, 10 pairwise comparisons, 3 judges, 60 total judgments)\u2014which is the central point of the task. Summary A treats these details as still-pending next steps, making it less informative about what was actually found. B also provides richer supporting detail (excluded subagent session IDs, session duration, message counts, transcript prefix conventions, the missing 'diversity requirement' quote). However, B is visibly truncated mid-sentence in its final 'Decisions Made' section, which costs it completeness and polish. Summary A is fully finished and well-organized with clear constraints and next steps, but its vagueness on the key findings makes it less useful overall. B wins on accuracy/completeness of core content despite its incomplete ending."
+  }
+}

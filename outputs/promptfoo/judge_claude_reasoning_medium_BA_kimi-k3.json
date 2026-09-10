@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "reasoning_medium",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 48,
+    "score_B": 88,
+    "confidence": 92,
+    "reasoning": "Summary A captures the core facts (extraction from spike17 tag, three files, purpose as hints) but is truncated mid-sentence ('rather than'), making it incomplete and unclear about next steps. Summary B is complete, well-structured, and includes all key elements: accomplished work, specific tag name, files involved, next steps, and the key decision about using git tags over local folders. B is slightly longer but remains concise and scannable."
+  }
+}

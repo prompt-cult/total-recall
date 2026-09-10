@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 93,
+    "score_B": 88,
+    "confidence": 82,
+    "reasoning": "Both summaries capture the main accomplishments and files, but A is more complete and clearer about status and next steps. B has a minor path typo (./tmp/snake.py) and its 'current work in progress' line is awkward/redundant, making it slightly less accurate and polished."
+  }
+}

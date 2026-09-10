@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 91,
+    "score_B": 28,
+    "confidence": 95,
+    "reasoning": "A is accurate, concise, and focused on the actual debugging/evaluation work, files, and next steps. B adds many unsupported specifics about earlier scripts, ordering bias, and a different user request that do not match the stated conversation, making it largely inaccurate and less relevant."
+  }
+}

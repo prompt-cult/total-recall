@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "verdict": {
+    "winner": "B",
+    "score_A": 70,
+    "score_B": 84,
+    "confidence": 72,
+    "reasoning": "Summary B is substantially more complete and informative: it captures the actual recovered methodology specifications (11K-token chunk, 5 models, 10 pairwise comparisons, 3 judges, 60 total judgments), the excluded subagent sessions with IDs, session duration/message counts, the timestamp of the pasted Codex transcript, and the failed search for the 'diversity requirement' quote. These are the core findings of the conversation, which Summary A omits entirely\u2014A instead frames the methodology details as unverified 'next steps,' suggesting it either reflects an earlier point in the conversation or fails to capture key results. A's advantages are its cleaner structure, explicit Next Steps section, and greater conciseness. However, B is penalized for being truncated mid-sentence in the 'Decisions Made' section, which hurts clarity and may omit closing content. On balance, B's richer, more accurate capture of the investigation's substance outweighs A's tidier but less informative structure."
+  }
+}

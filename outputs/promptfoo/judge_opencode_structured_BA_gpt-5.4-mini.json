@@ -1,0 +1,13 @@
+{
+  "rollout": "opencode",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "B",
+    "score_A": 70,
+    "score_B": 84,
+    "confidence": 78,
+    "reasoning": "Both summaries capture the main task well, but B is slightly more accurate and concise. A includes a questionable/garbled detail about the methodology math ('5 results generating 10 comparisons across 3 pairs, totaling 30 judgments') that looks speculative, while B avoids that and states the recovery source and constraints more cleanly. Both mention the key session, files, and next steps, but B is clearer and less likely to mislead."
+  }
+}

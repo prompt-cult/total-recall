@@ -1,0 +1,13 @@
+{
+  "rollout": "claude",
+  "variant": "no_tools_probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "verdict": {
+    "winner": "B",
+    "score_A": 80,
+    "score_B": 86,
+    "confidence": 65,
+    "reasoning": "Both summaries accurately capture the core task: extracting spike17 files from git tag 20260702_120900_main_spike17 into .tmp/ for cross-project reference. Summary B is slightly more complete and precise: it distinguishes original paths (spike17/...) from extracted paths (.tmp/...), notes the clarification about pre-existing files in .tmp/ (avoiding future confusion), mentions spike15 alongside spike17, and includes a factual recall section useful for continuation. Summary A is a bit more concise and its 'Key decision' framing is helpful, but it blurs the distinction between tag paths and extracted paths under 'Files involved' and omits the pre-existing-files clarification. B's mention of Vosk in next steps is a minor risk if not from the conversation, but its specificity suggests genuine recall. Overall B edges out A on completeness and precision while remaining clear."
+  }
+}

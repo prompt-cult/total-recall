@@ -1,0 +1,13 @@
+{
+  "rollout": "codex",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 62,
+    "confidence": 90,
+    "reasoning": "A is more concise and stays focused on the likely conversation outcome: creating two single-file pygame scripts and the relevant paths/next step. B includes many likely-unrelated or overly specific details (Rust, environment variables, AGENTS.md constraints, agent ID) that reduce clarity and may be inaccurate for the summary. A is still slightly incomplete, but overall better."
+  }
+}

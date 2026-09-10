@@ -1,0 +1,13 @@
+{
+  "rollout": "vibe",
+  "variant": "no_tools",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 71,
+    "confidence": 84,
+    "reasoning": "A better matches the conversation\u2019s key arc: scripts created, evaluation performed, a bias was found, and the user corrected endpoint usage with a clear next step. B adds many unsupported specifics (API outage details, model lists, file paths, commit/push) and appears less aligned with the described conversation, though it is concise and structured."
+  }
+}
