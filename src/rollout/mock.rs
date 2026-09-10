@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use super::{
     EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    slice_from_compaction,
 };
 
 /// Mocked flat-file adapter for tests. Reads a pre-extracted JSONL of RolloutMessage objects.
@@ -110,6 +111,10 @@ impl RolloutAdapter for MockAdapter {
 
     fn read_session_mmap(&self, _session_id: &str) -> Vec<RolloutMessage> {
         self.read_jsonl_mmap()
+    }
+
+    fn read_session_from_compaction(&self, _session_id: &str) -> Vec<RolloutMessage> {
+        slice_from_compaction(self.read_jsonl_mmap())
     }
 
     fn profile_session(&self, _session_id: &str) -> SessionProfile {

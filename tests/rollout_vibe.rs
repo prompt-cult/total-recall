@@ -142,3 +142,37 @@ fn test_vibe_format_speed() {
         format_time
     );
 }
+
+#[test]
+fn test_vibe_read_from_compaction() {
+    let adapter = VibeAdapter::with_root(test_data_root());
+    let full = adapter.read_session_mmap("2a421f21");
+    let from_compaction = adapter.read_session_from_compaction("2a421f21");
+
+    // Session 2a421f21 has compaction markers, so from_compaction should return fewer messages
+    assert!(
+        from_compaction.len() <= full.len(),
+        "From-compaction should return fewer or equal messages"
+    );
+    // The first message from compaction should contain the compaction marker
+    assert!(!from_compaction.is_empty());
+    assert!(
+        from_compaction[0].content.contains("context compaction"),
+        "First message from compaction should contain the compaction marker"
+    );
+}
+
+#[test]
+fn test_vibe_read_from_compaction_no_marker() {
+    let adapter = VibeAdapter::with_root(test_data_root());
+    // Session 4a0051b6 has no compaction markers
+    let full = adapter.read_session_mmap("4a0051b6");
+    let from_compaction = adapter.read_session_from_compaction("4a0051b6");
+
+    // No compaction marker -> return all messages
+    assert_eq!(
+        full.len(),
+        from_compaction.len(),
+        "Without compaction marker, should return all messages"
+    );
+}

@@ -1,3 +1,4 @@
+pub mod mcp;
 pub mod mercury;
 pub mod prompt;
 pub mod rollout;

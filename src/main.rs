@@ -5,7 +5,8 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use inception_mercury_compaction::{
-    build_structured_prompt, MercuryProvider, RolloutAdapter, SYSTEM_PROMPT, VibeAdapter,
+    build_structured_prompt, MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT,
+    VibeAdapter,
 };
 
 #[derive(Parser)]
@@ -56,11 +57,15 @@ enum Command {
     UserMessages,
     /// Compact a rollout using Mercury 2.5
     Compact,
+    /// Start as an MCP server on stdio
+    Mcp,
 }
 
 fn make_adapter(harness: &str) -> Box<dyn RolloutAdapter> {
     match harness {
         "vibe" => Box::new(VibeAdapter::new()),
+        "codex" => Box::new(inception_mercury_compaction::rollout::codex::CodexAdapter::new()),
+        "claude" => Box::new(inception_mercury_compaction::rollout::claude::ClaudeAdapter::new()),
         _ => {
             eprintln!("Unknown harness: {}, defaulting to vibe", harness);
             Box::new(VibeAdapter::new())
@@ -79,6 +84,23 @@ fn resolve_session(adapter: &dyn RolloutAdapter, session: &Option<String>) -> St
             }
             sessions[0].session_id.clone()
         }
+    }
+}
+
+/// Read messages respecting --full vs --from-compaction flags.
+/// Default (neither flag): from compaction point.
+/// --full: entire session.
+/// --from-compaction: from compaction point (explicit).
+fn read_messages(
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+    full: bool,
+    _from_compaction: bool,
+) -> Vec<RolloutMessage> {
+    if full {
+        adapter.read_session_mmap(session_id)
+    } else {
+        adapter.read_session_from_compaction(session_id)
     }
 }
 
@@ -161,11 +183,12 @@ async fn main() -> Result<()> {
         }
 
         Command::Extract => {
-            let messages = if cli.full {
-                adapter.read_session_mmap(&session_id)
-            } else {
-                adapter.read_session_mmap(&session_id)
-            };
+            let messages = read_messages(
+                adapter.as_ref(),
+                &session_id,
+                cli.full,
+                cli.from_compaction,
+            );
             if cli.json || (!cli.json && !cli.markdown) {
                 for msg in &messages {
                     let json = serde_json::to_string(msg)?;
@@ -199,7 +222,12 @@ async fn main() -> Result<()> {
         }
 
         Command::Compact => {
-            let messages = adapter.read_session_mmap(&session_id);
+            let messages = read_messages(
+                adapter.as_ref(),
+                &session_id,
+                cli.full,
+                cli.from_compaction,
+            );
             tracing::info!("Read {} messages from {}", messages.len(), session_id);
 
             let t0 = std::time::Instant::now();
@@ -215,6 +243,13 @@ async fn main() -> Result<()> {
 
             print!("{}", summary);
             let _ = std::io::stdout().flush();
+        }
+
+        Command::Mcp => {
+            use rmcp::{ServiceExt, transport::stdio};
+            let server = inception_mercury_compaction::mcp::CompactionServer::new();
+            let service = server.serve(stdio()).await?;
+            service.waiting().await?;
         }
     }
 

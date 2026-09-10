@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    resolve_session_dir, summarize_tool_call, EventType, InterestingEvent, RolloutAdapter,
-    RolloutMessage, SessionProfile, SessionSummary,
+    resolve_session_dir, slice_from_compaction, summarize_tool_call, EventType, InterestingEvent,
+    RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
 };
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
@@ -276,6 +276,10 @@ impl RolloutAdapter for VibeAdapter {
             None => return Vec::new(),
         };
         Self::parse_jsonl_mmap(&path)
+    }
+
+    fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage> {
+        slice_from_compaction(self.read_session_mmap(session_id))
     }
 
     fn profile_session(&self, session_id: &str) -> SessionProfile {

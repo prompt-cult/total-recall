@@ -1,3 +1,5 @@
+pub mod claude;
+pub mod codex;
 pub mod mock;
 pub mod vibe;
 
@@ -27,6 +29,10 @@ pub trait RolloutAdapter: Send + Sync {
 
     /// Read session using mmap for maximum throughput
     fn read_session_mmap(&self, session_id: &str) -> Vec<RolloutMessage>;
+
+    /// Read messages from the last compaction point onward.
+    /// If no compaction marker exists, returns all messages.
+    fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage>;
 
     /// Profile a session: file size, line count, role counts, interesting events
     fn profile_session(&self, session_id: &str) -> SessionProfile;
@@ -234,4 +240,17 @@ pub fn resolve_session_dir(root: &PathBuf, partial_id: &str) -> Option<PathBuf> 
 
     matches.sort_by(|a, b| b.1.cmp(&a.1));
     matches.into_iter().next().map(|(p, _)| p)
+}
+
+/// Slice messages from the last compaction marker onward.
+/// If no compaction marker is found, returns all messages.
+pub fn slice_from_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessage> {
+    let last_compaction = messages
+        .iter()
+        .rposition(|m| m.content.contains("context compaction"));
+
+    match last_compaction {
+        Some(idx) => messages[idx..].to_vec(),
+        None => messages,
+    }
 }
