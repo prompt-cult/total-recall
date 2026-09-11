@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -89,13 +90,13 @@ def load_env() -> dict[str, str]:
     return env
 
 
-def call_chat(api_base, model, api_key, system, user, max_tokens=2000):
+def call_chat(api_base, model, api_key, system, user, max_tokens=2000, timeout=120):
     payload = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}], "temperature": 0.1, "max_tokens": max_tokens}
     if "mercury" in model:
         payload["reasoning_effort"] = "low"
     req = urllib.request.Request(f"{api_base}/chat/completions", data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "inception-mercury-compaction/1.0"})
-    resp = urllib.request.urlopen(req, timeout=120)
+    resp = urllib.request.urlopen(req, timeout=timeout)
     return json.loads(resp.read())["choices"][0]["message"]["content"]
 
 def call_messages(api_base, model, api_key, system, user, max_tokens=2000):
@@ -124,7 +125,7 @@ def call_responses(api_base, model, api_key, system, user, max_tokens=2000):
 
 def call_judge(judge_key, api_key, system, user):
     if judge_key == "glm-5.3-flash":
-        return call_chat(ZEN_BASE, "glm-5.3-flash", api_key, system, user, max_tokens=2000)
+        return call_chat(ZEN_BASE, "glm-5.3-flash", api_key, system, user, max_tokens=16000, timeout=300)
     elif judge_key == "gpt-5.4-mini":
         return call_responses(ZEN_BASE, "gpt-5.4-mini", api_key, system, user, max_tokens=2000)
     elif judge_key == "kimi-k3":
@@ -174,18 +175,61 @@ def msgs_to_text(msgs):
             lines.append("")
     return "\n".join(lines)
 
+def extract_json_object(text):
+    """Extract the first parseable JSON object via brace matching, skipping braces inside strings.
+
+    Tries each '{' candidate until one yields a balanced, parseable object, so prose
+    containing brace literals before the JSON does not break extraction.
+    """
+    pos = text.find("{")
+    while pos >= 0:
+        depth = 0
+        in_string = False
+        escape = False
+        end = -1
+        for i in range(pos, len(text)):
+            c = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif c == "\\":
+                    escape = True
+                elif c == '"':
+                    in_string = False
+            else:
+                if c == '"':
+                    in_string = True
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+        if end < 0:
+            raise ValueError("unbalanced JSON object (truncated reply)")
+        candidate = text[pos:end+1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            try:
+                return json.loads(re.sub(r",\s*([}\]])", r"\1", candidate))
+            except json.JSONDecodeError:
+                pos = text.find("{", pos + 1)
+    raise ValueError("no parseable JSON object found")
+
 def parse_json_response(response):
     try:
         cleaned = response.strip()
         if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-            if cleaned.endswith("```"): cleaned = cleaned.rsplit("```", 1)[0]
+            cleaned = re.sub(r"^```[A-Za-z0-9_-]*[ \t]*\n?", "", cleaned)
+            cleaned = re.sub(r"```[ \t]*\n?", "", cleaned)
             cleaned = cleaned.strip()
-        if not cleaned.startswith("{"):
-            start = cleaned.find("{"); end = cleaned.rfind("}")
-            if start >= 0 and end > start: cleaned = cleaned[start:end+1]
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, IndexError):
+        obj = extract_json_object(cleaned)
+        if not isinstance(obj, dict):
+            raise ValueError("not a JSON object")
+        return obj
+    except (ValueError, json.JSONDecodeError, AttributeError):
         return {"winner": "error", "score_A": 0, "score_B": 0, "confidence": 0, "reasoning": f"Failed to parse: {response[:300]}"}
 
 JUDGES = ["glm-5.3-flash", "gpt-5.4-mini", "kimi-k3"]
@@ -274,6 +318,16 @@ def main():
                     response = call_judge(judge, zen_key, "You are an impartial judge. Return ONLY valid JSON.",
                         JUDGE_PROMPT.format(summary_A=sA, summary_B=sB))
                     verdict = parse_json_response(response)
+                    if verdict.get("winner") == "error":
+                        print(f"      -> parse failed, retrying once with strict instruction", file=sys.stderr)
+                        retry_response = call_judge(judge, zen_key, "You are an impartial judge. Return ONLY valid JSON.",
+                            JUDGE_PROMPT.format(summary_A=sA, summary_B=sB) + "\n\nReturn ONLY the JSON object, no other text.")
+                        retry_verdict = parse_json_response(retry_response)
+                        if retry_verdict.get("winner") != "error":
+                            verdict = retry_verdict
+                            print(f"      -> retry succeeded", file=sys.stderr)
+                        else:
+                            print(f"      -> retry also failed to parse", file=sys.stderr)
                 except Exception as e:
                     verdict = {"winner": "error", "score_A": 0, "score_B": 0, "confidence": 0, "reasoning": str(e)}
                 result = {"rollout": name, "order": order_label, "judge": judge, "verdict": verdict}
