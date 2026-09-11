@@ -23,7 +23,7 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 | OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) | Yes (`--harness opencode`) |
 | Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) | Yes |
 | Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) | Yes |
-| Cursor | SQLite | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) | No |
+| Cursor | SQLite (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `cursorDiskKV` key-value JSON store) | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) | Yes (`--harness cursor`) |
 
 ## Compaction prompt research
 
@@ -65,7 +65,7 @@ seed/reference script.
 cargo build --release
 B=./target/release/inception-mercury-compaction
 
-# List rollouts for a harness (--harness is required; vibe | codex | claude)
+# List rollouts for a harness (--harness is required; vibe | codex | claude | opencode | cursor)
 $B --harness vibe list
 
 # Profile a rollout (counts, compaction markers, interesting events)

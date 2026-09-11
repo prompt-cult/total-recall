@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod mock;
 pub mod opencode;
 pub mod vibe;
