@@ -12,37 +12,37 @@ use inception_mercury_compaction::{
 #[derive(Parser)]
 #[command(name = "inception-mercury-compaction")]
 #[command(about = "Compact agent session rollouts using Inception Mercury 2.5")]
-struct Cli {
+pub struct Cli {
     /// Which harness to use (vibe | codex | claude | opencode | cursor). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
-    #[arg(long)]
-    harness: Option<String>,
+    #[arg(long, global = true)]
+    pub harness: Option<String>,
 
     /// Session ID (partial match). Defaults to most recent.
-    #[arg(long)]
-    session: Option<String>,
+    #[arg(long, global = true)]
+    pub session: Option<String>,
 
     /// Output as JSON (default)
-    #[arg(long)]
-    json: bool,
+    #[arg(long, global = true)]
+    pub json: bool,
 
     /// Output as markdown
-    #[arg(long)]
-    markdown: bool,
+    #[arg(long, global = true)]
+    pub markdown: bool,
 
     /// Process the entire rollout
-    #[arg(long)]
-    full: bool,
+    #[arg(long, global = true)]
+    pub full: bool,
 
     /// Trace-level logging
-    #[arg(long)]
-    verbose: bool,
+    #[arg(long, global = true)]
+    pub verbose: bool,
 
     #[command(subcommand)]
-    command: Command,
+    pub command: Command,
 }
 
 #[derive(Subcommand)]
-enum Command {
+pub enum Command {
     /// List all rollouts for a harness
     List,
     /// Profile a specific rollout (file size, counts, events)
@@ -93,6 +93,7 @@ async fn main() -> Result<()> {
     let level = if cli.verbose { "trace" } else { "warn" };
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new(level))
+        .with_writer(std::io::stderr)
         .init();
 
     if let Command::Mcp = cli.command {
