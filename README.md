@@ -56,11 +56,67 @@ This tool takes the best of each: it preserves recent messages, prunes large too
 ./compact.py --tool vibe --model mercury-2
 ```
 
+## Rust CLI (this crate)
+
+The Rust binary is the primary implementation. `compact.py` remains the
+seed/reference script.
+
+```bash
+cargo build --release
+B=./target/release/inception-mercury-compaction
+
+# List rollouts for a harness (vibe | codex | claude)
+$B --harness vibe list
+
+# Profile a rollout (counts, compaction markers, interesting events)
+$B --harness vibe --session 4836855e profile
+
+# Extract what the user said verbatim
+$B --harness vibe --session 4836855e user-messages --markdown
+
+# Compact from the last compaction point (default) or the full rollout
+$B --harness vibe --session 4836855e compact
+$B --harness vibe --session 4836855e --full compact
+```
+
+Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
+
+## MCP server
+
+The binary runs as an MCP stdio server exposing `list_sessions`,
+`profile_session`, `extract_messages`, `extract_user_messages`, and
+`compact_session`:
+
+```bash
+$B mcp
+```
+
+Register it in Mistral Vibe (`~/.vibe/config.toml`):
+
+```toml
+[[mcp_servers]]
+name = "compaction"
+transport = "stdio"
+command = "/path/to/inception-mercury-compaction"
+args = ["mcp"]
+```
+
+Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
+
+```json
+"mcp": {
+  "compaction": {
+    "type": "local",
+    "command": ["/path/to/inception-mercury-compaction", "mcp"]
+  }
+}
+```
+
 ## Setup
 
 1. Get an Inception API key from [https://platform.inceptionlabs.ai](https://platform.inceptionlabs.ai)
 2. Copy `.env.template` to `.env` and fill in your key
-3. Run `./compact.py --tool vibe`
+3. Run `./compact.py --tool vibe` (or the Rust CLI above)
 
 ## Requirements
 

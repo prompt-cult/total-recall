@@ -25,12 +25,3 @@ criterion = "0.5"
 [[bench]]
 name = "read_rollout"
 harness = false
-
-[[example]]
-name = "profile"
-
-[[example]]
-name = "extract"
-
-[[example]]
-name = "throughput"

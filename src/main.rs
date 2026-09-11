@@ -29,10 +29,6 @@ struct Cli {
     #[arg(long)]
     markdown: bool,
 
-    /// Start from last compaction point
-    #[arg(long)]
-    from_compaction: bool,
-
     /// Process the entire rollout
     #[arg(long)]
     full: bool,
@@ -90,13 +86,7 @@ fn resolve_session(adapter: &dyn RolloutAdapter, session: &Option<String>) -> St
 /// Read messages respecting --full vs --from-compaction flags.
 /// Default (neither flag): from compaction point.
 /// --full: entire session.
-/// --from-compaction: from compaction point (explicit).
-fn read_messages(
-    adapter: &dyn RolloutAdapter,
-    session_id: &str,
-    full: bool,
-    _from_compaction: bool,
-) -> Vec<RolloutMessage> {
+fn read_messages(adapter: &dyn RolloutAdapter, session_id: &str, full: bool) -> Vec<RolloutMessage> {
     if full {
         adapter.read_session_mmap(session_id)
     } else {
@@ -187,7 +177,6 @@ async fn main() -> Result<()> {
                 adapter.as_ref(),
                 &session_id,
                 cli.full,
-                cli.from_compaction,
             );
             if cli.json || (!cli.json && !cli.markdown) {
                 for msg in &messages {
@@ -226,7 +215,6 @@ async fn main() -> Result<()> {
                 adapter.as_ref(),
                 &session_id,
                 cli.full,
-                cli.from_compaction,
             );
             tracing::info!("Read {} messages from {}", messages.len(), session_id);
 
