@@ -7,19 +7,9 @@ use rmcp::{
 };
 
 use crate::{
-    MercuryProvider, RolloutAdapter, VibeAdapter,
-    build_structured_prompt, prompt::SYSTEM_PROMPT,
-    rollout::{codex::CodexAdapter, claude::ClaudeAdapter},
+    MercuryProvider, RolloutAdapter,
+    build_structured_prompt, harness::make_adapter, prompt::SYSTEM_PROMPT,
 };
-
-fn make_adapter(harness: &str) -> Box<dyn RolloutAdapter> {
-    match harness {
-        "vibe" => Box::new(VibeAdapter::new()),
-        "codex" => Box::new(CodexAdapter::new()),
-        "claude" => Box::new(ClaudeAdapter::new()),
-        _ => Box::new(VibeAdapter::new()),
-    }
-}
 
 fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
     if session_id.is_empty() {
@@ -36,32 +26,18 @@ fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
 // --- Tool parameter structs ---
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ListSessionsParams {
-    #[schemars(description = "Which harness: vibe, codex, or claude")]
-    #[serde(default = "default_vibe")]
-    pub harness: String,
-}
-
-fn default_vibe() -> String {
-    "vibe".to_string()
-}
+pub struct ListSessionsParams {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ProfileParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "Which harness: vibe, codex, or claude")]
-    #[serde(default = "default_vibe")]
-    pub harness: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ExtractParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "Which harness: vibe, codex, or claude")]
-    #[serde(default = "default_vibe")]
-    pub harness: String,
     #[schemars(description = "If true, read entire session. If false, read from last compaction point.")]
     #[serde(default)]
     pub full: bool,
@@ -71,18 +47,12 @@ pub struct ExtractParams {
 pub struct UserMessagesParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "Which harness: vibe, codex, or claude")]
-    #[serde(default = "default_vibe")]
-    pub harness: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct CompactParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "Which harness: vibe, codex, or claude")]
-    #[serde(default = "default_vibe")]
-    pub harness: String,
     #[schemars(description = "If true, compact entire session. If false, compact from last compaction point.")]
     #[serde(default)]
     pub full: bool,
@@ -91,22 +61,38 @@ pub struct CompactParams {
 // --- MCP Server ---
 
 #[derive(Clone)]
-pub struct CompactionServer;
+pub struct CompactionServer {
+    harness: String,
+}
 
 impl CompactionServer {
-    pub fn new() -> Self {
-        Self
+    pub fn with_harness(harness: String) -> Self {
+        Self { harness }
+    }
+
+    pub fn harness(&self) -> &str {
+        &self.harness
+    }
+
+    fn adapter(&self) -> Result<Box<dyn RolloutAdapter>, McpError> {
+        make_adapter(&self.harness)
+            .map_err(|e| McpError::internal_error(e, None))
     }
 }
 
 #[tool_router]
 impl CompactionServer {
-    #[tool(description = "List all agent session rollouts for a given harness")]
-    async fn list_sessions(
-        &self,
-        Parameters(params): Parameters<ListSessionsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let adapter = make_adapter(&params.harness);
+    #[tool(name = "harness", description = "Report which harness this MCP server is bound to")]
+    async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
+        let json = serde_json::json!({ "harness": self.harness });
+        let json = serde_json::to_string_pretty(&json)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(description = "List all agent session rollouts for the bound harness")]
+    async fn list_sessions(&self) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
         let sessions = adapter.list_sessions();
         let json = serde_json::to_string_pretty(&sessions)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -118,7 +104,7 @@ impl CompactionServer {
         &self,
         Parameters(params): Parameters<ProfileParams>,
     ) -> Result<CallToolResult, McpError> {
-        let adapter = make_adapter(&params.harness);
+        let adapter = self.adapter()?;
         let session_id = resolve_session(adapter.as_ref(), &params.session_id);
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -136,7 +122,7 @@ impl CompactionServer {
         &self,
         Parameters(params): Parameters<ExtractParams>,
     ) -> Result<CallToolResult, McpError> {
-        let adapter = make_adapter(&params.harness);
+        let adapter = self.adapter()?;
         let session_id = resolve_session(adapter.as_ref(), &params.session_id);
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -158,7 +144,7 @@ impl CompactionServer {
         &self,
         Parameters(params): Parameters<UserMessagesParams>,
     ) -> Result<CallToolResult, McpError> {
-        let adapter = make_adapter(&params.harness);
+        let adapter = self.adapter()?;
         let session_id = resolve_session(adapter.as_ref(), &params.session_id);
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -176,7 +162,7 @@ impl CompactionServer {
         &self,
         Parameters(params): Parameters<CompactParams>,
     ) -> Result<CallToolResult, McpError> {
-        let adapter = make_adapter(&params.harness);
+        let adapter = self.adapter()?;
         let session_id = resolve_session(adapter.as_ref(), &params.session_id);
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(

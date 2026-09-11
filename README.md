@@ -65,7 +65,7 @@ seed/reference script.
 cargo build --release
 B=./target/release/inception-mercury-compaction
 
-# List rollouts for a harness (vibe | codex | claude)
+# List rollouts for a harness (--harness is required; vibe | codex | claude)
 $B --harness vibe list
 
 # Profile a rollout (counts, compaction markers, interesting events)
@@ -83,13 +83,20 @@ Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
 
 ## MCP server
 
-The binary runs as an MCP stdio server exposing `list_sessions`,
+The binary runs as an MCP stdio server exposing `harness`, `list_sessions`,
 `profile_session`, `extract_messages`, `extract_user_messages`, and
 `compact_session`:
 
 ```bash
 $B mcp
 ```
+
+Each server instance is bound to exactly ONE harness, set by the installing
+config via the `HARNESS` environment variable (or `--harness <name>` on the
+`mcp` subcommand — the flag wins if both are given). Tools take no harness
+parameter; the `harness` tool reports the bound value. If the harness is
+unset or unknown the server refuses to start: it prints the reason to stdout
+and stderr and exits 2.
 
 Register it in Mistral Vibe (`~/.vibe/config.toml`):
 
@@ -99,6 +106,9 @@ name = "compaction"
 transport = "stdio"
 command = "/path/to/inception-mercury-compaction"
 args = ["mcp"]
+
+[mcp_servers.env]
+HARNESS = "vibe"
 ```
 
 Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
@@ -107,10 +117,12 @@ Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
 "mcp": {
   "compaction": {
     "type": "local",
-    "command": ["/path/to/inception-mercury-compaction", "mcp"]
+    "command": ["/path/to/inception-mercury-compaction", "mcp"],
+    "environment": {"HARNESS": "opencode"}
   }
 }
 ```
+
 
 ## Setup
 

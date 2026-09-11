@@ -5,17 +5,17 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use inception_mercury_compaction::{
-    build_structured_prompt, MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT,
-    VibeAdapter,
+    build_structured_prompt, harness::{make_adapter, resolve_harness},
+    MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT,
 };
 
 #[derive(Parser)]
 #[command(name = "inception-mercury-compaction")]
 #[command(about = "Compact agent session rollouts using Inception Mercury 2.5")]
 struct Cli {
-    /// Which harness to use
-    #[arg(long, default_value = "vibe")]
-    harness: String,
+    /// Which harness to use (vibe | codex | claude). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
+    #[arg(long)]
+    harness: Option<String>,
 
     /// Session ID (partial match). Defaults to most recent.
     #[arg(long)]
@@ -57,18 +57,6 @@ enum Command {
     Mcp,
 }
 
-fn make_adapter(harness: &str) -> Box<dyn RolloutAdapter> {
-    match harness {
-        "vibe" => Box::new(VibeAdapter::new()),
-        "codex" => Box::new(inception_mercury_compaction::rollout::codex::CodexAdapter::new()),
-        "claude" => Box::new(inception_mercury_compaction::rollout::claude::ClaudeAdapter::new()),
-        _ => {
-            eprintln!("Unknown harness: {}, defaulting to vibe", harness);
-            Box::new(VibeAdapter::new())
-        }
-    }
-}
-
 fn resolve_session(adapter: &dyn RolloutAdapter, session: &Option<String>) -> String {
     match session {
         Some(s) => s.clone(),
@@ -103,7 +91,34 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::new(level))
         .init();
 
-    let adapter = make_adapter(&cli.harness);
+    if let Command::Mcp = cli.command {
+        use rmcp::{ServiceExt, transport::stdio};
+
+        let harness = match resolve_harness(cli.harness.as_deref()) {
+            Ok(h) => h,
+            Err(msg) => {
+                println!("{}", msg);
+                eprintln!("{}", msg);
+                std::process::exit(2);
+            }
+        };
+        let server = inception_mercury_compaction::mcp::CompactionServer::with_harness(harness);
+        let service = server.serve(stdio()).await?;
+        service.waiting().await?;
+        return Ok(());
+    }
+
+    let harness_name = match cli.harness.as_deref() {
+        Some(name) => name,
+        None => {
+            eprintln!("error: --harness is required (vibe | codex | claude)");
+            std::process::exit(2);
+        }
+    };
+    let adapter = make_adapter(harness_name).unwrap_or_else(|e| {
+        eprintln!("error: {}", e);
+        std::process::exit(2);
+    });
     let session_id = resolve_session(adapter.as_ref(), &cli.session);
 
     match cli.command {
@@ -178,7 +193,7 @@ async fn main() -> Result<()> {
                 &session_id,
                 cli.full,
             );
-            if cli.json || (!cli.json && !cli.markdown) {
+            if cli.json || !cli.markdown {
                 for msg in &messages {
                     let json = serde_json::to_string(msg)?;
                     println!("{}", json);
@@ -199,7 +214,7 @@ async fn main() -> Result<()> {
 
         Command::UserMessages => {
             let messages = adapter.extract_user_messages(&session_id);
-            if cli.json || (!cli.json && !cli.markdown) {
+            if cli.json || !cli.markdown {
                 let json = serde_json::to_string_pretty(&messages)?;
                 println!("{}", json);
             } else {
@@ -233,12 +248,7 @@ async fn main() -> Result<()> {
             let _ = std::io::stdout().flush();
         }
 
-        Command::Mcp => {
-            use rmcp::{ServiceExt, transport::stdio};
-            let server = inception_mercury_compaction::mcp::CompactionServer::new();
-            let service = server.serve(stdio()).await?;
-            service.waiting().await?;
-        }
+        Command::Mcp => {}
     }
 
     Ok(())
