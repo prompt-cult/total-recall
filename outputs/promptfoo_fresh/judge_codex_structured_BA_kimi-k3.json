@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "elapsed_s": 13.8,
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 79,
+    "confidence": 68,
+    "reasoning": "Both summaries accurately capture the core work: two single-file Pygame games created with uv shebang/PEP 723 metadata, with a subagent (Hubble) replicating the Snake format for Space Invaders. Summary A is more complete and actionable\u2014it includes specific run commands (`uv run /tmp/snake.py`), game controls (arrow keys, space), the class method structure (`reset_game`, `handle_events`, etc.), and game features (collision detection, restart). These details make it more useful for resuming work. Summary B is more concise and clean but omits helpful specifics. One minor concern: Summary A lists the Snake game as having a `SpaceInvGame` class, which is a potential inaccuracy, but its overall greater completeness and detail outweigh this. B's brevity is a strength but it sacrifices useful continuation context."
+  }
+}

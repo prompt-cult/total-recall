@@ -24,6 +24,9 @@ import time
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from evaluate_chunked import parse_json_response as evaluate_chunked_parse  # noqa: E402
+
 REPO = Path(__file__).parent
 ROLLOUTS = REPO / "rollouts"
 OUT = REPO / "outputs" / "promptfoo"
@@ -180,14 +183,14 @@ def load_env():
     return env
 
 
-def call_chat(api_base, model, api_key, system, user, max_tokens=2000, reasoning_effort="low"):
+def call_chat(api_base, model, api_key, system, user, max_tokens=2000, reasoning_effort="low", timeout=120):
     payload = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
                "temperature": 0.1, "max_tokens": max_tokens}
     if "mercury" in model:
         payload["reasoning_effort"] = reasoning_effort
     req = urllib.request.Request(f"{api_base}/chat/completions", data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "inception-mercury-compaction/1.0"})
-    resp = urllib.request.urlopen(req, timeout=120)
+    resp = urllib.request.urlopen(req, timeout=timeout)
     return json.loads(resp.read())["choices"][0]["message"]["content"]
 
 def call_messages(api_base, model, api_key, system, user, max_tokens=2000):
@@ -215,12 +218,14 @@ def call_responses(api_base, model, api_key, system, user, max_tokens=2000):
     return str(result.get("output", ""))
 
 def call_judge(judge_key, api_key, system, user):
+    # glm-5.3-flash spends completion tokens on reasoning_content; 2000 truncates it
+    # (item04/item06 finding). 16000 with a 300s timeout returns parseable verdicts.
     if judge_key == "glm-5.3-flash":
-        return call_chat(ZEN_BASE, "glm-5.3-flash", api_key, system, user, max_tokens=2000)
+        return call_chat(ZEN_BASE, "glm-5.3-flash", api_key, system, user, max_tokens=16000, timeout=300)
     elif judge_key == "gpt-5.4-mini":
         return call_responses(ZEN_BASE, "gpt-5.4-mini", api_key, system, user, max_tokens=2000)
     elif judge_key == "kimi-k3":
-        return call_chat(ZEN_BASE, "kimi-k3", api_key, system, user, max_tokens=2000)
+        return call_chat(ZEN_BASE, "kimi-k3", api_key, system, user, max_tokens=2000, timeout=300)
 
 def rollout_to_text(jsonl_path, include_tools=True):
     lines = []
@@ -245,18 +250,11 @@ def rollout_to_text(jsonl_path, include_tools=True):
     return "\n".join(lines)
 
 def parse_json_response(response):
-    try:
-        cleaned = response.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-            if cleaned.endswith("```"): cleaned = cleaned.rsplit("```", 1)[0]
-            cleaned = cleaned.strip()
-        if not cleaned.startswith("{"):
-            start = cleaned.find("{"); end = cleaned.rfind("}")
-            if start >= 0 and end > start: cleaned = cleaned[start:end+1]
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, IndexError):
-        return {"winner": "error", "score_A": 0, "score_B": 0, "confidence": 0, "reasoning": f"Failed to parse: {response[:300]}"}
+    """Backed by item04's hardened parser: brace matching + fenced-block + trailing-comma handling.
+
+    Kept as a thin wrapper so this script remains importable standalone.
+    """
+    return evaluate_chunked_parse(response)
 
 
 def main():
@@ -343,6 +341,13 @@ def main():
                         response = call_judge(judge, zen_key, "You are an impartial judge. Return ONLY valid JSON.",
                             JUDGE_PROMPT.format(summary_A=sA, summary_B=sB))
                         verdict = parse_json_response(response)
+                        if verdict.get("winner") == "error":
+                            print(f"      parse failed, retrying once with strict instruction", file=sys.stderr)
+                            retry_response = call_judge(judge, zen_key, "You are an impartial judge. Return ONLY valid JSON.",
+                                JUDGE_PROMPT.format(summary_A=sA, summary_B=sB) + "\n\nReturn ONLY the JSON object, no other text.")
+                            retry_verdict = parse_json_response(retry_response)
+                            if retry_verdict.get("winner") != "error":
+                                verdict = retry_verdict
                     except Exception as e:
                         verdict = {"winner": "error", "score_A": 0, "score_B": 0, "confidence": 0, "reasoning": str(e)}
                     result = {"rollout": name, "variant": variant_name, "order": order_label, "judge": judge, "verdict": verdict}

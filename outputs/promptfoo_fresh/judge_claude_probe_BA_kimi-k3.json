@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "kimi-k3",
+  "elapsed_s": 12.1,
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 80,
+    "confidence": 65,
+    "reasoning": "Both summaries are accurate and well-structured. Summary A is more complete: it captures both model tags (spike15 and spike17), the specific 'Path not found' error that motivated the tag-based approach, the precise commit the files were extracted from, and the useful nuance that other files in .tmp/ pre-existed and weren't part of the extraction \u2014 all valuable for seamless continuation. Summary B is more concise and slightly easier to scan, but omits the spike15 tag reference, the error context, and the artifact-tracking detail. A's extra detail outweighs B's conciseness advantage for a handoff-style summary."
+  }
+}

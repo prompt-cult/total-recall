@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.8,
+  "verdict": {
+    "winner": "A",
+    "score_A": 90,
+    "score_B": 78,
+    "confidence": 88,
+    "reasoning": "A is more complete and specific: it captures the bug fix, artifact cleanup, rerun, generated outputs, committed files, and the updated model availability constraints. B is concise and clear, but misses several important actions/files and is less detailed about the evaluation workflow and results."
+  }
+}

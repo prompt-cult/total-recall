@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 
 from evaluate_chunked import parse_json_response
+from promptfoo_experiment import parse_json_response as parse_json_response_promptfoo
 
 
 JSON_OK = '{"winner": "A", "score_A": 90, "score_B": 80, "confidence": 70, "reasoning": "A is tighter"}'
@@ -59,6 +60,15 @@ def test_prose_without_json_is_error_not_crash():
     return v
 
 
+def test_promptfoo_wrapper_matches_hardened_parser():
+    """promptfoo_experiment.parse_json_response delegates to the item04-hardened parser."""
+    v = parse_json_response_promptfoo("Sure! Here is {the verdict} you asked for:\n" + JSON_OK)
+    assert v.get("winner") == "A" and v.get("score_A") == 90 and v.get("score_B") == 80, (
+        f"promptfoo wrapper should use hardened parser, got {v}"
+    )
+    return v
+
+
 SUCCESS_CASES = [
     ("plain_json", test_plain_json),
     ("fenced_json", test_fenced_json),
@@ -66,6 +76,7 @@ SUCCESS_CASES = [
     ("prose_with_braces_before_json", test_prose_with_braces_before_json),
     ("trailing_commas", test_trailing_commas),
     ("trailing_commas_nested", test_trailing_commas_nested),
+    ("promptfoo_wrapper_matches_hardened_parser", test_promptfoo_wrapper_matches_hardened_parser),
 ]
 
 ERROR_CASES = [

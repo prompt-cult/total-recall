@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.9,
+  "verdict": {
+    "winner": "A",
+    "score_A": 87,
+    "score_B": 71,
+    "confidence": 91,
+    "reasoning": "A is more accurate and concise. It correctly identifies the working vs failing model families, the updated evaluation/judge models, the relevant files, and the immediate next step. B includes several likely hallucinated or inconsistent details (specific paths, added files, rerun/commit claims, extra model names like Haiku/OpenCode, and FAKE_KEY), making it less reliable despite being more detailed."
+  }
+}

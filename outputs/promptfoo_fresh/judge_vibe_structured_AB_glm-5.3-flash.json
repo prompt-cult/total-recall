@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 29.4,
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 85,
+    "confidence": 62,
+    "reasoning": "Both summaries accurately capture the core situation: Zen API 500 errors on major model families (Claude/GPT/Gemini/Muse), only DeepSeek/GLM/Kimi/MiniMax working, evaluate.py updated to use deepseek-v4-flash for summarization and a GLM/DeepSeek/Kimi judge panel, and a pending re-run. Summary B is notably more complete, capturing additional concrete events and details: the lines.append() report-generation bug fix, clearing of stale artifacts, an initial re-run and commit, extract_rollouts.py, the pairwise A-B/B-A blind scoring design, and the FAKE_KEY detail. Summary A is more concise and slightly cleaner internally (consistent file paths matching the repo name, no redundancy), while B has minor issues: generic/possibly incorrect file paths (/home/demo/project vs. the repo's actual location), some redundancy between Accomplished/Current Work/Next Steps regarding the re-run and commit, and slight muddling of Haiku vs. Claude. However, B's greater specificity and fuller coverage of accomplished work, files, and key decisions outweigh A's conciseness advantage. B wins on completeness and detail; A wins marginally on conciseness and internal tidiness."
+  }
+}

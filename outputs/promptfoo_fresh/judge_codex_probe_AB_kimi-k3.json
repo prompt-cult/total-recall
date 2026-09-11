@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "elapsed_s": 10.5,
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 88,
+    "confidence": 72,
+    "reasoning": "Both summaries accurately capture the core work (two single-file pygame games with UV shebang/PEP 723 metadata, subagent delegation, file paths). Summary A is concise and clear but lighter on detail. Summary B is more complete: it includes specific technical details (FPS settings, controls, Python version, subagent ID, method structure), separates created/modified/read artifacts, and offers more actionable next steps (testing, moving files out of /tmp, extending the pattern). B's structured format (factual recall, decisions, artifacts, continuation) better supports session continuity, at a modest cost to conciseness. Assuming B's specific details are genuine recall rather than fabrication (the UUID specificity suggests authenticity), B is the stronger summary."
+  }
+}

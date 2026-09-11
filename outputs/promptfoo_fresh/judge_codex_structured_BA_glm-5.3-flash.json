@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 10.7,
+  "verdict": {
+    "winner": "A",
+    "score_A": 84,
+    "score_B": 76,
+    "confidence": 65,
+    "reasoning": "Summary A is more complete and detailed: it captures game features (Pygame graphics, score tracking, collision detection, restart), specific controls, class method structure, and concrete run commands (direct execution and 'uv run'). Summary B is more concise but thinner on detail, and contains a path typo ('./tmp/snake.py' instead of '/tmp/snake.py'). A has one possible inaccuracy (attributing the 'SpaceInvGame' class to the Snake file), but overall it better satisfies completeness and clarity while remaining reasonably concise."
+  }
+}

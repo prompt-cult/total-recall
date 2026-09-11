@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 26.2,
+  "verdict": {
+    "winner": "A",
+    "score_A": 87,
+    "score_B": 78,
+    "confidence": 70,
+    "reasoning": "Summary A captures substantially more accomplished work: the report-generation bug fix (lines.append), clearing/regenerating artifacts, rerunning the evaluation, committing/pushing changes, extract_rollouts.py, and the pairwise A-B/B-A blind scoring methodology. It also documents the FAKE_KEY constraint and the specific substitute models. Summary B is cleaner and more concise, and correctly notes the Zen API outage and model substitutions, but omits several key actions (bug fix, rerun, commit status, extract_rollouts.py) and provides less methodological context. A has a minor internal tension (commit listed as done yet also a next step), which slightly lowers confidence, but its greater specificity and completeness make it the stronger summary overall."
+  }
+}

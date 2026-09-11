@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.7,
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 87,
+    "confidence": 74,
+    "reasoning": "Both summaries capture the main extraction task and reference files, but B is slightly more accurate and complete. It better notes that the files were extracted into .tmp/ and distinguishes pre-existing .tmp contents from the spike17 extraction. A is clearer and concise, but includes less precise wording about the current state and omits some useful constraints."
+  }
+}

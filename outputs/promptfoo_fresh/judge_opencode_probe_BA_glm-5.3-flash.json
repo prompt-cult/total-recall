@@ -1,0 +1,14 @@
+{
+  "rollout": "opencode",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 18.5,
+  "verdict": {
+    "winner": "A",
+    "score_A": 84,
+    "score_B": 76,
+    "confidence": 62,
+    "reasoning": "Summary A captures substantially more concrete recovered content: the actual methodology parameters (5 models, 10 pairwise comparisons, both A/B orders, 3 judges, 60 total judgments, ~11K-token chunk), session metadata (ID, timeframe, 50 user messages), and specific subagent session IDs. Since the conversation's core purpose was recovering the methodology spec, A's inclusion of those details is a major completeness advantage; B explicitly defers verifying 'number of summaries, pairs, judges' to next steps, suggesting it missed the recovered specifics. B is somewhat cleaner and adds a useful constraint (2000-char truncations), but it lists a conflicting project path (/Users/Shared/turbo-fieldfare vs A's /home/demo/turbo-fieldfare, the latter being more internally consistent with the Linux-style DB path) and omits the key spec numbers. A is denser and slightly less concise, and its high specificity carries some unverifiable-detail risk, which tempers confidence."
+  }
+}

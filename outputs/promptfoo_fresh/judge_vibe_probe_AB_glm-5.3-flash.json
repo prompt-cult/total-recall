@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 12.4,
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 91,
+    "confidence": 78,
+    "reasoning": "Both summaries accurately capture the core work: Zen API 500 errors on major model families, switching to DeepSeek/GLM/Kimi models, comparing against Mercury, and updating evaluate.py and REPORT.md. However, Summary B is substantially more complete: it includes the report-generation bug fix (lines.append), previous run results (Mercury 9 / Mistral 8 with ordering bias), specific failing/working model names, API endpoints, the git commit, and rationale for decisions. Its next-steps section also adds a verification step. Summary A is more concise and clearly structured, but omits the bug fix, prior results context, and commit history, and its phrasing 'deepseek-v4-flash vs mercury-2.5 for summarization' slightly conflates the comparison baseline with the summarization role. B's extra length is justified by meaningful content rather than padding. Confidence is moderate because the two summaries cite different project paths (/Users/Shared/... vs /home/demo/project/), which cannot be resolved without the original conversation."
+  }
+}

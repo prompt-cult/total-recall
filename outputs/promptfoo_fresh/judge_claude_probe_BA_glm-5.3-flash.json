@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 12.5,
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 80,
+    "confidence": 65,
+    "reasoning": "Both summaries are accurate and well-structured, but A is more complete: it captures both git tags (spike15 and spike17), the specific 'Path not found' error, the distinction between newly extracted files and pre-existing files in .tmp/, and an optional follow-up involving the spike15 tag. B is slightly more concise and readable, with a clear 'key decision' callout, but omits the error detail, the spike15 tag reference, and the note about pre-existing .tmp/ contents. A's extra factual precision gives it the edge, though B remains a solid, clear summary."
+  }
+}
