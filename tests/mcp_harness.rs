@@ -1,6 +1,8 @@
 use std::sync::Mutex;
 
-use inception_mercury_compaction::harness::{HARNESS_ENV_VAR, make_adapter, resolve_harness};
+use inception_mercury_compaction::harness::{
+    HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness,
+};
 use inception_mercury_compaction::mcp::CompactionServer;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -75,4 +77,19 @@ fn adapter_factory_errors_on_unknown_harness() {
     assert!(make_adapter("vibe").is_ok());
     assert!(make_adapter("codex").is_ok());
     assert!(make_adapter("claude").is_ok());
+}
+
+#[test]
+fn opencode_harness_is_accepted() {
+    assert!(
+        VALID_HARNESSES.contains(&"opencode"),
+        "opencode must be a valid harness: {:?}",
+        VALID_HARNESSES
+    );
+    with_env(HARNESS_ENV_VAR, Some("opencode"), || {
+        assert_eq!(resolve_harness(None).unwrap(), "opencode");
+    });
+    assert_eq!(resolve_harness(Some("opencode")).unwrap(), "opencode");
+    let adapter = make_adapter("opencode").expect("opencode adapter must build");
+    assert_eq!(adapter.name(), "opencode");
 }

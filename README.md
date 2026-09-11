@@ -17,13 +17,13 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 ## Supported tools
 
-| Tool | Storage | Chat history repos / gists |
-|------|---------|---------------------------|
-| Mistral Vibe | JSONL (`~/.vibe/logs/session/`) | [gist: mistral-vibe-chat-history](https://gist.github.com/simbo1905/b79ba81f637e9e235d55e4853e3dc299) |
-| OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) |
-| Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) |
-| Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) |
-| Cursor | SQLite | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) |
+| Tool | Storage | Chat history repos / gists | Rust CLI |
+|------|---------|---------------------------|----------|
+| Mistral Vibe | JSONL (`~/.vibe/logs/session/`) | [gist: mistral-vibe-chat-history](https://gist.github.com/simbo1905/b79ba81f637e9e235d55e4853e3dc299) | Yes |
+| OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) | Yes (`--harness opencode`) |
+| Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) | Yes |
+| Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) | Yes |
+| Cursor | SQLite | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) | No |
 
 ## Compaction prompt research
 

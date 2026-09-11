@@ -1,9 +1,12 @@
-use crate::{RolloutAdapter, VibeAdapter, rollout::{claude::ClaudeAdapter, codex::CodexAdapter}};
+use crate::{
+    RolloutAdapter, VibeAdapter,
+    rollout::{claude::ClaudeAdapter, codex::CodexAdapter, opencode::OpenCodeAdapter},
+};
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";
 
-// One match arm + one VALID_HARNESSES entry per harness (opencode lands in item02).
-pub const VALID_HARNESSES: [&str; 3] = ["vibe", "codex", "claude"];
+// One match arm + one VALID_HARNESSES entry per harness.
+pub const VALID_HARNESSES: [&str; 4] = ["vibe", "codex", "claude", "opencode"];
 
 pub fn valid_harnesses() -> String {
     VALID_HARNESSES.join("|")
@@ -35,6 +38,7 @@ pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
         "vibe" => Ok(Box::new(VibeAdapter::new())),
         "codex" => Ok(Box::new(CodexAdapter::new())),
         "claude" => Ok(Box::new(ClaudeAdapter::new())),
+        "opencode" => Ok(Box::new(OpenCodeAdapter::new())),
         other => Err(format!(
             "unknown harness '{}'. Valid values: {}",
             other,

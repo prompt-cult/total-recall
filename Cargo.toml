@@ -18,9 +18,11 @@ reqwest = { version = "0.12", features = ["json"] }
 dotenvy = "0.15"
 rmcp = { version = "3.3", features = ["server", "transport-io"] }
 schemars = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 criterion = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [[bench]]
 name = "read_rollout"

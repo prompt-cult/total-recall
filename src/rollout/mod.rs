@@ -1,6 +1,7 @@
 pub mod claude;
 pub mod codex;
 pub mod mock;
+pub mod opencode;
 pub mod vibe;
 
 use std::collections::HashMap;
