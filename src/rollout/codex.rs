@@ -9,7 +9,6 @@ use super::{
 /// Codex adapter. Reads flat JSONL files from ~/.codex/sessions/
 ///
 /// Format: one JSON object per line with `role` and `content` fields.
-/// Simpler than vibe: no `injected`, `tool_calls`, or `message_id` fields.
 pub struct CodexAdapter {
     root: PathBuf,
 }

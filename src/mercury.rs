@@ -57,7 +57,6 @@ impl MercuryProvider {
     }
 
     /// Send the conversation text to Mercury for compaction.
-    /// Uses the structured prompt with reasoning_effort=low.
     pub async fn compact(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         let client = reqwest::Client::new();
         let request = ChatRequest {

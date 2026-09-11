@@ -57,8 +57,8 @@ TOOLS = {
     },
     "cursor": {
         "storage": "sqlite",
-        "root": Path.home() / ".cursor" / "workspace",
-        "db_file": "cursor.db",
+        "root": Path.home() / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage",
+        "db_file": "state.vscdb",
     },
 }
 

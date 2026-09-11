@@ -20,7 +20,7 @@ pub struct RolloutMessage {
 
 /// Trait abstracting over different CLI tool session formats.
 pub trait RolloutAdapter: Send + Sync {
-    /// Name of the harness ("vibe", "codex", "claude", "opencode")
+    /// Name of the harness ("vibe", "codex", "claude", "opencode", "cursor")
     fn name(&self) -> &'static str;
 
     /// Find all rollout sessions, return summary info
@@ -87,8 +87,6 @@ pub enum EventType {
     GitCommit,
     GitPush,
     GitTag,
-    SessionFork,
-    SessionRename,
     UserMessage,
 }
 
