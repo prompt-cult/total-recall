@@ -1,5 +1,5 @@
-use inception_mercury_compaction::rollout::cursor::CursorAdapter;
 use inception_mercury_compaction::RolloutAdapter;
+use inception_mercury_compaction::rollout::cursor::CursorAdapter;
 use rusqlite::Connection;
 use std::path::PathBuf;
 
@@ -22,9 +22,8 @@ fn create_fixture(path: &PathBuf) {
     )
     .unwrap();
 
-    let headers = format!(
-        r#"[{{"bubbleId":"b1","type":1}},{{"bubbleId":"b2","type":2}},{{"bubbleId":"b3","type":2}},{{"bubbleId":"b4","type":1}},{{"bubbleId":"b5","type":2}},{{"bubbleId":"b6","type":1}}]"#
-    );
+    let headers = r#"[{"bubbleId":"b1","type":1},{"bubbleId":"b2","type":2},{"bubbleId":"b3","type":2},{"bubbleId":"b4","type":1},{"bubbleId":"b5","type":2},{"bubbleId":"b6","type":1}]"#
+        .to_string();
     conn.execute(
         "INSERT INTO cursorDiskKV (key, value) VALUES (?1, ?2)",
         rusqlite::params![
@@ -38,12 +37,42 @@ fn create_fixture(path: &PathBuf) {
     .unwrap();
 
     let bubbles: Vec<(&str, i64, &str, &str)> = vec![
-        ("b1", 1, "2026-09-18T10:00:01.000Z", r#"{"type":1,"text":"hello cursor fixture","createdAt":"2026-09-18T10:00:01.000Z","toolResults":"[]"}"#),
-        ("b2", 2, "2026-09-18T10:00:03.000Z", r#"{"type":2,"text":"doing the thing","createdAt":"2026-09-18T10:00:03.000Z","toolFormerData":{"name":"read_file_v2","rawArgs":"{\"path\":\"/w/Makefile\",\"limit\":10}","result":"{\"contents\":\"ok\"}"},"toolResults":"[]"}"#),
-        ("b3", 2, "2026-09-18T10:00:04.000Z", r#"{"type":2,"text":"","createdAt":"2026-09-18T10:00:04.000Z","toolResults":"[]"}"#),
-        ("b4", 1, "2026-09-18T10:01:00.000Z", r#"{"type":1,"text":"continue after summary","createdAt":"2026-09-18T10:01:00.000Z","summarizedComposers":["sum-1"],"toolResults":"[]"}"#),
-        ("b5", 2, "2026-09-18T10:01:02.000Z", r#"{"type":2,"text":"post summary work","createdAt":"2026-09-18T10:01:02.000Z","toolResults":"[]"}"#),
-        ("b6", 1, "2026-09-18T10:02:00.000Z", r#"{"type":1,"text":"final user turn","createdAt":"2026-09-18T10:02:00.000Z","toolResults":"[]"}"#),
+        (
+            "b1",
+            1,
+            "2026-09-18T10:00:01.000Z",
+            r#"{"type":1,"text":"hello cursor fixture","createdAt":"2026-09-18T10:00:01.000Z","toolResults":"[]"}"#,
+        ),
+        (
+            "b2",
+            2,
+            "2026-09-18T10:00:03.000Z",
+            r#"{"type":2,"text":"doing the thing","createdAt":"2026-09-18T10:00:03.000Z","toolFormerData":{"name":"read_file_v2","rawArgs":"{\"path\":\"/w/Makefile\",\"limit\":10}","result":"{\"contents\":\"ok\"}"},"toolResults":"[]"}"#,
+        ),
+        (
+            "b3",
+            2,
+            "2026-09-18T10:00:04.000Z",
+            r#"{"type":2,"text":"","createdAt":"2026-09-18T10:00:04.000Z","toolResults":"[]"}"#,
+        ),
+        (
+            "b4",
+            1,
+            "2026-09-18T10:01:00.000Z",
+            r#"{"type":1,"text":"continue after summary","createdAt":"2026-09-18T10:01:00.000Z","summarizedComposers":["sum-1"],"toolResults":"[]"}"#,
+        ),
+        (
+            "b5",
+            2,
+            "2026-09-18T10:01:02.000Z",
+            r#"{"type":2,"text":"post summary work","createdAt":"2026-09-18T10:01:02.000Z","toolResults":"[]"}"#,
+        ),
+        (
+            "b6",
+            1,
+            "2026-09-18T10:02:00.000Z",
+            r#"{"type":1,"text":"final user turn","createdAt":"2026-09-18T10:02:00.000Z","toolResults":"[]"}"#,
+        ),
     ];
     for (bid, _t, _iso, value) in bubbles {
         conn.execute(
@@ -137,9 +166,7 @@ fn test_cursor_list_sessions() {
     assert!(s.file_size > 0);
     assert!(s.line_count >= 6, "bubble count as line count");
     assert!(
-        s.child_sessions
-            .iter()
-            .any(|c| c.contains("22223333")),
+        s.child_sessions.iter().any(|c| c.contains("22223333")),
         "subComposerIds mapped to child sessions: {:?}",
         s.child_sessions
     );

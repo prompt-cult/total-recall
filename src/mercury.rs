@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 const MERCURY_API_URL: &str = "https://api.inceptionlabs.ai/v1/chat/completions";

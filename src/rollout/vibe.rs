@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    resolve_session_dir, slice_from_compaction, summarize_tool_call, EventType, InterestingEvent,
-    RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    resolve_session_dir, slice_from_compaction, summarize_tool_call,
 };
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
@@ -24,9 +24,7 @@ impl VibeAdapter {
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        Self {
-            root: root.into(),
-        }
+        Self { root: root.into() }
     }
 
     fn session_dir(&self, session_id: &str) -> Option<PathBuf> {
@@ -39,7 +37,8 @@ impl VibeAdapter {
     }
 
     fn messages_path(&self, session_id: &str) -> Option<PathBuf> {
-        self.session_dir(session_id).map(|d| d.join("messages.jsonl"))
+        self.session_dir(session_id)
+            .map(|d| d.join("messages.jsonl"))
     }
 
     fn parse_jsonl(data: &[u8]) -> Vec<RolloutMessage> {
@@ -78,7 +77,10 @@ impl VibeAdapter {
 
 fn dirs_home_vibe_session() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".vibe").join("logs").join("session")
+        PathBuf::from(home)
+            .join(".vibe")
+            .join("logs")
+            .join("session")
     } else {
         PathBuf::from(".vibe").join("logs").join("session")
     }
@@ -97,10 +99,7 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
         .unwrap_or("")
         .to_string();
 
-    let injected = v
-        .get("injected")
-        .and_then(|i| i.as_bool())
-        .unwrap_or(false);
+    let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
 
     let timestamp = v
         .get("timestamp")
@@ -218,17 +217,11 @@ impl RolloutAdapter for VibeAdapter {
                     continue;
                 }
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    let role = v
-                        .get("role")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("");
+                    let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
                     match role {
                         "user" => {
                             user_count += 1;
-                            let content = v
-                                .get("content")
-                                .and_then(|c| c.as_str())
-                                .unwrap_or("");
+                            let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
                             if content.contains("context compaction") {
                                 has_compaction = true;
                             }
@@ -294,7 +287,7 @@ impl RolloutAdapter for VibeAdapter {
                     last_ts: None,
                     role_counts: HashMap::new(),
                     interesting_events: Vec::new(),
-                }
+                };
             }
         };
 
@@ -324,10 +317,7 @@ impl RolloutAdapter for VibeAdapter {
                     .to_string();
                 *role_counts.entry(role.clone()).or_insert(0) += 1;
 
-                let content = v
-                    .get("content")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("");
+                let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
                 // Check for compaction markers
                 if content.contains("context compaction") {
@@ -342,10 +332,7 @@ impl RolloutAdapter for VibeAdapter {
 
                 // Check for user messages (non-injected)
                 if role == "user" {
-                    let injected = v
-                        .get("injected")
-                        .and_then(|i| i.as_bool())
-                        .unwrap_or(false);
+                    let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
                     if !injected {
                         interesting_events.push(InterestingEvent {
                             line_number: line_num,

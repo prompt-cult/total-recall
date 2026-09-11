@@ -1,14 +1,13 @@
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock, ServerInfo, ServerCapabilities},
-    schemars,
-    tool, tool_handler, tool_router,
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
+    schemars, tool, tool_handler, tool_router,
 };
 
 use crate::{
-    MercuryProvider, RolloutAdapter,
-    build_structured_prompt, harness::make_adapter, prompt::SYSTEM_PROMPT,
+    MercuryProvider, RolloutAdapter, build_structured_prompt, harness::make_adapter,
+    prompt::SYSTEM_PROMPT,
 };
 
 fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
@@ -38,7 +37,9 @@ pub struct ProfileParams {
 pub struct ExtractParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "If true, read entire session. If false, read from last compaction point.")]
+    #[schemars(
+        description = "If true, read entire session. If false, read from last compaction point."
+    )]
     #[serde(default)]
     pub full: bool,
 }
@@ -53,7 +54,9 @@ pub struct UserMessagesParams {
 pub struct CompactParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
-    #[schemars(description = "If true, compact entire session. If false, compact from last compaction point.")]
+    #[schemars(
+        description = "If true, compact entire session. If false, compact from last compaction point."
+    )]
     #[serde(default)]
     pub full: bool,
 }
@@ -75,14 +78,16 @@ impl CompactionServer {
     }
 
     fn adapter(&self) -> Result<Box<dyn RolloutAdapter>, McpError> {
-        make_adapter(&self.harness)
-            .map_err(|e| McpError::internal_error(e, None))
+        make_adapter(&self.harness).map_err(|e| McpError::internal_error(e, None))
     }
 }
 
 #[tool_router]
 impl CompactionServer {
-    #[tool(name = "harness", description = "Report which harness this MCP server is bound to")]
+    #[tool(
+        name = "harness",
+        description = "Report which harness this MCP server is bound to"
+    )]
     async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
         let json = serde_json::json!({ "harness": self.harness });
         let json = serde_json::to_string_pretty(&json)
@@ -99,7 +104,9 @@ impl CompactionServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Profile a session: file size, line count, role counts, interesting events")]
+    #[tool(
+        description = "Profile a session: file size, line count, role counts, interesting events"
+    )]
     async fn profile_session(
         &self,
         Parameters(params): Parameters<ProfileParams>,
@@ -157,7 +164,9 @@ impl CompactionServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Compact a session using Mercury 2.5 — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions")]
+    #[tool(
+        description = "Compact a session using Mercury 2.5 — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions"
+    )]
     async fn compact_session(
         &self,
         Parameters(params): Parameters<CompactParams>,
@@ -187,9 +196,10 @@ impl CompactionServer {
             McpError::internal_error(format!("Failed to create Mercury provider: {}", e), None)
         })?;
 
-        let summary = provider.compact(SYSTEM_PROMPT, &prompt).await.map_err(|e| {
-            McpError::internal_error(format!("Mercury API error: {}", e), None)
-        })?;
+        let summary = provider
+            .compact(SYSTEM_PROMPT, &prompt)
+            .await
+            .map_err(|e| McpError::internal_error(format!("Mercury API error: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![ContentBlock::text(summary)]))
     }
@@ -198,10 +208,6 @@ impl CompactionServer {
 #[tool_handler]
 impl ServerHandler for CompactionServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
-            ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
-        )
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
 }

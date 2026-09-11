@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    resolve_session_dir, slice_from_compaction, summarize_tool_call, EventType, InterestingEvent,
-    RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    resolve_session_dir, slice_from_compaction, summarize_tool_call,
 };
 
 /// Codex adapter. Reads flat JSONL files from ~/.codex/sessions/
@@ -22,9 +22,7 @@ impl CodexAdapter {
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        Self {
-            root: root.into(),
-        }
+        Self { root: root.into() }
     }
 
     fn session_path(&self, session_id: &str) -> Option<PathBuf> {
@@ -72,10 +70,7 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
         .unwrap_or("")
         .to_string();
 
-    let injected = v
-        .get("injected")
-        .and_then(|i| i.as_bool())
-        .unwrap_or(false);
+    let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
 
     let timestamp = v
         .get("timestamp")
@@ -230,7 +225,7 @@ impl RolloutAdapter for CodexAdapter {
                     last_ts: None,
                     role_counts: HashMap::new(),
                     interesting_events: Vec::new(),
-                }
+                };
             }
         };
 

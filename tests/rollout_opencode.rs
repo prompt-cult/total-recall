@@ -1,5 +1,5 @@
-use inception_mercury_compaction::rollout::opencode::OpenCodeAdapter;
 use inception_mercury_compaction::RolloutAdapter;
+use inception_mercury_compaction::rollout::opencode::OpenCodeAdapter;
 use rusqlite::Connection;
 use std::path::PathBuf;
 
@@ -194,10 +194,7 @@ fn test_opencode_profile_session() {
     assert!(profile.file_size > 0);
     assert!(profile.role_counts.contains_key("user"));
     assert!(profile.role_counts.contains_key("assistant"));
-    assert_eq!(
-        profile.first_ts.as_deref(),
-        Some("1970-01-01T00:00:01Z")
-    );
+    assert_eq!(profile.first_ts.as_deref(), Some("1970-01-01T00:00:01Z"));
     assert_eq!(profile.last_ts.as_deref(), Some("1970-01-01T00:00:04Z"));
     let compaction = profile
         .interesting_events

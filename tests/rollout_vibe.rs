@@ -10,7 +10,10 @@ fn test_read_vibe_session() {
     let adapter = VibeAdapter::with_root(test_data_root());
     let messages = adapter.read_session("4a0051b6");
 
-    assert!(!messages.is_empty(), "Should read messages from vibe session");
+    assert!(
+        !messages.is_empty(),
+        "Should read messages from vibe session"
+    );
     // The session has 6 lines in messages.jsonl
     assert_eq!(messages.len(), 6, "Should read exactly 6 messages");
 }
@@ -51,7 +54,10 @@ fn test_vibe_list_sessions_has_title() {
         .iter()
         .find(|s| s.session_id.contains("4a0051b6"))
         .expect("Should find the small session");
-    assert!(!small_session.title.is_empty(), "Should have a title from meta.json");
+    assert!(
+        !small_session.title.is_empty(),
+        "Should have a title from meta.json"
+    );
     assert!(small_session.title.contains("README"));
 }
 
@@ -71,7 +77,10 @@ fn test_vibe_profile_compaction_session() {
     let adapter = VibeAdapter::with_root(test_data_root());
     let profile = adapter.profile_session("2a421f21");
 
-    assert!(profile.line_count > 100, "Compaction session should have many lines");
+    assert!(
+        profile.line_count > 100,
+        "Compaction session should have many lines"
+    );
 
     // Should find compaction events
     let compaction_events: Vec<_> = profile

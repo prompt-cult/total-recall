@@ -102,10 +102,7 @@ pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
 
     match name {
         "bash" => {
-            let cmd = args
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let cmd = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
             format!("bash: {}", truncate_chars(cmd, 300))
         }
         "write_file" => {
@@ -141,35 +138,20 @@ pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
             format!("read_file({})", fp)
         }
         "grep" => {
-            let pattern = args
-                .get("pattern")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .unwrap_or(".");
+            let pattern = args.get("pattern").and_then(|v| v.as_str()).unwrap_or("?");
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
             format!("grep({}, {})", pattern, path)
         }
         "task" => {
-            let agent = args
-                .get("agent")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let agent = args.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
             format!("task({})", agent)
         }
         "todo" => {
-            let action = args
-                .get("action")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("?");
             format!("todo({})", action)
         }
         "skill" => {
-            let skill_name = args
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let skill_name = args.get("name").and_then(|v| v.as_str()).unwrap_or("?");
             format!("skill({})", skill_name)
         }
         _ => {
@@ -232,15 +214,15 @@ pub fn resolve_session_dir(root: &PathBuf, partial_id: &str) -> Option<PathBuf> 
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
-        if name_str.contains(partial_id) {
-            if let Ok(meta) = entry.metadata() {
-                let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                matches.push((entry.path(), mtime));
-            }
+        if name_str.contains(partial_id)
+            && let Ok(meta) = entry.metadata()
+        {
+            let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            matches.push((entry.path(), mtime));
         }
     }
 
-    matches.sort_by(|a, b| b.1.cmp(&a.1));
+    matches.sort_by_key(|b| std::cmp::Reverse(b.1));
     matches.into_iter().next().map(|(p, _)| p)
 }
 

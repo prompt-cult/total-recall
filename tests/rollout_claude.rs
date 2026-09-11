@@ -1,5 +1,5 @@
-use inception_mercury_compaction::rollout::claude::ClaudeAdapter;
 use inception_mercury_compaction::RolloutAdapter;
+use inception_mercury_compaction::rollout::claude::ClaudeAdapter;
 use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {
@@ -17,7 +17,10 @@ fn test_claude_read_session() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
     let messages = adapter.read_session("claude_small");
 
-    assert!(!messages.is_empty(), "Should read messages from claude sample");
+    assert!(
+        !messages.is_empty(),
+        "Should read messages from claude sample"
+    );
     for msg in &messages {
         assert!(!msg.role.is_empty(), "Role should not be empty");
     }
@@ -36,7 +39,10 @@ fn test_claude_list_sessions() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
     let sessions = adapter.list_sessions();
 
-    assert!(!sessions.is_empty(), "Should find at least one claude session");
+    assert!(
+        !sessions.is_empty(),
+        "Should find at least one claude session"
+    );
     let claude_session = sessions
         .iter()
         .find(|s| s.session_id.contains("claude"))

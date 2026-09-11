@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use inception_mercury_compaction::{
-    build_structured_prompt, MockAdapter, RolloutAdapter, VibeAdapter,
+    MockAdapter, RolloutAdapter, VibeAdapter, build_structured_prompt,
 };
 
 /// Test that read speed is fast enough to not be the bottleneck.
@@ -58,8 +58,7 @@ fn test_mmap_vs_regular_read() {
 /// Test vibe session read speed with a larger file.
 #[test]
 fn test_vibe_read_speed_large() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("rollouts/vibe_sessions");
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts/vibe_sessions");
     let adapter = VibeAdapter::with_root(root);
 
     let t0 = Instant::now();

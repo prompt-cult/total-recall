@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use inception_mercury_compaction::{build_structured_prompt, RolloutAdapter, VibeAdapter};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use inception_mercury_compaction::{RolloutAdapter, VibeAdapter, build_structured_prompt};
 
 fn bench_read_rollout(c: &mut Criterion) {
     let adapter = VibeAdapter::new();

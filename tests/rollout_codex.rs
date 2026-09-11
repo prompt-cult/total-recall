@@ -1,5 +1,5 @@
-use inception_mercury_compaction::rollout::codex::CodexAdapter;
 use inception_mercury_compaction::RolloutAdapter;
+use inception_mercury_compaction::rollout::codex::CodexAdapter;
 use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {
@@ -17,7 +17,10 @@ fn test_codex_read_session() {
     let adapter = CodexAdapter::with_root(test_data_root());
     let messages = adapter.read_session("codex_small");
 
-    assert!(!messages.is_empty(), "Should read messages from codex sample");
+    assert!(
+        !messages.is_empty(),
+        "Should read messages from codex sample"
+    );
     // All messages should have role and content
     for msg in &messages {
         assert!(!msg.role.is_empty(), "Role should not be empty");
@@ -37,7 +40,10 @@ fn test_codex_list_sessions() {
     let adapter = CodexAdapter::with_root(test_data_root());
     let sessions = adapter.list_sessions();
 
-    assert!(!sessions.is_empty(), "Should find at least one codex session");
+    assert!(
+        !sessions.is_empty(),
+        "Should find at least one codex session"
+    );
     let codex_session = sessions
         .iter()
         .find(|s| s.session_id.contains("codex"))
@@ -52,7 +58,9 @@ fn test_codex_profile_session() {
 
     assert!(profile.line_count > 0);
     assert!(profile.file_size > 0);
-    assert!(profile.role_counts.contains_key("user") || profile.role_counts.contains_key("assistant"));
+    assert!(
+        profile.role_counts.contains_key("user") || profile.role_counts.contains_key("assistant")
+    );
 }
 
 #[test]

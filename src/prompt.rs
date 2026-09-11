@@ -1,7 +1,6 @@
-use crate::rollout::{messages_to_text, RolloutMessage};
+use crate::rollout::{RolloutMessage, messages_to_text};
 
-pub const SYSTEM_PROMPT: &str =
-    "You are a helpful coding assistant that summarizes conversations.";
+pub const SYSTEM_PROMPT: &str = "You are a helpful coding assistant that summarizes conversations.";
 
 pub const STRUCTURED_PROMPT: &str = r#"Create a structured summary of this coding conversation. Use these exact sections:
 

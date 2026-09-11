@@ -1,6 +1,9 @@
 use crate::{
     RolloutAdapter, VibeAdapter,
-    rollout::{claude::ClaudeAdapter, codex::CodexAdapter, cursor::CursorAdapter, opencode::OpenCodeAdapter},
+    rollout::{
+        claude::ClaudeAdapter, codex::CodexAdapter, cursor::CursorAdapter,
+        opencode::OpenCodeAdapter,
+    },
 };
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";

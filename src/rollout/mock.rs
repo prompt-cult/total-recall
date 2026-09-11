@@ -35,9 +35,8 @@ impl MockAdapter {
     }
 
     fn read_jsonl_mmap(&self) -> Vec<RolloutMessage> {
-        let file = std::fs::File::open(&self.data_path).unwrap_or_else(|_| {
-            return std::fs::File::create("/dev/null").unwrap();
-        });
+        let file = std::fs::File::open(&self.data_path)
+            .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap());
         let mmap = unsafe { memmap2::Mmap::map(&file).ok() };
         let data = match &mmap {
             Some(m) => &m[..],

@@ -5,8 +5,8 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    slice_from_compaction, summarize_tool_call, EventType, InterestingEvent, RolloutAdapter,
-    RolloutMessage, SessionProfile, SessionSummary,
+    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    slice_from_compaction, summarize_tool_call,
 };
 
 /// OpenCode adapter. Reads session history from the local SQLite database at
@@ -65,10 +65,7 @@ impl OpenCodeAdapter {
         };
 
         let rows = stmt.query_map([&full_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-            ))
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         });
         let rows = match rows {
             Ok(r) => r,
@@ -107,7 +104,11 @@ fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, 
     let ptype = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
     match ptype {
         "text" => {
-            if part.get("synthetic").and_then(|s| s.as_bool()).unwrap_or(false) {
+            if part
+                .get("synthetic")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false)
+            {
                 return;
             }
             let content = part
@@ -283,8 +284,19 @@ impl RolloutAdapter for OpenCodeAdapter {
 
         let mut summaries = Vec::new();
         for row in rows.flatten() {
-            let (id, title, parent_id, created, updated, user_count, assistant_count, tool_count, compaction_count, part_count, total_bytes) =
-                row;
+            let (
+                id,
+                title,
+                parent_id,
+                created,
+                updated,
+                user_count,
+                assistant_count,
+                tool_count,
+                compaction_count,
+                part_count,
+                total_bytes,
+            ) = row;
             summaries.push(SessionSummary {
                 session_id: id.clone(),
                 title,

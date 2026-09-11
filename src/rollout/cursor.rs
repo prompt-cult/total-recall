@@ -5,8 +5,8 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    slice_from_compaction, summarize_tool_call, EventType, InterestingEvent, RolloutAdapter,
-    RolloutMessage, SessionProfile, SessionSummary,
+    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    slice_from_compaction, summarize_tool_call,
 };
 
 /// Cursor adapter. Reads the agent chat history from Cursor's global SQLite
@@ -93,15 +93,9 @@ impl CursorAdapter {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-        let rows = stmt.query_map(
-            rusqlite::params![headers_json, key_prefix],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                ))
-            },
-        );
+        let rows = stmt.query_map(rusqlite::params![headers_json, key_prefix], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+        });
         let rows = match rows {
             Ok(r) => r,
             Err(_) => return Vec::new(),
@@ -285,15 +279,18 @@ fn bubble_stats(conn: &Connection) -> HashMap<String, BubbleStats> {
     let Ok(rows) = stmt.query_map([BUBBLE_PREFIX], |row| {
         let cid: String = row.get(0)?;
         let last: Option<String> = row.get(6)?;
-        Ok((cid, BubbleStats {
-            total: row.get(1)?,
-            user: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
-            assistant: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
-            tool: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
-            summarized: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
-            last_ts: last.filter(|s| !s.is_empty()),
-            bytes: row.get(7)?,
-        }))
+        Ok((
+            cid,
+            BubbleStats {
+                total: row.get(1)?,
+                user: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                assistant: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                tool: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                summarized: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                last_ts: last.filter(|s| !s.is_empty()),
+                bytes: row.get(7)?,
+            },
+        ))
     }) else {
         return stats;
     };
@@ -344,7 +341,10 @@ impl RolloutAdapter for CursorAdapter {
             let Ok(composer) = serde_json::from_str::<Value>(&value) else {
                 continue;
             };
-            let created = composer.get("createdAt").and_then(|c| c.as_i64()).unwrap_or(0);
+            let created = composer
+                .get("createdAt")
+                .and_then(|c| c.as_i64())
+                .unwrap_or(0);
             let title = composer
                 .get("name")
                 .and_then(|n| n.as_str())
@@ -447,9 +447,7 @@ impl RolloutAdapter for CursorAdapter {
             .unwrap_or(0);
         let line_count: i64 = conn
             .query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM cursorDiskKV WHERE key GLOB ?1 || ':*'",
-                ),
+                "SELECT COUNT(*) FROM cursorDiskKV WHERE key GLOB ?1 || ':*'",
                 rusqlite::params![format!("{}{}", BUBBLE_PREFIX, full_id)],
                 |r| r.get(0),
             )

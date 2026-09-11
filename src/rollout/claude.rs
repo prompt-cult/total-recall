@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    resolve_session_dir, slice_from_compaction, summarize_tool_call, EventType, InterestingEvent,
-    RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
+    resolve_session_dir, slice_from_compaction, summarize_tool_call,
 };
 
 /// Claude adapter. Reads JSONL files from ~/.claude/projects/
@@ -22,9 +22,7 @@ impl ClaudeAdapter {
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        Self {
-            root: root.into(),
-        }
+        Self { root: root.into() }
     }
 
     fn session_path(&self, session_id: &str) -> Option<PathBuf> {
@@ -71,10 +69,7 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
     // Content can be in message.content (string or array of content blocks)
     let content = extract_content(v);
 
-    let injected = v
-        .get("injected")
-        .and_then(|i| i.as_bool())
-        .unwrap_or(false);
+    let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
 
     let timestamp = v
         .get("timestamp")
@@ -106,16 +101,11 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
         .and_then(|c| c.as_array())
     {
         for block in content_arr {
-            if let Some(block_type) = block.get("type").and_then(|t| t.as_str()) {
-                if block_type == "tool_use" {
-                    let name = block
-                        .get("name")
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("?");
-                    let input = block.get("input").unwrap_or(&serde_json::Value::Null);
-                    let args_str = serde_json::to_string(input).unwrap_or_default();
-                    tool_calls_summary.push(summarize_tool_call(name, &args_str));
-                }
+            if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                let input = block.get("input").unwrap_or(&serde_json::Value::Null);
+                let args_str = serde_json::to_string(input).unwrap_or_default();
+                tool_calls_summary.push(summarize_tool_call(name, &args_str));
             }
         }
     }
@@ -300,7 +290,7 @@ impl RolloutAdapter for ClaudeAdapter {
                     last_ts: None,
                     role_counts: HashMap::new(),
                     interesting_events: Vec::new(),
-                }
+                };
             }
         };
 

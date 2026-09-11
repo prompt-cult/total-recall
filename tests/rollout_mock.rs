@@ -38,7 +38,10 @@ fn test_mock_list_sessions() {
     assert_eq!(sessions[0].user_count, 3);
     assert_eq!(sessions[0].assistant_count, 4);
     assert_eq!(sessions[0].tool_count, 1);
-    assert!(sessions[0].has_compaction, "Should detect compaction marker");
+    assert!(
+        sessions[0].has_compaction,
+        "Should detect compaction marker"
+    );
 }
 
 #[test]
@@ -58,7 +61,10 @@ fn test_mock_profile_session() {
         .iter()
         .filter(|e| e.event_type == EventType::Compaction)
         .collect();
-    assert!(!compaction_events.is_empty(), "Should find compaction event");
+    assert!(
+        !compaction_events.is_empty(),
+        "Should find compaction event"
+    );
 
     // Should find git commit event
     let commit_events: Vec<_> = profile

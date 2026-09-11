@@ -5,8 +5,8 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use inception_mercury_compaction::{
-    build_structured_prompt, harness::{make_adapter, resolve_harness},
-    MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT,
+    MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
+    harness::{make_adapter, resolve_harness},
 };
 
 #[derive(Parser)]
@@ -74,7 +74,11 @@ fn resolve_session(adapter: &dyn RolloutAdapter, session: &Option<String>) -> St
 /// Read messages respecting --full vs --from-compaction flags.
 /// Default (neither flag): from compaction point.
 /// --full: entire session.
-fn read_messages(adapter: &dyn RolloutAdapter, session_id: &str, full: bool) -> Vec<RolloutMessage> {
+fn read_messages(
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+    full: bool,
+) -> Vec<RolloutMessage> {
     if full {
         adapter.read_session_mmap(session_id)
     } else {
@@ -188,11 +192,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Extract => {
-            let messages = read_messages(
-                adapter.as_ref(),
-                &session_id,
-                cli.full,
-            );
+            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
             if cli.json || !cli.markdown {
                 for msg in &messages {
                     let json = serde_json::to_string(msg)?;
@@ -226,11 +226,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Compact => {
-            let messages = read_messages(
-                adapter.as_ref(),
-                &session_id,
-                cli.full,
-            );
+            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
             tracing::info!("Read {} messages from {}", messages.len(), session_id);
 
             let t0 = std::time::Instant::now();
