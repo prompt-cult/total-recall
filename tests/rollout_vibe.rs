@@ -2,7 +2,7 @@ use inception_mercury_compaction::{EventType, RolloutAdapter, VibeAdapter};
 use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".tmp/test-data/vibe")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts/vibe_sessions")
 }
 
 #[test]

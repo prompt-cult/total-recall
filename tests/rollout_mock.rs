@@ -2,7 +2,7 @@ use inception_mercury_compaction::{EventType, MockAdapter, RolloutAdapter};
 use std::io::Write;
 
 fn test_data_path() -> String {
-    env!("CARGO_MANIFEST_DIR").to_string() + "/.tmp/test-data/mock_sample.jsonl"
+    env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl"
 }
 
 #[test]

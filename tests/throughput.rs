@@ -8,7 +8,7 @@ use inception_mercury_compaction::{
 /// The critical question: is the bottleneck reading the rollout or pushing to Mercury?
 #[test]
 fn test_read_speed_vs_format() {
-    let path = env!("CARGO_MANIFEST_DIR").to_string() + "/.tmp/test-data/mock_sample.jsonl";
+    let path = env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl";
     let adapter = MockAdapter::new(&path);
 
     let t0 = Instant::now();
@@ -35,7 +35,7 @@ fn test_read_speed_vs_format() {
 /// Test that mmap read is at least as fast as regular read.
 #[test]
 fn test_mmap_vs_regular_read() {
-    let path = env!("CARGO_MANIFEST_DIR").to_string() + "/.tmp/test-data/mock_sample.jsonl";
+    let path = env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl";
     let adapter = MockAdapter::new(&path);
 
     let t0 = Instant::now();
@@ -59,7 +59,7 @@ fn test_mmap_vs_regular_read() {
 #[test]
 fn test_vibe_read_speed_large() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(".tmp/test-data/vibe");
+        .join("rollouts/vibe_sessions");
     let adapter = VibeAdapter::with_root(root);
 
     let t0 = Instant::now();
