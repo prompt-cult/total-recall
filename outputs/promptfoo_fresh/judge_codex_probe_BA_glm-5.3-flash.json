@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 7.3,
+  "verdict": {
+    "winner": "A",
+    "score_A": 90,
+    "score_B": 80,
+    "confidence": 70,
+    "reasoning": "Summary A is more complete and precise: it captures technical details (FPS settings, controls, Python version requirement, subagent ID) and includes a structured artifact tracker (created/modified/read) plus richer next steps. Summary B covers the core accomplishments, files, and decisions accurately and is slightly more concise, but omits useful specifics and contains a minor internal inconsistency ('work in progress' vs 'successfully completed'). Both share the same minor path typo ('./tmp/snake.py' instead of '/tmp/snake.py'). A's extra detail outweighs B's slight brevity advantage for continuity purposes."
+  }
+}

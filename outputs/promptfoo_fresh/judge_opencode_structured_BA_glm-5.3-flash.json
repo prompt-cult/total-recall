@@ -1,0 +1,14 @@
+{
+  "rollout": "opencode",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 48.6,
+  "verdict": {
+    "winner": "A",
+    "score_A": 85,
+    "score_B": 78,
+    "confidence": 62,
+    "reasoning": "Both summaries accurately capture the core task (recovering the panel/pairwise methodology from opencode session history), cite the same session ID and date, and are well-organized and concise. Summary A is more complete on the central finding: it reports the concrete recovered specifications (11K token chunk, 5 models, 10 pairwise comparisons, 3 judges, 60 total judgments), which are internally consistent (10 pairs x 2 orderings x 3 judges = 60), plus the 50-message extraction count. Summary B is slightly more nuanced on operational constraints (2000-char truncations, distinguishing subagent-authored prompts from user statements) but omits the actual numeric methodology specs, framing them as still-to-verify, which under-reports the key result if it was established. A has a minor internal tension (specs 'confirmed' yet methodology still being reconstructed), but its greater informational content gives it the edge. Confidence is moderate since the original conversation cannot be independently verified."
+  }
+}

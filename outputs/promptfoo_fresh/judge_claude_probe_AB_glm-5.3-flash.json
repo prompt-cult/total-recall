@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 10.3,
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 89,
+    "confidence": 68,
+    "reasoning": "Both summaries accurately capture the core work: extracting spike17 files (README.md, whisper-3-large.py, 0000_host.mp3) from tag 20260702_120900_main_spike17 into .tmp/ for use as hints in another project. Summary B is more complete, recalling additional specifics such as the spike15 tag (20260702_121100_main_spike15), the exact 'Path not found: speech/spike15' error, the note that other .tmp files pre-existed and were not extracted, and an optional follow-up involving the spike15 tag. Summary A is more concise and has cleaner formatting, and it reasonably infers 'Whisper Large V3' context, but it generalizes 'spike folders no longer exist' where B cites the specific error, and it omits the spike15 tag and pre-existing-file caveats. Since accuracy and completeness outweigh minor conciseness advantages, B edges out A."
+  }
+}

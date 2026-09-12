@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.8,
+  "verdict": {
+    "winner": "A",
+    "score_A": 90,
+    "score_B": 78,
+    "confidence": 92,
+    "reasoning": "A is more complete and accurate: it captures the specific file names, the subagent role, the shared class structure, gameplay features, and next-step execution details. B is concise but omits important specifics and includes a likely typo in the run path ('./tmp/snake.py' instead of '/tmp/snake.py')."
+  }
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "variant": "structured",
+    "haiku_wins": 3,
+    "mercury_wins": 21,
+    "ties": 0,
+    "errors": 0,
+    "haiku_avg": 78.9,
+    "mercury_avg": 85.5,
+    "total_evals": 24
+  },
+  {
+    "variant": "probe",
+    "haiku_wins": 4,
+    "mercury_wins": 20,
+    "ties": 0,
+    "errors": 0,
+    "haiku_avg": 78.9,
+    "mercury_avg": 84.3,
+    "total_evals": 24
+  }
+]

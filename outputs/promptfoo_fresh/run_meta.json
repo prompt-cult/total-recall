@@ -1,0 +1,32 @@
+{
+  "started_utc": "2026-09-11T23:40:00.764676+00:00",
+  "variants": [
+    "structured",
+    "probe"
+  ],
+  "parser": "evaluate_chunked.parse_json_response (item04)",
+  "glm_max_tokens": 16000,
+  "finished_utc": "2026-09-11T23:50:29.916699+00:00",
+  "aggregate": [
+    {
+      "variant": "structured",
+      "haiku_wins": 3,
+      "mercury_wins": 21,
+      "ties": 0,
+      "errors": 0,
+      "haiku_avg": 78.9,
+      "mercury_avg": 85.5,
+      "total_evals": 24
+    },
+    {
+      "variant": "probe",
+      "haiku_wins": 4,
+      "mercury_wins": 20,
+      "ties": 0,
+      "errors": 0,
+      "haiku_avg": 78.9,
+      "mercury_avg": 84.3,
+      "total_evals": 24
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "rollout": "vibe",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "elapsed_s": 23.5,
+  "verdict": {
+    "winner": "B",
+    "score_A": 76,
+    "score_B": 87,
+    "confidence": 70,
+    "reasoning": "Both summaries agree on the core facts (Zen API outages for Claude/GPT/Gemini, working models DeepSeek/GLM/Kimi/MiniMax, updated evaluate.py with deepseek-v4-flash summarizer and glm/kimi/deepseek judge panel, Mercury baseline, need to re-run). Summary A is more concise and includes a useful 'key constraint' note, but omits several substantive details that Summary B captures: the lines.append() bug fix, the ordering bias detection, previous Mistral-based results (9-8-3-4), the rm glob error, API endpoints, and git commit tracking. A's own reference to 'stale Mistral-based results' corroborates B's more detailed account, suggesting B's extra detail is genuine recall rather than fabrication. B's structured format (factual recall, decisions with rationale, artifacts, continuation) is slightly more verbose but provides more actionable context for resuming work. The path discrepancy (/Users/Shared/... vs /home/demo/project/) cannot be resolved without the source, so it was not weighted heavily. B wins on completeness while maintaining clarity; A wins only on conciseness."
+  }
+}

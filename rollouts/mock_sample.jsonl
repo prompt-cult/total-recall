@@ -1,0 +1,8 @@
+{"role":"user","content":"Fix the auth bug in login.py","tool_calls_summary":[],"timestamp":"2026-09-10T10:00:00Z","injected":false}
+{"role":"assistant","content":"I'll look at the login.py file first.","tool_calls_summary":["read_file(login.py)"],"timestamp":"2026-09-10T10:00:05Z","injected":false}
+{"role":"tool","content":"def login(user, pass):\n    return True","tool_calls_summary":[],"timestamp":"2026-09-10T10:00:06Z","injected":false}
+{"role":"assistant","content":"Found the bug. The password is not hashed.","tool_calls_summary":["edit(login.py, 20 chars replaced)"],"timestamp":"2026-09-10T10:00:10Z","injected":false}
+{"role":"user","content":"You are continuing a trajectory after a context compaction. Please review the work done so far.","tool_calls_summary":[],"timestamp":"2026-09-10T10:01:00Z","injected":true}
+{"role":"assistant","content":"I'll review the changes and continue.","tool_calls_summary":["bash: git commit -m fix-auth"],"timestamp":"2026-09-10T10:01:05Z","injected":false}
+{"role":"user","content":"Now push to origin","tool_calls_summary":[],"timestamp":"2026-09-10T10:02:00Z","injected":false}
+{"role":"assistant","content":"Pushing now.","tool_calls_summary":["bash: git push origin main"],"timestamp":"2026-09-10T10:02:05Z","injected":false}

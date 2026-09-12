@@ -1,0 +1,14 @@
+{
+  "rollout": "opencode",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 15.8,
+  "verdict": {
+    "winner": "B",
+    "score_A": 79,
+    "score_B": 88,
+    "confidence": 70,
+    "reasoning": "Summary B is substantially more complete and specific: it captures the recovered methodology spec (5 models, 10 pairwise comparisons, both A/B orders, 3 judges, 60 total judgments \u2014 internally consistent arithmetic), subagent session IDs, message counts, timestamps, decisions made, and a concrete next step to cross-check pairwise_grade.py against the spec. Summary A is more concise and includes a unique detail (2000-character truncation boundaries), but omits the recovered methodology numbers and treats panel structure as still-unverified. Both correctly identify the key session ID, the Codex CLI provenance limitation, and the need to distinguish assistant-authored prompts from genuine user statements. Confidence is moderated by unverifiable conflicting details between the two (working directory path /Users/Shared vs /home/demo, and differing skill names), so B's richer specifics could carry some hallucination risk, but its internal consistency favors it."
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "rollout": "codex",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.7,
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 93,
+    "confidence": 91,
+    "reasoning": "Both summaries are accurate, but B is more complete and clearer. It captures the completed Snake and Space Invaders scripts, key implementation details, files, and practical next steps. A is concise but misses several important specifics like controls and some structural details."
+  }
+}

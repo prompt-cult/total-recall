@@ -1,0 +1,14 @@
+{
+  "rollout": "opencode",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.7,
+  "verdict": {
+    "winner": "B",
+    "score_A": 68,
+    "score_B": 84,
+    "confidence": 87,
+    "reasoning": "B is more complete and structured, capturing key session details, files, methodology parameters, and limitations. A is concise but omits several important specifics, while B better balances accuracy, completeness, and clarity despite a few extra details."
+  }
+}

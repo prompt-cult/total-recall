@@ -21,6 +21,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from evaluate_chunked import parse_json_response
+
 # --- Config ---
 
 REPO = Path(__file__).parent
@@ -127,7 +129,7 @@ def load_env() -> dict[str, str]:
 
 
 def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
-             max_tokens: int = 2000, api_type: str = "chat") -> str:
+             max_tokens: int = 2000, api_type: str = "chat", timeout: int = 120) -> str:
     """Call an LLM endpoint. Supports three API types:
     - chat: OpenAI chat/completions (DeepSeek, GLM, Kimi, Mercury)
     - messages: Anthropic Messages API (Claude, Qwen)
@@ -151,7 +153,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
                 "User-Agent": "inception-mercury-compaction/1.0",
             },
         )
-        resp = urllib.request.urlopen(req, timeout=120)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         result = json.loads(resp.read())
         # Anthropic returns content as a list of blocks
         content = result.get("content", [])
@@ -176,7 +178,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
                 "User-Agent": "inception-mercury-compaction/1.0",
             },
         )
-        resp = urllib.request.urlopen(req, timeout=120)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         result = json.loads(resp.read())
         # Responses API returns output array with message objects
         output = result.get("output", [])
@@ -210,7 +212,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
                 "User-Agent": "inception-mercury-compaction/1.0",
             },
         )
-        resp = urllib.request.urlopen(req, timeout=120)
+        resp = urllib.request.urlopen(req, timeout=timeout)
         result = json.loads(resp.read())
         return result["choices"][0]["message"]["content"]
 
@@ -333,6 +335,8 @@ def run_pairwise(env: dict[str, str]) -> list[dict]:
                     continue
 
                 print(f"    {rollout_name} {order_label} {judge_key}: judging...", file=sys.stderr)
+                judge_max_tokens = 16000 if judge_key == "glm-5.3-flash" else 500
+                judge_timeout = 300 if judge_key == "glm-5.3-flash" else 120
                 try:
                     response = call_api(
                         judge_config["api_base"],
@@ -340,34 +344,30 @@ def run_pairwise(env: dict[str, str]) -> list[dict]:
                         api_key,
                         "You are an impartial judge. Return ONLY valid JSON.",
                         JUDGE_PROMPT.format(summary_A=summary_A, summary_B=summary_B),
-                        max_tokens=500,
+                        max_tokens=judge_max_tokens,
                         api_type=judge_config.get("api_type", "chat"),
+                        timeout=judge_timeout,
                     )
 
-                    # Try to parse JSON from response
-                    try:
-                        # Strip markdown code fences if present
-                        cleaned = response.strip()
-                        if cleaned.startswith("```"):
-                            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned
-                            if cleaned.endswith("```"):
-                                cleaned = cleaned.rsplit("```", 1)[0]
-                            cleaned = cleaned.strip()
-                        if not cleaned.startswith("{"):
-                            # Find first { and last }
-                            start = cleaned.find("{")
-                            end = cleaned.rfind("}")
-                            if start >= 0 and end > start:
-                                cleaned = cleaned[start:end+1]
-                        verdict = json.loads(cleaned)
-                    except (json.JSONDecodeError, IndexError):
-                        verdict = {
-                            "winner": "error",
-                            "score_A": 0,
-                            "score_B": 0,
-                            "confidence": 0,
-                            "reasoning": f"Failed to parse: {response[:200]}",
-                        }
+                    verdict = parse_json_response(response)
+                    if verdict.get("winner") == "error":
+                        print(f"      -> parse failed, retrying once with strict instruction", file=sys.stderr)
+                        retry_response = call_api(
+                            judge_config["api_base"],
+                            judge_config["model"],
+                            api_key,
+                            "You are an impartial judge. Return ONLY valid JSON.",
+                            JUDGE_PROMPT.format(summary_A=summary_A, summary_B=summary_B) + "\n\nReturn ONLY the JSON object, no other text.",
+                            max_tokens=judge_max_tokens,
+                            api_type=judge_config.get("api_type", "chat"),
+                            timeout=judge_timeout,
+                        )
+                        retry_verdict = parse_json_response(retry_response)
+                        if retry_verdict.get("winner") != "error":
+                            verdict = retry_verdict
+                            print(f"      -> retry succeeded", file=sys.stderr)
+                        else:
+                            print(f"      -> retry also failed to parse", file=sys.stderr)
 
                     result = {
                         "rollout": rollout_name,

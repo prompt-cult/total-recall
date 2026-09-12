@@ -17,13 +17,13 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 ## Supported tools
 
-| Tool | Storage | Chat history repos / gists |
-|------|---------|---------------------------|
-| Mistral Vibe | JSONL (`~/.vibe/logs/session/`) | [gist: mistral-vibe-chat-history](https://gist.github.com/simbo1905/b79ba81f637e9e235d55e4853e3dc299) |
-| OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) |
-| Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) |
-| Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) |
-| Cursor | SQLite | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) |
+| Tool | Storage | Chat history repos / gists | Rust CLI |
+|------|---------|---------------------------|----------|
+| Mistral Vibe | JSONL (`~/.vibe/logs/session/`) | [gist: mistral-vibe-chat-history](https://gist.github.com/simbo1905/b79ba81f637e9e235d55e4853e3dc299) | Yes |
+| OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) | Yes (`--harness opencode`) |
+| Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) | Yes |
+| Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) | Yes |
+| Cursor | SQLite (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `cursorDiskKV` key-value JSON store) | [simbo1905/cursor-chat-history](https://github.com/simbo1905/cursor-chat-history) | Yes (`--harness cursor`) |
 
 ## Compaction prompt research
 
@@ -56,11 +56,79 @@ This tool takes the best of each: it preserves recent messages, prunes large too
 ./compact.py --tool vibe --model mercury-2
 ```
 
+## Rust CLI (this crate)
+
+The Rust binary is the primary implementation. `compact.py` remains the
+seed/reference script.
+
+```bash
+cargo build --release
+B=./target/release/inception-mercury-compaction
+
+# List rollouts for a harness (--harness is required; vibe | codex | claude | opencode | cursor)
+$B --harness vibe list
+
+# Profile a rollout (counts, compaction markers, interesting events)
+$B --harness vibe --session 4836855e profile
+
+# Extract what the user said verbatim
+$B --harness vibe --session 4836855e user-messages --markdown
+
+# Compact from the last compaction point (default) or the full rollout
+$B --harness vibe --session 4836855e compact
+$B --harness vibe --session 4836855e --full compact
+```
+
+Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
+
+## MCP server
+
+The binary runs as an MCP stdio server exposing `harness`, `list_sessions`,
+`profile_session`, `extract_messages`, `extract_user_messages`, and
+`compact_session`:
+
+```bash
+$B mcp
+```
+
+Each server instance is bound to exactly ONE harness, set by the installing
+config via the `HARNESS` environment variable (or `--harness <name>` on the
+`mcp` subcommand — the flag wins if both are given). Tools take no harness
+parameter; the `harness` tool reports the bound value. If the harness is
+unset or unknown the server refuses to start: it prints the reason to stdout
+and stderr and exits 2.
+
+Register it in Mistral Vibe (`~/.vibe/config.toml`):
+
+```toml
+[[mcp_servers]]
+name = "compaction"
+transport = "stdio"
+command = "/path/to/inception-mercury-compaction"
+args = ["mcp"]
+
+[mcp_servers.env]
+HARNESS = "vibe"
+```
+
+Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
+
+```json
+"mcp": {
+  "compaction": {
+    "type": "local",
+    "command": ["/path/to/inception-mercury-compaction", "mcp"],
+    "environment": {"HARNESS": "opencode"}
+  }
+}
+```
+
+
 ## Setup
 
 1. Get an Inception API key from [https://platform.inceptionlabs.ai](https://platform.inceptionlabs.ai)
 2. Copy `.env.template` to `.env` and fill in your key
-3. Run `./compact.py --tool vibe`
+3. Run `./compact.py --tool vibe` (or the Rust CLI above)
 
 ## Requirements
 

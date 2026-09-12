@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "kimi-k3",
+  "elapsed_s": 21.9,
+  "verdict": {
+    "winner": "B",
+    "score_A": 82,
+    "score_B": 86,
+    "confidence": 62,
+    "reasoning": "Both summaries accurately capture the core work: extracting spike17 files from git tag 20260702_120900_main_spike17 into .tmp/ for cross-project reference. Summary B is more complete, including additional context about pre-existing .tmp/ contents (history.txt, e2e-testing-is-a-stack.md), the spike15 distinction, and the constraint against merging files into the working tree\u2014details suggesting deeper conversation capture. However, B has a minor path inconsistency ('tmp/README.md' missing the dot prefix). Summary A is cleaner and more concise with a well-synthesized key decision about tag-based referencing, but its file paths (spike17/...) contradict its own note that spike folders no longer exist locally, and it omits some operational details. B's superior completeness slightly outweighs its minor typo."
+  }
+}

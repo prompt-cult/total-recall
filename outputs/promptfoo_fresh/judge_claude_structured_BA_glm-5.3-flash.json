@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "structured",
+  "order": "BA",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 10.5,
+  "verdict": {
+    "winner": "A",
+    "score_A": 88,
+    "score_B": 84,
+    "confidence": 60,
+    "reasoning": "Both summaries accurately capture the core work: extracting three spike17 files (README.md, whisper-3-large.py, 0000_host.mp3) from git tag 20260702_120900_main_spike17 into .tmp/ for cross-project reference. Summary A is more precise on file locations (correctly noting .tmp/ paths), and captures additional constraints from the conversation: pre-existing .tmp/ contents being unrelated, the spike15 vs spike17 distinction, and the constraint against permanently merging files into the working tree. Summary B is more concise and better formatted, and adds a useful synthesis about tag-based history replacing local spike folders, but its file listing under 'spike17/' paths may misrepresent where the files actually reside after extraction. A edges out on accuracy and completeness; B edges out slightly on conciseness and clarity, making this a close call."
+  }
+}

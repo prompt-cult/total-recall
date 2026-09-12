@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "AB",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 1.9,
+  "verdict": {
+    "winner": "A",
+    "score_A": 86,
+    "score_B": 63,
+    "confidence": 91,
+    "reasoning": "A is more accurate and concise: it captures the key extraction of spike17 files into .tmp, the shift to using git tags instead of missing local spike folders, and the intended next step. B includes more detail but introduces likely inaccuracies/confusion by emphasizing spike15 and a cloud-provider tag, which are not supported by A\u2019s account and make it less reliable."
+  }
+}

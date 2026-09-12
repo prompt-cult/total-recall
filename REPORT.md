@@ -20,18 +20,18 @@
 
 | Metric | Haiku (full) | Mercury (concat) |
 |--------|-------------|-----------------|
-| Wins | 19 | 4 |
+| Wins | 20 | 4 |
 | Ties | 0 | |
-| Errors | 1 | |
-| Avg Score | 82.1 | 69.2 |
+| Errors | 0 | |
+| Avg Score | 85.5 | 72.0 |
 
 ## Individual Evaluations
 
 ### vibe | AB | glm-5.3-flash
 - Winner: **A**
-- Score A: 88 | Score B: 68
-- Confidence: 80
-- Reasoning: Summary A is coherent, well-structured, and accurately captures the final state: the Zen API outage, the switch to working models (DeepSeek/GLM/Kimi/MiniMax), updated files, and clear next steps. It a
+- Score A: 84 | Score B: 66
+- Confidence: 74
+- Reasoning: Summary A is internally consistent, concise, and clearly captures the final state: Zen API outage limiting models to DeepSeek/GLM/Kimi/MiniMax, evaluate.py and REPORT.md updated with working models, a
 
 ### vibe | AB | gpt-5.4-mini
 - Winner: **A**
@@ -46,10 +46,10 @@
 - Reasoning: Summary A is coherent, well-structured, and clearly conveys the current state: Zen API outage diagnosed, working models identified, evaluate.py and REPORT.md updated, and re-run pending. Summary B app
 
 ### vibe | BA | glm-5.3-flash
-- Winner: **error**
-- Score A: 0 | Score B: 0
-- Confidence: 0
-- Reasoning: Failed to parse: 
+- Winner: **B**
+- Score A: 70 | Score B: 86
+- Confidence: 65
+- Reasoning: Summary A contains rich detail (Mistral-based results of 9/24 wins, 76.0 avg, ordering bias, more files listed) but is internally contradictory: one section declares the task complete with no next ste
 
 ### vibe | BA | gpt-5.4-mini
 - Winner: **B**
@@ -170,3 +170,53 @@
 - Score A: 66 | Score B: 87
 - Confidence: 78
 - Reasoning: Both summaries capture the core facts accurately (spike17 tag extraction, 3 files into .tmp/, reference use for another project). However, Summary A appears to contain two overlapping summaries concat
+
+## Reconciliation
+
+Two experiments in this repo answer different questions, and their headline numbers differ:
+
+- `REPORT.md` (this file, from `evaluate_chunked.py`): Mercury **chunked-concat** (rollout split
+  in half, each half summarized, halves concatenated) with the bullet-style prompt, judged vs
+  Haiku summarizing the full rollout. Verdict: **Haiku 20 - Mercury 4** (0 ties, 0 errors),
+  avg 85.5 vs 72.0 over 24 verdicts (4 rollouts x 2 orderings x 3 judges).
+- `REPORT_promptfoo.md` (from `promptfoo_experiment.py`): Mercury **full-rollout single call**
+  with the tuned `structured` prompt vs the same Haiku baseline. Verdict: **Mercury 22 - Haiku 2**,
+  avg 87.0 vs 79.1; `probe` variant 17:7, avg 81.5 vs 78.8.
+
+### Fresh rerun (item06, this reconciliation)
+
+To rule out stale or truncated-judge artefacts, both tuned variants were re-run fresh
+(`outputs/promptfoo_fresh/`, `results_promptfoo_fresh.json`): same prompts, same 4 rollout
+fixtures, same 3-judge panel and A-B/B-A orderings, but with the hardened JSON parser and
+single-retry from item04 (`evaluate_chunked.parse_json_response`), glm-5.3-flash judge at
+`max_tokens=16000` / 300s timeout (it spends completion tokens on reasoning; the original
+promptfoo run used 2000, which explains its baseline/no_tools parse-error verdicts), and HTTP +
+parse retries with backoff. All 48 fresh judge calls returned parseable verdicts; 0 errors.
+
+| Variant | Saved (Sep 10) | Fresh (item06) |
+|---------|----------------|----------------|
+| structured | Mercury 22 - Haiku 2, avg 87.0 vs 79.1 | Mercury 21 - Haiku 3, avg 85.5 vs 78.9 |
+| probe | Mercury 17 - Haiku 7, avg 81.5 vs 78.8 | Mercury 20 - Haiku 4, avg 84.3 vs 78.9 |
+
+The `structured` result **reproduced**. Per the pre-registered decision rule, the structured
+prompt is confirmed as the shipped default: `src/prompt.rs` (`STRUCTURED_PROMPT` +
+`SYSTEM_PROMPT`) already contains exactly this prompt (verified byte-identical to the
+promptfoo `structured` config, and matching `structured_prompt.txt` / `mercury.py`); the Rust
+tool and MCP server use it via `build_structured_prompt`. No code change was required.
+
+### What each experiment supports, and what the contradiction actually is
+
+- `REPORT_promptfoo.md` supports: given the full rollout in one call, Mercury-2.5 with the
+  structured prompt produces summaries the judge panel prefers over Haiku's.
+- `REPORT.md` supports: splitting a rollout in half and concatenating two independent summaries
+  degrades quality (duplication, contradictory halves — see the judges' reasoning throughout)
+  enough to lose to Haiku even though the same model wins when given the whole conversation.
+- The headline contradiction is therefore **chunking strategy + prompt**, not model quality:
+  same model, different input handling. The chunked-concat pipeline in `evaluate_chunked.py`
+  still uses the bullet prompt; feeding it the structured prompt is untested and is the obvious
+  next experiment.
+- Caveats common to both: 4 rollout fixtures (24 clustered verdicts, not 24 independent
+  conversations), and judges score summaries without access to the source conversation, so
+  they reward structure and detail; they cannot verify factual accuracy. N=24 per variant with
+  judge disagreement means 21:3 vs 22:2 is within run-to-run noise, but both fresh and saved
+  runs agree the direction is clearly Mercury-favoured for the structured prompt.

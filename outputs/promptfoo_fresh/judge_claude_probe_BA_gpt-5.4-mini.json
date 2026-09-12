@@ -1,0 +1,14 @@
+{
+  "rollout": "claude",
+  "variant": "probe",
+  "order": "BA",
+  "judge": "gpt-5.4-mini",
+  "elapsed_s": 2.1,
+  "verdict": {
+    "winner": "B",
+    "score_A": 68,
+    "score_B": 82,
+    "confidence": 86,
+    "reasoning": "Both summaries capture the core points, but B is clearer and more concise while still including the key accomplishments, files, and next steps. A adds more detail, but some of it is redundant and less clearly organized. B better emphasizes the git-tag-based extraction and current work status."
+  }
+}

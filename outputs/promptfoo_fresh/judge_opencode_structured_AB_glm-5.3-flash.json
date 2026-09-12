@@ -1,0 +1,14 @@
+{
+  "rollout": "opencode",
+  "variant": "structured",
+  "order": "AB",
+  "judge": "glm-5.3-flash",
+  "elapsed_s": 10.9,
+  "verdict": {
+    "winner": "B",
+    "score_A": 78,
+    "score_B": 86,
+    "confidence": 62,
+    "reasoning": "Both summaries are well-structured and cover accomplishments, files, next steps, and constraints. Summary B is stronger because it reports concrete recovered details (11K token chunk, 5 models, 10 pairwise comparisons, 3 judges, 60 total judgments, 50 messages extracted), showing the methodology was actually confirmed, whereas A leaves the panel structure as an unverified next step. B also adds useful constraints (read-only scope, search strategy). Summary A has unique valuable details (2000-char truncation boundaries, distinguishing assistant-authored prompts from user statements, project path), which keeps it competitive, but its vaguer progress reporting and lack of the recovered methodology specifics make it slightly less complete. Confidence is moderate because B's specific numbers could not be verified against the source conversation and could reflect hallucination risk."
+  }
+}
