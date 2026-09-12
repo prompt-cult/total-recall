@@ -22,13 +22,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS: both Intel and Apple Silicon
-          - os: macos-13
-            arch: x86_64
-            platform: macos
-          - os: macos-latest
-            arch: aarch64
-            platform: macos
+          # macOS builds disabled: macos-13 (x86_64) never picked up a runner
+          # on the free tier and blocked the whole release; re-enable after
+          # fixing macOS runner pickup. Windows likewise (20-min build too slow
+          # without Blacksmith):
+          #   - os: macos-13
+          #     arch: x86_64
+          #     platform: macos
+          #   - os: macos-latest
+          #     arch: aarch64
+          #     platform: macos
+          #   - os: windows-latest
+          #     arch: x86_64
+          #     platform: windows
           # Linux x86_64
           - os: ubuntu-latest
             arch: x86_64
@@ -37,11 +43,6 @@ jobs:
           - os: ubuntu-24.04-arm
             arch: aarch64
             platform: linux
-          # Windows — NOT included in v0.1.0 (20-min build too slow without Blacksmith).
-          # Add this entry back in v0.1.1:
-          #   - os: windows-latest
-          #     arch: x86_64
-          #     platform: windows
     runs-on: ${{ matrix.os }}
     defaults:
       run:
