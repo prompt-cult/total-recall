@@ -13,7 +13,7 @@ use inception_mercury_compaction::{
 #[command(name = "inception-mercury-compaction")]
 #[command(about = "Compact agent session rollouts using Inception Mercury 2.5")]
 pub struct Cli {
-    /// Which harness to use (vibe | codex | claude | opencode | cursor). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
+    /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
     pub harness: Option<String>,
 
@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
     let harness_name = match cli.harness.as_deref() {
         Some(name) => name,
         None => {
-            eprintln!("error: --harness is required (vibe | codex | claude | opencode | cursor)");
+            eprintln!("error: --harness is required (vibe | codex | claude | opencode)");
             std::process::exit(2);
         }
     };

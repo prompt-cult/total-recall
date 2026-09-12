@@ -6,7 +6,6 @@ pub mod rollout;
 
 pub use mercury::MercuryProvider;
 pub use prompt::{SYSTEM_PROMPT, build_structured_prompt};
-pub use rollout::cursor::CursorAdapter;
 pub use rollout::mock::MockAdapter;
 pub use rollout::opencode::OpenCodeAdapter;
 pub use rollout::vibe::VibeAdapter;

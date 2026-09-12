@@ -1,6 +1,5 @@
 pub mod claude;
 pub mod codex;
-pub mod cursor;
 pub mod mock;
 pub mod opencode;
 pub mod vibe;
@@ -20,7 +19,7 @@ pub struct RolloutMessage {
 
 /// Trait abstracting over different CLI tool session formats.
 pub trait RolloutAdapter: Send + Sync {
-    /// Name of the harness ("vibe", "codex", "claude", "opencode", "cursor")
+    /// Name of the harness ("vibe", "codex", "claude", "opencode")
     fn name(&self) -> &'static str;
 
     /// Find all rollout sessions, return summary info

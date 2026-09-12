@@ -6,7 +6,7 @@
 """Universal context compaction for CLI coding agents.
 
 Detects the session format (JSONL or SQLite) for Mistral Vibe, OpenCode,
-Codex CLI, Claude Code, or Cursor. Finds the last compaction point, extracts
+Codex CLI, and Claude Code. Finds the last compaction point, extracts
 messages since then, prunes large tool outputs, and sends to Inception Mercury
 2.5 for summarization.
 
@@ -54,11 +54,6 @@ TOOLS = {
         "root": Path.home() / ".claude" / "projects",
         "pattern": "*",
         "messages_file": "messages.jsonl",
-    },
-    "cursor": {
-        "storage": "sqlite",
-        "root": Path.home() / "Library" / "Application Support" / "Cursor" / "User" / "globalStorage",
-        "db_file": "state.vscdb",
     },
 }
 
@@ -270,7 +265,7 @@ def messages_to_text(messages: list[dict]) -> str:
 # --- SQLite session handling ---
 
 def load_sqlite_messages(db_path: Path) -> list[dict]:
-    """Load messages from a SQLite database (OpenCode, Cursor)."""
+    """Load messages from a SQLite database (OpenCode)."""
     import sqlite3
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
