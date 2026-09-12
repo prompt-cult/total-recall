@@ -22,16 +22,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS builds disabled: macos-13 (x86_64) never picked up a runner
-          # on the free tier and blocked the whole release; re-enable after
-          # fixing macOS runner pickup. Windows likewise (20-min build too slow
-          # without Blacksmith):
-          #   - os: macos-13
-          #     arch: x86_64
-          #     platform: macos
-          #   - os: macos-latest
-          #     arch: aarch64
-          #     platform: macos
+          # macOS arm64 (macos-latest = macOS 26 arm64; proven pickup in CI).
+          - os: macos-latest
+            arch: aarch64
+            platform: macos
+          # macOS x86_64: macos-13 was retired 2025-12-04 (jobs queue forever);
+          # macos-15-intel is GitHub's documented free-tier replacement.
+          - os: macos-15-intel
+            arch: x86_64
+            platform: macos
+          # Windows not built (20-min build too slow without Blacksmith):
           #   - os: windows-latest
           #     arch: x86_64
           #     platform: windows
