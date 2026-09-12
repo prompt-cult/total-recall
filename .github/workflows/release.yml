@@ -37,8 +37,8 @@ jobs:
           - os: ubuntu-latest
             arch: x86_64
             platform: linux
-          # Linux ARM64 — use Blacksmith runner (faster than GitHub ARM)
-          - os: blacksmith-4vcpu-ubuntu-2404-arm
+          # Linux ARM64
+          - os: ubuntu-24.04-arm
             arch: aarch64
             platform: linux
           # Windows — NOT included in v0.1.0 (20-min build too slow without Blacksmith).
