@@ -1,6 +1,6 @@
 [package]
 name = "inception-mercury-compaction"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["Consensus Solutions"]
 description = "Rust CLI for compacting agent session rollouts using Inception Mercury 2.5"
