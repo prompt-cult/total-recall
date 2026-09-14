@@ -227,30 +227,26 @@ pub fn build_recall_output(
     rollouts_table: &str,
     plan_files: &str,
 ) -> String {
-    let mut sections = Vec::new();
-
-    // 1. Metadata: recent rollouts (sets the scene)
-    sections.push(rollouts_table.to_string());
-    sections.push(String::new());
-
-    // 2. Metadata: plan/todo files (anchors current plan)
-    sections.push(plan_files.to_string());
-    sections.push(String::new());
-
-    // 3. Substance: current state (what just happened)
-    sections.push("## Current State".to_string());
-    sections.push(String::new());
-    sections.push(state_summary.to_string());
-    sections.push(String::new());
-
-    // 4. Substance: user goals/tasks/steers (steering signal, fresh before instructions)
-    sections.push("## User Goals, Tasks, and Steers".to_string());
-    sections.push(String::new());
-    sections.push(goals_summary.to_string());
-    sections.push(String::new());
-
-    // 5. Call to action (last, strongest influence on next token)
-    sections.push(INSTRUCTIONS.to_string());
+    let sections = vec![
+        // 1. Metadata: recent rollouts (sets the scene)
+        rollouts_table.to_string(),
+        String::new(),
+        // 2. Metadata: plan/todo files (anchors current plan)
+        plan_files.to_string(),
+        String::new(),
+        // 3. Substance: current state (what just happened)
+        "## Current State".to_string(),
+        String::new(),
+        state_summary.to_string(),
+        String::new(),
+        // 4. Substance: user goals/tasks/steers (steering signal, fresh before instructions)
+        "## User Goals, Tasks, and Steers".to_string(),
+        String::new(),
+        goals_summary.to_string(),
+        String::new(),
+        // 5. Call to action (last, strongest influence on next token)
+        INSTRUCTIONS.to_string(),
+    ];
 
     sections.join("\n")
 }
@@ -332,7 +328,7 @@ fn day_of_year(month: u32, day: u32, year: u32) -> u64 {
         doy += days_in_month[(m - 1) as usize];
     }
     // Leap year adjustment
-    if month > 2 && (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
+    if month > 2 && (year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))) {
         doy += 1;
     }
     doy + (day as u64) - 1
