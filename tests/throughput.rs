@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use total_recall::{
-    MockAdapter, RolloutAdapter, VibeAdapter, build_structured_prompt,
-};
+use total_recall::{MockAdapter, RolloutAdapter, VibeAdapter, build_structured_prompt};
 
 /// Test that read speed is fast enough to not be the bottleneck.
 /// The critical question: is the bottleneck reading the rollout or pushing to Mercury?

@@ -1,7 +1,7 @@
-use total_recall::RolloutAdapter;
-use total_recall::rollout::opencode::OpenCodeAdapter;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use total_recall::RolloutAdapter;
+use total_recall::rollout::opencode::OpenCodeAdapter;
 
 fn tmp_db(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));

@@ -1,5 +1,5 @@
-use total_recall::{EventType, MockAdapter, RolloutAdapter};
 use std::io::Write;
+use total_recall::{EventType, MockAdapter, RolloutAdapter};
 
 fn test_data_path() -> String {
     env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl"

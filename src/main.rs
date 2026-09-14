@@ -9,7 +9,7 @@ use total_recall::{
     harness::{make_adapter, resolve_harness},
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
-        build_recent_rollouts_table, build_recall_output, build_state_prompt,
+        build_recall_output, build_recent_rollouts_table, build_state_prompt,
         filter_recent_sessions,
     },
 };

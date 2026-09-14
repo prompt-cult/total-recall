@@ -6,11 +6,12 @@ use rmcp::{
 };
 
 use crate::{
-    MercuryProvider, RolloutAdapter, build_structured_prompt, harness::make_adapter,
+    MercuryProvider, RolloutAdapter, build_structured_prompt,
+    harness::make_adapter,
     prompt::SYSTEM_PROMPT,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
-        build_recent_rollouts_table, build_recall_output, build_state_prompt,
+        build_recall_output, build_recent_rollouts_table, build_state_prompt,
         filter_recent_sessions,
     },
 };
@@ -113,7 +114,9 @@ impl TotalRecallServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Total-recall MCP tool: list all agent session rollouts for the bound harness")]
+    #[tool(
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness"
+    )]
     async fn list_sessions(&self) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
         let sessions = adapter.list_sessions();
@@ -142,7 +145,9 @@ impl TotalRecallServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Total-recall MCP tool: extract all messages from a session as structured JSON")]
+    #[tool(
+        description = "Total-recall MCP tool: extract all messages from a session as structured JSON"
+    )]
     async fn extract_messages(
         &self,
         Parameters(params): Parameters<ExtractParams>,
@@ -284,7 +289,8 @@ impl TotalRecallServer {
         let plan_files = build_plan_files_section();
 
         // Assemble output
-        let output = build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
+        let output =
+            build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
 
         // Log timing info as JSON prefix (for debugging)
         let timing = serde_json::json!({
@@ -296,9 +302,10 @@ impl TotalRecallServer {
         let timing_str = serde_json::to_string_pretty(&timing)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![
-            ContentBlock::text(format!("<!-- {} -->\n\n{}", timing_str, output)),
-        ]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
+            "<!-- {} -->\n\n{}",
+            timing_str, output
+        ))]))
     }
 }
 

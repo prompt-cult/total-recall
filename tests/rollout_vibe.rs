@@ -1,5 +1,5 @@
-use total_recall::{EventType, RolloutAdapter, VibeAdapter};
 use std::path::PathBuf;
+use total_recall::{EventType, RolloutAdapter, VibeAdapter};
 
 fn test_data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts/vibe_sessions")

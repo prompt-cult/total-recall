@@ -1,8 +1,6 @@
 use std::sync::Mutex;
 
-use total_recall::harness::{
-    HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness,
-};
+use total_recall::harness::{HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness};
 use total_recall::mcp::TotalRecallServer;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());

@@ -1,6 +1,6 @@
+use std::path::PathBuf;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::claude::ClaudeAdapter;
-use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts")

@@ -85,10 +85,7 @@ pub fn build_recent_rollouts_table(
     hours_back: u64,
 ) -> String {
     let mut lines = Vec::new();
-    lines.push(format!(
-        "## Recent Rollouts ({}h)",
-        hours_back
-    ));
+    lines.push(format!("## Recent Rollouts ({}h)", hours_back));
     lines.push(String::new());
 
     if sessions.is_empty() {
@@ -96,8 +93,12 @@ pub fn build_recent_rollouts_table(
         return lines.join("\n");
     }
 
-    lines.push("| Session | Title | Size | Lines | User | Asst | Tool | Compaction | Notes |".to_string());
-    lines.push("|---------|-------|------|-------|------|------|------|------------|-------|".to_string());
+    lines.push(
+        "| Session | Title | Size | Lines | User | Asst | Tool | Compaction | Notes |".to_string(),
+    );
+    lines.push(
+        "|---------|-------|------|-------|------|------|------|------------|-------|".to_string(),
+    );
 
     for s in sessions {
         let size_str = if s.file_size >= 1_000_000 {
@@ -120,7 +121,15 @@ pub fn build_recent_rollouts_table(
 
         lines.push(format!(
             "| {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            s.session_id, s.title, size_str, s.line_count, s.user_count, s.assistant_count, s.tool_count, compaction, notes
+            s.session_id,
+            s.title,
+            size_str,
+            s.line_count,
+            s.user_count,
+            s.assistant_count,
+            s.tool_count,
+            compaction,
+            notes
         ));
     }
 
@@ -271,10 +280,7 @@ pub struct RecallOutput {
 }
 
 /// Filter sessions to those modified within `hours_back` hours.
-pub fn filter_recent_sessions(
-    sessions: &[SessionSummary],
-    hours_back: u64,
-) -> Vec<SessionSummary> {
+pub fn filter_recent_sessions(sessions: &[SessionSummary], hours_back: u64) -> Vec<SessionSummary> {
     let now = std::time::SystemTime::now();
     let cutoff = now
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -328,7 +334,9 @@ fn day_of_year(month: u32, day: u32, year: u32) -> u64 {
         doy += days_in_month[(m - 1) as usize];
     }
     // Leap year adjustment
-    if month > 2 && (year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))) {
+    if month > 2
+        && (year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)))
+    {
         doy += 1;
     }
     doy + (day as u64) - 1

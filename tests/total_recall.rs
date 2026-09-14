@@ -1,6 +1,6 @@
 use total_recall::{
     SessionSummary,
-    recall::{build_recent_rollouts_table, build_recall_output},
+    recall::{build_recall_output, build_recent_rollouts_table},
 };
 
 #[test]
@@ -12,22 +12,20 @@ fn test_build_recent_rollouts_table_empty() {
 
 #[test]
 fn test_build_recent_rollouts_table_with_sessions() {
-    let sessions = vec![
-        SessionSummary {
-            session_id: "session_20260914_040914_abc123".to_string(),
-            title: "test session".to_string(),
-            start_time: "2026-09-14T04:09:14".to_string(),
-            end_time: "2026-09-14T05:00:00".to_string(),
-            file_size: 95844,
-            line_count: 24,
-            user_count: 1,
-            assistant_count: 6,
-            tool_count: 17,
-            has_compaction: false,
-            parent_session_id: None,
-            child_sessions: vec![],
-        },
-    ];
+    let sessions = vec![SessionSummary {
+        session_id: "session_20260914_040914_abc123".to_string(),
+        title: "test session".to_string(),
+        start_time: "2026-09-14T04:09:14".to_string(),
+        end_time: "2026-09-14T05:00:00".to_string(),
+        file_size: 95844,
+        line_count: 24,
+        user_count: 1,
+        assistant_count: 6,
+        tool_count: 17,
+        has_compaction: false,
+        parent_session_id: None,
+        child_sessions: vec![],
+    }];
     let table = build_recent_rollouts_table(&sessions, Some("session_20260914_040914_abc123"), 24);
     assert!(table.contains("session_20260914_040914_abc123"));
     assert!(table.contains("test session"));
@@ -36,7 +34,8 @@ fn test_build_recent_rollouts_table_with_sessions() {
 
 #[test]
 fn test_build_recall_output_structure() {
-    let rollouts = "## Recent Rollouts (24h)\n\n| session_abc | test | 100KB | 50 | 2026-09-14 | no | - |";
+    let rollouts =
+        "## Recent Rollouts (24h)\n\n| session_abc | test | 100KB | 50 | 2026-09-14 | no | - |";
     let output = build_recall_output(
         "## Accomplished\n- Did thing X\n\n## Current Work\nWorking on Y",
         "1. Goal: fix the bug\n2. Steer: use mistral not openrouter\n3. Correction: don't spend money",
@@ -95,11 +94,26 @@ fn test_recall_output_ordering_metadata_first_instructions_last() {
     // Substance in the middle
     assert!(state_pos < goals_pos, "state must come before goals");
     // Instructions last (strongest influence on next token)
-    assert!(goals_pos < instructions_pos, "goals must come before instructions");
-    assert!(instructions_pos < output.len(), "instructions must not be truncated");
+    assert!(
+        goals_pos < instructions_pos,
+        "goals must come before instructions"
+    );
+    assert!(
+        instructions_pos < output.len(),
+        "instructions must not be truncated"
+    );
     // Instructions should be the last section
     let after_instructions = &output[instructions_pos..];
-    assert!(!after_instructions.contains("ROLLOUT_MARKER"), "nothing after instructions");
-    assert!(!after_instructions.contains("STATE_MARKER"), "nothing after instructions");
-    assert!(!after_instructions.contains("GOALS_MARKER"), "nothing after instructions");
+    assert!(
+        !after_instructions.contains("ROLLOUT_MARKER"),
+        "nothing after instructions"
+    );
+    assert!(
+        !after_instructions.contains("STATE_MARKER"),
+        "nothing after instructions"
+    );
+    assert!(
+        !after_instructions.contains("GOALS_MARKER"),
+        "nothing after instructions"
+    );
 }
