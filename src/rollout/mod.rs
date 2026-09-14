@@ -90,7 +90,6 @@ pub enum EventType {
 }
 
 /// Summarize a tool call into a compact one-line description.
-/// Mirrors the logic from compact.py `_summarize_tool_call`.
 pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
     let args: serde_json::Value = match serde_json::from_str(args_str) {
         Ok(v) => v,

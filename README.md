@@ -10,10 +10,19 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 ## What it does
 
+### `compact` — fast compaction
+
 1. Detects the session format (JSONL or SQLite) — works across all tools
 2. Finds the last compaction point in the session
 3. Streams messages since that point to Mercury 2.5
-4. Writes a compaction summary that can be fed back into the agent
+4. Returns a structured summary (Accomplished, Current Work, Files, Next Steps, Key Decisions)
+
+### `recall` — total recall
+
+1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
+2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
+3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
+4. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, substance middle, instructions last
 
 ## Supported tools
 
@@ -39,28 +48,6 @@ This tool takes the best of each: it preserves recent messages, prunes large too
 ## Usage
 
 ```bash
-# Compact the current Mistral Vibe session
-./compact.py --tool vibe
-
-# Compact a specific session by ID
-./compact.py --tool vibe --session 7b00dfb9
-
-# Compact the latest OpenCode session
-./compact.py --tool opencode
-
-# Dry run — show what would be compacted without calling the API
-./compact.py --tool vibe --dry-run
-
-# Use a different Mercury model
-./compact.py --tool vibe --model mercury-2
-```
-
-## Rust CLI (this crate)
-
-The Rust binary is the primary implementation. `compact.py` remains the
-seed/reference script.
-
-```bash
 cargo build --release
 B=./target/release/total-recall
 
@@ -76,9 +63,16 @@ $B --harness vibe --session 4836855e user-messages --markdown
 # Compact from the last compaction point (default) or the full rollout
 $B --harness vibe --session 4836855e compact
 $B --harness vibe --session 4836855e --full compact
+
+# Total recall: state summary + user goals/steers + rollouts table + plan files
+$B --harness vibe --session 4836855e recall
+
+# Total recall with Mistral instead of Mercury (for A/B comparison)
+$B --harness vibe --session 4836855e --provider mistral recall
 ```
 
 Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
+For `--provider mistral`, set `MISTRAL_API_KEY` instead.
 
 ## MCP server
 
@@ -127,13 +121,13 @@ Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
 
 1. Get an Inception API key from [https://platform.inceptionlabs.ai](https://platform.inceptionlabs.ai)
 2. Copy `.env.template` to `.env` and fill in your key
-3. Run `./compact.py --tool vibe` (or the Rust CLI above)
+3. `cargo build --release` and use the CLI above
 
 ## Requirements
 
-- Python >= 3.11 (via [uv](https://docs.astral.sh/uv/))
+- Rust toolchain (stable)
 - `INCEPTION_API_KEY` in environment or `.env`
-- No other dependencies — the script uses stdlib only
+- Optional: `MISTRAL_API_KEY` for `--provider mistral`
 
 ## Mercury 2.5 pricing
 
