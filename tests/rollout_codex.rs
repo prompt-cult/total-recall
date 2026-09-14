@@ -1,5 +1,5 @@
-use inception_mercury_compaction::RolloutAdapter;
-use inception_mercury_compaction::rollout::codex::CodexAdapter;
+use total_recall::RolloutAdapter;
+use total_recall::rollout::codex::CodexAdapter;
 use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {

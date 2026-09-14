@@ -4,14 +4,19 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use inception_mercury_compaction::{
+use total_recall::{
     MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
     harness::{make_adapter, resolve_harness},
+    recall::{
+        GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
+        build_recent_rollouts_table, build_recall_output, build_state_prompt,
+        filter_recent_sessions,
+    },
 };
 
 #[derive(Parser)]
-#[command(name = "inception-mercury-compaction")]
-#[command(about = "Compact agent session rollouts using Inception Mercury 2.5")]
+#[command(name = "total-recall")]
+#[command(about = "Total-recall MCP tool for fast compaction and log mining of session rollouts")]
 pub struct Cli {
     /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
@@ -37,6 +42,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
+    /// LLM provider: mercury (default) or mistral
+    #[arg(long, global = true)]
+    pub provider: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -53,6 +62,8 @@ pub enum Command {
     UserMessages,
     /// Compact a rollout using Mercury 2.5
     Compact,
+    /// Total recall: state summary + user goals + rollouts table + plan files
+    Recall,
     /// Start as an MCP server on stdio
     Mcp,
 }
@@ -107,7 +118,7 @@ async fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        let server = inception_mercury_compaction::mcp::CompactionServer::with_harness(harness);
+        let server = total_recall::mcp::TotalRecallServer::with_harness(harness);
         let service = server.serve(stdio()).await?;
         service.waiting().await?;
         return Ok(());
@@ -242,6 +253,55 @@ async fn main() -> Result<()> {
             tracing::info!("Mercury responded in {:?}", mercury_time);
 
             print!("{}", summary);
+            let _ = std::io::stdout().flush();
+        }
+
+        Command::Recall => {
+            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
+            tracing::info!("Read {} messages from {}", messages.len(), session_id);
+
+            if messages.is_empty() {
+                eprintln!("No messages found in session {}", session_id);
+                std::process::exit(1);
+            }
+
+            let user_messages = adapter.extract_user_messages(&session_id);
+            tracing::info!("Extracted {} user messages", user_messages.len());
+
+            let state_prompt = build_state_prompt(&messages);
+            let goals_prompt = build_goals_prompt(&user_messages);
+
+            let provider = match cli.provider.as_deref() {
+                Some("mistral") => MercuryProvider::new_mistral()?,
+                _ => MercuryProvider::new()?,
+            };
+            let t0 = std::time::Instant::now();
+            let (state_result, goals_result) = tokio::join!(
+                provider.compact(STATE_SYSTEM_PROMPT, &state_prompt),
+                provider.compact(GOALS_SYSTEM_PROMPT, &goals_prompt),
+            );
+            let total_time = t0.elapsed();
+
+            let state_summary = state_result?;
+            let goals_summary = goals_result?;
+
+            let all_sessions = adapter.list_sessions();
+            let hours_back: u64 = 24;
+            let recent_sessions = filter_recent_sessions(&all_sessions, hours_back);
+            let rollouts_table =
+                build_recent_rollouts_table(&recent_sessions, Some(&session_id), hours_back);
+            let plan_files = build_plan_files_section();
+            let output =
+                build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
+
+            eprintln!(
+                "total_recall: {} messages, {} user msgs, {} recent sessions, {:.1}s",
+                messages.len(),
+                user_messages.len(),
+                recent_sessions.len(),
+                total_time.as_secs_f64()
+            );
+            print!("{}", output);
             let _ = std::io::stdout().flush();
         }
 

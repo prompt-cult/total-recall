@@ -10,7 +10,8 @@ struct ChatRequest {
     messages: Vec<ChatMessage>,
     temperature: f64,
     max_tokens: u32,
-    reasoning_effort: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,6 +39,7 @@ struct ResponseMessage {
 pub struct MercuryProvider {
     api_key: String,
     model: String,
+    api_url: String,
 }
 
 impl MercuryProvider {
@@ -49,16 +51,48 @@ impl MercuryProvider {
         Ok(Self {
             api_key,
             model: MERCURY_MODEL.to_string(),
+            api_url: MERCURY_API_URL.to_string(),
         })
     }
 
     pub fn with_model(api_key: String, model: String) -> Self {
-        Self { api_key, model }
+        Self {
+            api_key,
+            model,
+            api_url: MERCURY_API_URL.to_string(),
+        }
+    }
+
+    /// Create with a custom API URL, key, and model (e.g. for Mistral).
+    pub fn with_api(api_key: String, model: String, api_url: String) -> Self {
+        Self {
+            api_key,
+            model,
+            api_url,
+        }
+    }
+
+    /// Create a Mistral provider from MISTRAL_API_KEY env var.
+    pub fn new_mistral() -> Result<Self> {
+        let _ = dotenvy::dotenv();
+        let api_key = std::env::var("MISTRAL_API_KEY")
+            .map_err(|_| anyhow!("MISTRAL_API_KEY not set in env or .env file"))?;
+        Ok(Self::with_api(
+            api_key,
+            "mistral-small-latest".to_string(),
+            "https://api.mistral.ai/v1/chat/completions".to_string(),
+        ))
     }
 
     /// Send the conversation text to Mercury for compaction.
     pub async fn compact(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         let client = reqwest::Client::new();
+        // Only send reasoning_effort for Mercury API
+        let reasoning_effort = if self.api_url == MERCURY_API_URL {
+            Some("low".to_string())
+        } else {
+            None
+        };
         let request = ChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -73,11 +107,11 @@ impl MercuryProvider {
             ],
             temperature: 0.1,
             max_tokens: 4000,
-            reasoning_effort: "low".to_string(),
+            reasoning_effort,
         };
 
         let resp = client
-            .post(MERCURY_API_URL)
+            .post(&self.api_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&request)

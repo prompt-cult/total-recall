@@ -1,5 +1,5 @@
-use inception_mercury_compaction::RolloutAdapter;
-use inception_mercury_compaction::rollout::opencode::OpenCodeAdapter;
+use total_recall::RolloutAdapter;
+use total_recall::rollout::opencode::OpenCodeAdapter;
 use rusqlite::Connection;
 use std::path::PathBuf;
 

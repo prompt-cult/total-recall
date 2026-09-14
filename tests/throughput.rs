@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use inception_mercury_compaction::{
+use total_recall::{
     MockAdapter, RolloutAdapter, VibeAdapter, build_structured_prompt,
 };
 
