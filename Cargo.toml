@@ -1,9 +1,9 @@
 [package]
-name = "inception-mercury-compaction"
+name = "total-recall"
 version = "0.2.1"
 edition = "2024"
 authors = ["Consensus Solutions"]
-description = "Rust CLI for compacting agent session rollouts using Inception Mercury 2.5"
+description = "Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

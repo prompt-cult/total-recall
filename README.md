@@ -1,6 +1,6 @@
-# inception-mercury-compaction
+# total-recall
 
-Universal context compaction tool for CLI coding agents. Uses [Inception Mercury 2.5](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,100 tokens/sec — to compact long agent sessions.
+Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Uses [Inception Mercury 2.5](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,100 tokens/sec — to compact long agent sessions and mine them for goals, tasks, and steers.
 
 ## Why
 
@@ -62,7 +62,7 @@ seed/reference script.
 
 ```bash
 cargo build --release
-B=./target/release/inception-mercury-compaction
+B=./target/release/total-recall
 
 # List rollouts for a harness (--harness is required; vibe | codex | claude | opencode)
 $B --harness vibe list
@@ -83,8 +83,8 @@ Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
 ## MCP server
 
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`,
-`profile_session`, `extract_messages`, `extract_user_messages`, and
-`compact_session`:
+`profile_session`, `extract_messages`, `extract_user_messages`,
+`compact_session`, and `total_recall`:
 
 ```bash
 $B mcp
@@ -103,7 +103,7 @@ Register it in Mistral Vibe (`~/.vibe/config.toml`):
 [[mcp_servers]]
 name = "compaction"
 transport = "stdio"
-command = "/path/to/inception-mercury-compaction"
+command = "/path/to/total-recall"
 args = ["mcp"]
 
 [mcp_servers.env]
@@ -116,7 +116,7 @@ Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
 "mcp": {
   "compaction": {
     "type": "local",
-    "command": ["/path/to/inception-mercury-compaction", "mcp"],
+    "command": ["/path/to/total-recall", "mcp"],
     "environment": {"HARNESS": "opencode"}
   }
 }

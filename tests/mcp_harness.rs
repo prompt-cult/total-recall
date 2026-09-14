@@ -1,9 +1,9 @@
 use std::sync::Mutex;
 
-use inception_mercury_compaction::harness::{
+use total_recall::harness::{
     HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness,
 };
-use inception_mercury_compaction::mcp::CompactionServer;
+use total_recall::mcp::TotalRecallServer;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -67,7 +67,7 @@ fn unknown_harness_value_is_refused() {
 
 #[test]
 fn server_binds_and_exposes_harness() {
-    let server = CompactionServer::with_harness("codex".to_string());
+    let server = TotalRecallServer::with_harness("codex".to_string());
     assert_eq!(server.harness(), "codex");
 }
 

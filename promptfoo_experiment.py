@@ -189,14 +189,14 @@ def call_chat(api_base, model, api_key, system, user, max_tokens=2000, reasoning
     if "mercury" in model:
         payload["reasoning_effort"] = reasoning_effort
     req = urllib.request.Request(f"{api_base}/chat/completions", data=json.dumps(payload).encode(),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "inception-mercury-compaction/1.0"})
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "total-recall/1.0"})
     resp = urllib.request.urlopen(req, timeout=timeout)
     return json.loads(resp.read())["choices"][0]["message"]["content"]
 
 def call_messages(api_base, model, api_key, system, user, max_tokens=2000):
     payload = {"model": model, "max_tokens": max_tokens, "system": system, "messages": [{"role": "user", "content": user}]}
     req = urllib.request.Request(f"{api_base}/messages", data=json.dumps(payload).encode(),
-        headers={"x-api-key": api_key, "Content-Type": "application/json", "anthropic-version": "2023-06-01", "User-Agent": "inception-mercury-compaction/1.0"})
+        headers={"x-api-key": api_key, "Content-Type": "application/json", "anthropic-version": "2023-06-01", "User-Agent": "total-recall/1.0"})
     resp = urllib.request.urlopen(req, timeout=120)
     result = json.loads(resp.read())
     content = result.get("content", [])
@@ -207,7 +207,7 @@ def call_messages(api_base, model, api_key, system, user, max_tokens=2000):
 def call_responses(api_base, model, api_key, system, user, max_tokens=2000):
     payload = {"model": model, "instructions": system, "input": user, "max_output_tokens": max_tokens}
     req = urllib.request.Request(f"{api_base}/responses", data=json.dumps(payload).encode(),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "inception-mercury-compaction/1.0"})
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": "total-recall/1.0"})
     resp = urllib.request.urlopen(req, timeout=120)
     result = json.loads(resp.read())
     for item in result.get("output", []):

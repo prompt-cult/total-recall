@@ -1,4 +1,4 @@
-use inception_mercury_compaction::{MockAdapter, RolloutAdapter};
+use total_recall::{MockAdapter, RolloutAdapter};
 use std::io::Write;
 
 fn test_data_path() -> String {

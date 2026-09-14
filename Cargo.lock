@@ -917,26 +917,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inception-mercury-compaction"
-version = "0.2.1"
-dependencies = [
- "anyhow",
- "clap",
- "criterion",
- "dotenvy",
- "memmap2",
- "reqwest",
- "rmcp",
- "rusqlite",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1989,6 +1969,26 @@ dependencies = [
  "libc",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "total-recall"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "criterion",
+ "dotenvy",
+ "memmap2",
+ "reqwest",
+ "rmcp",
+ "rusqlite",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

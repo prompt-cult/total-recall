@@ -8,6 +8,11 @@ use rmcp::{
 use crate::{
     MercuryProvider, RolloutAdapter, build_structured_prompt, harness::make_adapter,
     prompt::SYSTEM_PROMPT,
+    recall::{
+        GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
+        build_recent_rollouts_table, build_recall_output, build_state_prompt,
+        filter_recent_sessions,
+    },
 };
 
 fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
@@ -61,14 +66,27 @@ pub struct CompactParams {
     pub full: bool,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct TotalRecallParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    pub session_id: String,
+    #[schemars(description = "Hours back to include in the recent rollouts table. Default: 24.")]
+    #[serde(default = "default_hours")]
+    pub hours_back: u64,
+}
+
+fn default_hours() -> u64 {
+    24
+}
+
 // --- MCP Server ---
 
 #[derive(Clone)]
-pub struct CompactionServer {
+pub struct TotalRecallServer {
     harness: String,
 }
 
-impl CompactionServer {
+impl TotalRecallServer {
     pub fn with_harness(harness: String) -> Self {
         Self { harness }
     }
@@ -83,10 +101,10 @@ impl CompactionServer {
 }
 
 #[tool_router]
-impl CompactionServer {
+impl TotalRecallServer {
     #[tool(
         name = "harness",
-        description = "Report which harness this MCP server is bound to"
+        description = "Total-recall MCP tool: report which harness this server is bound to"
     )]
     async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
         let json = serde_json::json!({ "harness": self.harness });
@@ -95,7 +113,7 @@ impl CompactionServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "List all agent session rollouts for the bound harness")]
+    #[tool(description = "Total-recall MCP tool: list all agent session rollouts for the bound harness")]
     async fn list_sessions(&self) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
         let sessions = adapter.list_sessions();
@@ -105,7 +123,7 @@ impl CompactionServer {
     }
 
     #[tool(
-        description = "Profile a session: file size, line count, role counts, interesting events"
+        description = "Total-recall MCP tool: profile a session — file size, line count, role counts, interesting events"
     )]
     async fn profile_session(
         &self,
@@ -124,7 +142,7 @@ impl CompactionServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Extract all messages from a session as structured JSON")]
+    #[tool(description = "Total-recall MCP tool: extract all messages from a session as structured JSON")]
     async fn extract_messages(
         &self,
         Parameters(params): Parameters<ExtractParams>,
@@ -146,7 +164,7 @@ impl CompactionServer {
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Extract verbatim user messages from a session")]
+    #[tool(description = "Total-recall MCP tool: extract verbatim user messages from a session")]
     async fn extract_user_messages(
         &self,
         Parameters(params): Parameters<UserMessagesParams>,
@@ -165,7 +183,7 @@ impl CompactionServer {
     }
 
     #[tool(
-        description = "Compact a session using Mercury 2.5 — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions"
+        description = "Total-recall MCP tool: fast compaction of a session using Mercury 2.5 — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
     )]
     async fn compact_session(
         &self,
@@ -203,10 +221,89 @@ impl CompactionServer {
 
         Ok(CallToolResult::success(vec![ContentBlock::text(summary)]))
     }
+
+    #[tool(
+        name = "total_recall",
+        description = "Total-recall MCP tool: fast compaction and log mining of session rollouts as a long-term memory store. Summarises the current session state, extracts user goals/tasks/steers, lists recent rollouts, and lists plan/todo files. Makes two parallel LLM calls and assembles a combined output to supplement the shorter faster compactions."
+    )]
+    async fn total_recall(
+        &self,
+        Parameters(params): Parameters<TotalRecallParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        // Read messages from last compaction point
+        let messages = adapter.read_session_from_compaction(&session_id);
+        if messages.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No messages found in session".to_string(),
+            )]));
+        }
+
+        // Extract user messages from the full session
+        let user_messages = adapter.extract_user_messages(&session_id);
+
+        // Build prompts
+        let state_prompt = build_state_prompt(&messages);
+        let goals_prompt = build_goals_prompt(&user_messages);
+
+        // Create provider
+        let provider = MercuryProvider::new().map_err(|e| {
+            McpError::internal_error(format!("Failed to create Mercury provider: {}", e), None)
+        })?;
+
+        // Make both LLM calls in parallel
+        let t0 = std::time::Instant::now();
+        let (state_result, goals_result) = tokio::join!(
+            provider.compact(STATE_SYSTEM_PROMPT, &state_prompt),
+            provider.compact(GOALS_SYSTEM_PROMPT, &goals_prompt),
+        );
+        let total_time = t0.elapsed();
+
+        let state_summary = state_result.map_err(|e| {
+            McpError::internal_error(format!("Mercury API error (state): {}", e), None)
+        })?;
+
+        let goals_summary = goals_result.map_err(|e| {
+            McpError::internal_error(format!("Mercury API error (goals): {}", e), None)
+        })?;
+
+        // Build recent rollouts table
+        let all_sessions = adapter.list_sessions();
+        let recent_sessions = filter_recent_sessions(&all_sessions, params.hours_back);
+        let rollouts_table =
+            build_recent_rollouts_table(&recent_sessions, Some(&session_id), params.hours_back);
+
+        // Build plan files section
+        let plan_files = build_plan_files_section();
+
+        // Assemble output
+        let output = build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
+
+        // Log timing info as JSON prefix (for debugging)
+        let timing = serde_json::json!({
+            "total_time_s": total_time.as_secs_f64(),
+            "session_messages_count": messages.len(),
+            "user_messages_count": user_messages.len(),
+            "recent_sessions_count": recent_sessions.len(),
+        });
+        let timing_str = serde_json::to_string_pretty(&timing)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![
+            ContentBlock::text(format!("<!-- {} -->\n\n{}", timing_str, output)),
+        ]))
+    }
 }
 
 #[tool_handler]
-impl ServerHandler for CompactionServer {
+impl ServerHandler for TotalRecallServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }

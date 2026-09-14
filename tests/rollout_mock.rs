@@ -1,4 +1,4 @@
-use inception_mercury_compaction::{EventType, MockAdapter, RolloutAdapter};
+use total_recall::{EventType, MockAdapter, RolloutAdapter};
 use std::io::Write;
 
 fn test_data_path() -> String {
@@ -127,7 +127,7 @@ fn test_mock_read_speed() {
 
 #[test]
 fn test_mock_format_speed() {
-    use inception_mercury_compaction::build_structured_prompt;
+    use total_recall::build_structured_prompt;
 
     let adapter = MockAdapter::new(test_data_path());
     let messages = adapter.read_session_mmap("test");

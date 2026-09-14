@@ -150,7 +150,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
                 "x-api-key": api_key,
                 "Content-Type": "application/json",
                 "anthropic-version": "2023-06-01",
-                "User-Agent": "inception-mercury-compaction/1.0",
+                "User-Agent": "total-recall/1.0",
             },
         )
         resp = urllib.request.urlopen(req, timeout=timeout)
@@ -175,7 +175,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "inception-mercury-compaction/1.0",
+                "User-Agent": "total-recall/1.0",
             },
         )
         resp = urllib.request.urlopen(req, timeout=timeout)
@@ -209,7 +209,7 @@ def call_api(api_base: str, model: str, api_key: str, system: str, user: str,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "inception-mercury-compaction/1.0",
+                "User-Agent": "total-recall/1.0",
             },
         )
         resp = urllib.request.urlopen(req, timeout=timeout)

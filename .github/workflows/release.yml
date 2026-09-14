@@ -54,12 +54,12 @@ jobs:
       - run: cargo build --release --locked
       - name: Stage binary
         run: |
-          BIN=inception-mercury-compaction
+          BIN=total-recall
           mkdir -p dist
-          cp "target/release/$BIN" "dist/inception-mercury-compaction-${{ matrix.platform }}-${{ matrix.arch }}"
+          cp "target/release/$BIN" "dist/total-recall-${{ matrix.platform }}-${{ matrix.arch }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: inception-mercury-compaction-${{ matrix.platform }}-${{ matrix.arch }}
+          name: total-recall-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/*
 
   release:

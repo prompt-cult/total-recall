@@ -1,4 +1,4 @@
-use inception_mercury_compaction::{EventType, RolloutAdapter, VibeAdapter};
+use total_recall::{EventType, RolloutAdapter, VibeAdapter};
 use std::path::PathBuf;
 
 fn test_data_root() -> PathBuf {
@@ -136,7 +136,7 @@ fn test_vibe_read_speed() {
 
 #[test]
 fn test_vibe_format_speed() {
-    use inception_mercury_compaction::build_structured_prompt;
+    use total_recall::build_structured_prompt;
 
     let adapter = VibeAdapter::with_root(test_data_root());
     let messages = adapter.read_session_mmap("2a421f21");
