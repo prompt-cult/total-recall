@@ -334,21 +334,20 @@ impl TotalRecallServer {
             McpError::internal_error(format!("Failed to create Mercury provider: {}", e), None)
         })?;
 
-        // Make both LLM calls in parallel
+        // One bounded-concurrency batch call for both LLM calls
         let t0 = std::time::Instant::now();
-        let (state_result, goals_result) = tokio::join!(
-            provider.compact(STATE_SYSTEM_PROMPT, &state_prompt),
-            provider.compact(GOALS_SYSTEM_PROMPT, &goals_prompt),
-        );
+        let batch_results = provider
+            .compact_batch_pairs(vec![
+                (STATE_SYSTEM_PROMPT.to_string(), state_prompt),
+                (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt),
+            ])
+            .await;
         let total_time = t0.elapsed();
 
-        let state_summary = state_result.map_err(|e| {
-            McpError::internal_error(format!("Mercury API error (state): {}", e), None)
-        })?;
-
-        let goals_summary = goals_result.map_err(|e| {
-            McpError::internal_error(format!("Mercury API error (goals): {}", e), None)
-        })?;
+        let [state_summary, goals_summary] = batch_results
+            .map_err(|e| McpError::internal_error(format!("Mercury API error: {e:#}"), None))?
+            .try_into()
+            .expect("compact_batch_pairs returns one result per call");
 
         // Build recent rollouts table
         let all_sessions = adapter.list_sessions();

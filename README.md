@@ -42,6 +42,26 @@ the query engine, and matching rows stream out in one pass. Synthetic parts
 report, sessions ordered most-recent first. Currently implemented for
 OpenCode; other harnesses return a clear unsupported error.
 
+## Ingestion guardrails
+
+Mercury calls are guarded by measured, documented limits (probed against a
+Pay-As-You-Go key on 2026-09-15 with real rollout payloads, 5k/10k/20k
+tokens, concurrency ramped 1→64):
+
+- **The binding limit is ~1M input tokens/minute** (the documented PAYG
+  input cap). Requests/min (1,000) and output tokens/min (100,000) never
+  bind for compaction workloads.
+- **Per-call input cap: 1M tokens** (~4 chars/token). A 100MiB rollout is
+  never slung in one call. Note Mercury 2.5's documented context window is
+  260K tokens, so practical calls stay well below the cap — tool results
+  are snipped to 500 chars in prompt assembly, keeping prompts small.
+- **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
+  sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
+  (latency is flat across payload sizes and concurrency). Beyond
+  concurrency 8 the 429 wall arrives with no throughput gain.
+- **429 + `Retry-After` exponential backoff, 5xx retry**: the documented
+  correct behaviour; the server recovers immediately after backoff.
+
 ### `recall` — total recall
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers

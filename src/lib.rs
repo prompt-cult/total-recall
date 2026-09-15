@@ -5,7 +5,7 @@ pub mod prompt;
 pub mod recall;
 pub mod rollout;
 
-pub use mercury::MercuryProvider;
+pub use mercury::{MAX_CONCURRENCY, MAX_INPUT_TOKENS_PER_CALL, MercuryProvider, estimate_tokens};
 pub use prompt::{SYSTEM_PROMPT, build_structured_prompt};
 pub use recall::{
     GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,

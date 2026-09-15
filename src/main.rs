@@ -295,14 +295,17 @@ async fn main() -> Result<()> {
                 _ => MercuryProvider::new()?,
             };
             let t0 = std::time::Instant::now();
-            let (state_result, goals_result) = tokio::join!(
-                provider.compact(STATE_SYSTEM_PROMPT, &state_prompt),
-                provider.compact(GOALS_SYSTEM_PROMPT, &goals_prompt),
-            );
+            let batch_results = provider
+                .compact_batch_pairs(vec![
+                    (STATE_SYSTEM_PROMPT.to_string(), state_prompt),
+                    (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt),
+                ])
+                .await?;
             let total_time = t0.elapsed();
 
-            let state_summary = state_result?;
-            let goals_summary = goals_result?;
+            let [state_summary, goals_summary] = batch_results
+                .try_into()
+                .expect("compact_batch_pairs returns one result per call");
 
             let all_sessions = adapter.list_sessions();
             let hours_back: u64 = 24;
