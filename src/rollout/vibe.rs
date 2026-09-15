@@ -244,6 +244,7 @@ impl RolloutAdapter for VibeAdapter {
                 assistant_count,
                 tool_count,
                 has_compaction,
+                directory: None,
                 parent_session_id,
                 child_sessions: Vec::new(),
             });

@@ -16,6 +16,7 @@ fn create_fixture(path: &PathBuf) {
         "CREATE TABLE session (
             id text PRIMARY KEY,
             parent_id text,
+            directory text,
             title text,
             time_created integer NOT NULL,
             time_updated integer NOT NULL
@@ -39,11 +40,12 @@ fn create_fixture(path: &PathBuf) {
     .unwrap();
 
     conn.execute(
-        "INSERT INTO session (id, parent_id, title, time_created, time_updated)
-         VALUES (?1, ?2, ?3, 1000, 4000)",
+        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+         VALUES (?1, ?2, ?3, ?4, 1000, 4000)",
         rusqlite::params![
             "ses_fixture0001aaaa",
             "ses_parent0000bbbb",
+            "/Users/dev/fixture",
             "fixture session"
         ],
     )
@@ -176,6 +178,11 @@ fn test_opencode_list_sessions() {
         .find(|s| s.session_id.contains("fixture"))
         .expect("Should find fixture session by partial id");
     assert_eq!(s.title, "fixture session");
+    assert_eq!(
+        s.directory.as_deref(),
+        Some("/Users/dev/fixture"),
+        "directory must be populated from session.directory"
+    );
     assert_eq!(s.parent_session_id.as_deref(), Some("ses_parent0000bbbb"));
     assert!(s.user_count >= 2, "user messages counted");
     assert!(s.assistant_count >= 1, "assistant messages counted");

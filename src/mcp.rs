@@ -31,7 +31,15 @@ fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
 // --- Tool parameter structs ---
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-pub struct ListSessionsParams {}
+pub struct ListSessionsParams {
+    #[schemars(
+        description = "Only include sessions updated within this many hours. 0 = no bound (default)."
+    )]
+    #[serde(default)]
+    pub hours_back: u64,
+    #[schemars(description = "Only include sessions whose directory contains this substring.")]
+    pub directory: Option<String>,
+}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ProfileParams {
@@ -80,6 +88,34 @@ fn default_hours() -> u64 {
     24
 }
 
+fn default_she_said_hours() -> u64 {
+    48
+}
+
+/// Does `s` look like an ISO8601 timestamp (so it can be compared
+/// lexicographically against a cutoff)? Unparsable times are kept by the
+/// bound filters (safe default).
+fn is_iso8601(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 19 && b[4] == b'-' && b[7] == b'-' && (b[10] == b'T' || b[10] == b' ')
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SheSaidHeSaidParams {
+    #[schemars(
+        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+    )]
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    #[schemars(description = "Case-insensitive search terms. At least one is required.")]
+    pub words: Vec<String>,
+    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 48.")]
+    #[serde(default = "default_she_said_hours")]
+    pub hours_back: u64,
+    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    pub directory: Option<String>,
+}
+
 // --- MCP Server ---
 
 #[derive(Clone)]
@@ -115,14 +151,49 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness"
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (default 0 = no bound) and a directory substring filter"
     )]
-    async fn list_sessions(&self) -> Result<CallToolResult, McpError> {
+    async fn list_sessions(
+        &self,
+        Parameters(params): Parameters<ListSessionsParams>,
+    ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let sessions = adapter.list_sessions();
+        let mut sessions = adapter.list_sessions();
+        if params.hours_back > 0 {
+            let cutoff = crate::rollout::opencode::iso_cutoff(params.hours_back);
+            sessions.retain(|s| !is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str());
+        }
+        if let Some(directory) = params.directory.as_deref().filter(|d| !d.is_empty()) {
+            sessions.retain(|s| s.directory.as_deref().is_none_or(|d| d.contains(directory)));
+        }
         let json = serde_json::to_string_pretty(&sessions)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        name = "she_said_he_said_action",
+        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Matching runs inside SQLite on a read-only connection."
+    )]
+    async fn she_said_he_said_action(
+        &self,
+        Parameters(params): Parameters<SheSaidHeSaidParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        if params.words.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "she_said_he_said_action requires at least one term in `words`".to_string(),
+            )]));
+        }
+        match adapter.she_said_he_said_action(
+            &params.sessions,
+            &params.words,
+            params.hours_back,
+            params.directory.as_deref(),
+        ) {
+            Ok(report) => Ok(CallToolResult::success(vec![ContentBlock::text(report)])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
     }
 
     #[tool(

@@ -23,6 +23,7 @@ fn test_build_recent_rollouts_table_with_sessions() {
         assistant_count: 6,
         tool_count: 17,
         has_compaction: false,
+        directory: None,
         parent_session_id: None,
         child_sessions: vec![],
     }];

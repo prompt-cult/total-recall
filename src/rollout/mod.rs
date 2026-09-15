@@ -40,6 +40,23 @@ pub trait RolloutAdapter: Send + Sync {
 
     /// Extract only user messages (verbatim)
     fn extract_user_messages(&self, session_id: &str) -> Vec<String>;
+
+    /// Case-insensitive term-matched dialogue and tool actions, as a markdown
+    /// report of HE SAID (user text), SHE SAID (assistant text) and THEY DID
+    /// (tool calls). Harnesses without a native implementation return a clear
+    /// unsupported error.
+    fn she_said_he_said_action(
+        &self,
+        _sessions: &[String],
+        _words: &[String],
+        _hours_back: u64,
+        _directory: Option<&str>,
+    ) -> Result<String, String> {
+        Err(format!(
+            "she_said_he_said_action is not implemented for harness '{}'; supported: opencode",
+            self.name()
+        ))
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -54,6 +71,7 @@ pub struct SessionSummary {
     pub assistant_count: u64,
     pub tool_count: u64,
     pub has_compaction: bool,
+    pub directory: Option<String>,
     pub parent_session_id: Option<String>,
     pub child_sessions: Vec<String>,
 }
@@ -190,7 +208,7 @@ pub fn messages_to_text(messages: &[RolloutMessage]) -> String {
 }
 
 /// Truncate a string to at most `max_bytes` without splitting a UTF-8 character.
-fn truncate_chars(s: &str, max_bytes: usize) -> &str {
+pub(crate) fn truncate_chars(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
     }

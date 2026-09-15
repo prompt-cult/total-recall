@@ -99,6 +99,7 @@ impl RolloutAdapter for MockAdapter {
             assistant_count,
             tool_count,
             has_compaction,
+            directory: None,
             parent_session_id: None,
             child_sessions: Vec::new(),
         }]

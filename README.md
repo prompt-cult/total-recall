@@ -17,6 +17,31 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 3. Streams messages since that point to Mercury 2.5
 4. Returns a structured summary (Accomplished, Current Work, Files, Next Steps, Key Decisions)
 
+### `list_sessions` — rollout index
+
+All rollouts for the bound harness with id, title, times, directory, message
+and tool counts, byte size, parent/children. Optional bounds: `hours_back`
+(default 0 = all) and `directory` substring filter. The OpenCode SQLite
+implementation is a single GROUP BY query (no correlated subqueries), so the
+index over thousands of sessions reads at disk speed.
+
+### `she_said_he_said_action` — matched dialogue and actions
+
+Given case-insensitive terms and a session list (partial IDs) — or, when the
+list is empty, all rollouts updated within `hours_back` hours (default 48)
+optionally filtered by `directory` substring — extracts per session:
+
+- **HE SAID** — user text parts matching any term
+- **SHE SAID** — assistant text parts matching any term
+- **THEY DID** — tool calls whose name or arguments match any term
+
+Matching is pushed down into SQLite as a custom scalar function on a
+read-only connection: the database is never written, matching runs inside
+the query engine, and matching rows stream out in one pass. Synthetic parts
+(skill injections, compaction markers) are skipped. Output is a markdown
+report, sessions ordered most-recent first. Currently implemented for
+OpenCode; other harnesses return a clear unsupported error.
+
 ### `recall` — total recall
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
@@ -67,6 +92,10 @@ $B --harness vibe --session 4836855e --full compact
 # Total recall: state summary + user goals/steers + rollouts table + plan files
 $B --harness vibe --session 4836855e recall
 
+# She-said/he-said/they-did: matched dialogue and tool actions
+$B --harness opencode he-said-she-said --words git,branch,tag,worktree --hours 48 --directory uvrr-core
+$B --harness opencode he-said-she-said --words git --sessions ses_f5a4ea5e ses_f5b87b1c
+
 # Total recall with Mistral instead of Mercury (for A/B comparison)
 $B --harness vibe --session 4836855e --provider mistral recall
 ```
@@ -76,9 +105,10 @@ For `--provider mistral`, set `MISTRAL_API_KEY` instead.
 
 ## MCP server
 
-The binary runs as an MCP stdio server exposing `harness`, `list_sessions`,
-`profile_session`, `extract_messages`, `extract_user_messages`,
-`compact_session`, and `total_recall`:
+The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
+(with optional `hours_back`/`directory` bounds), `profile_session`,
+`extract_messages`, `extract_user_messages`, `compact_session`,
+`she_said_he_said_action`, and `total_recall`:
 
 ```bash
 $B mcp
