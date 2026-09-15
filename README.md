@@ -96,6 +96,9 @@ This tool takes the best of each: it preserves recent messages, prunes large too
 cargo build --release
 B=./target/release/total-recall
 
+# Version (matches the Cargo package / release tag)
+$B --version
+
 # List rollouts for a harness (--harness is required; vibe | codex | claude | opencode)
 $B --harness vibe list
 

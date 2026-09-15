@@ -4,9 +4,24 @@ mod cli {
 }
 
 use clap::Parser;
+use clap::error::ErrorKind;
 use cli::Cli;
 
 type FlagCheck = (Vec<&'static str>, fn(&Cli) -> bool);
+
+#[test]
+fn version_flag_is_wired() {
+    let err = match Cli::try_parse_from(["bin", "--version"]) {
+        Ok(_) => panic!("--version must exit with the version display, not parse as flags"),
+        Err(e) => e,
+    };
+    assert_eq!(err.kind(), ErrorKind::DisplayVersion);
+    let rendered = err.render().to_string();
+    assert!(
+        rendered.contains(env!("CARGO_PKG_VERSION")),
+        "version output must carry the package version, got: {rendered}"
+    );
+}
 
 #[test]
 fn global_flags_accepted_before_subcommand() {

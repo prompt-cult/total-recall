@@ -16,6 +16,7 @@ use total_recall::{
 
 #[derive(Parser)]
 #[command(name = "total-recall")]
+#[command(version)]
 #[command(about = "Total-recall MCP tool for fast compaction and log mining of session rollouts")]
 pub struct Cli {
     /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
