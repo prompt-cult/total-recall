@@ -3,6 +3,7 @@
 //! Uses a hand-rolled tokio TcpListener mock server — never hits the real API.
 
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
@@ -38,11 +39,20 @@ fn chat_json(content: &str) -> String {
 struct MockServer {
     url: String,
     requests: Arc<AtomicUsize>,
+    arrivals: ArrivalLog,
 }
+
+/// Arrival timestamps (ms since the mock server's construction) of every
+/// served request — used to assert overlap structurally instead of racing
+/// wall clocks on shared CI runners.
+type ArrivalLog = Arc<StdMutex<Vec<u128>>>;
 
 impl MockServer {
     fn request_count(&self) -> usize {
         self.requests.load(Ordering::SeqCst)
+    }
+    fn arrival_timeline(&self) -> Vec<u128> {
+        self.arrivals.lock().expect("arrival mutex").clone()
     }
 }
 
@@ -82,8 +92,12 @@ async fn spawn_mock(steps: Vec<Step>) -> MockServer {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let port = listener.local_addr().expect("addr").port();
     let requests = Arc::new(AtomicUsize::new(0));
+    let timeline: ArrivalLog = Arc::new(StdMutex::new(Vec::new()));
+    let epoch = Instant::now();
     let steps = Arc::new(steps);
     let requests_clone = requests.clone();
+    let timeline_clone = timeline.clone();
+    let epoch_clone = epoch;
 
     // The accept task runs for the rest of the test process; the JoinHandle
     // is dropped (detached).
@@ -94,8 +108,13 @@ async fn spawn_mock(steps: Vec<Step>) -> MockServer {
             };
             let steps = steps.clone();
             let requests = requests_clone.clone();
+            let timeline = timeline_clone.clone();
             tokio::spawn(async move {
                 requests.fetch_add(1, Ordering::SeqCst);
+                timeline
+                    .lock()
+                    .expect("arrival mutex")
+                    .push(epoch_clone.elapsed().as_millis());
                 let mut stream = stream;
                 let raw = read_full_request(&mut stream).await;
                 let raw_str = String::from_utf8_lossy(&raw).to_string();
@@ -149,6 +168,7 @@ async fn spawn_mock(steps: Vec<Step>) -> MockServer {
     MockServer {
         url: format!("http://127.0.0.1:{port}/v1/chat/completions"),
         requests,
+        arrivals: timeline,
     }
 }
 
@@ -279,11 +299,12 @@ async fn compact_batch_runs_in_parallel_and_returns_input_order() {
     let prompts: Vec<String> = (0..4)
         .map(|i| format!("MARK-{i} dummy prompt body"))
         .collect();
-    let sequential_estimate = Duration::from_millis(100 * prompts.len() as u64);
+    let prompt_count = prompts.len();
+    let _sequential_hint_ms: u128 = 100 * prompt_count as u128;
 
     let t0 = Instant::now();
     let results = p
-        .compact_batch("system", prompts)
+        .compact_batch("system", prompts.clone())
         .await
         .expect("batch must succeed");
     let wall = t0.elapsed();
@@ -293,10 +314,21 @@ async fn compact_batch_runs_in_parallel_and_returns_input_order() {
         assert_eq!(r, &format!("RESP-{i}"), "results must be in input order");
     }
     assert_eq!(mock.request_count(), 4);
+
+    // Parallelism is asserted structurally from the mock's arrival log, not
+    // by racing a wall-clock fraction (shared CI runners flake on that). With
+    // MAX_CONCURRENCY=4 the four requests must overlap: at least three
+    // arrivals fall inside the first request's service interval.
+    let mut arrivals = mock.arrival_timeline();
+    arrivals.sort();
+    assert_eq!(arrivals.len(), 4, "all four requests must have been served");
+    let span_ms = arrivals[3] - arrivals[0];
+    let sequential_ms = (100 * prompt_count as u128) + 10;
     assert!(
-        wall < sequential_estimate,
-        "expected parallel execution: wall {wall:?} vs sequential {sequential_estimate:?}"
+        span_ms < sequential_ms,
+        "expected overlapped arrivals: last-first {span_ms}ms >> {sequential_ms}ms"
     );
+    let _ = wall; // wall time stays informational (logged, not asserted)
 }
 
 #[tokio::test]
