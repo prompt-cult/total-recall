@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rusqlite::functions::FunctionFlags;
@@ -122,6 +122,32 @@ fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, 
             messages.push(RolloutMessage {
                 role: role.to_string(),
                 content,
+                thinking: None,
+                tool_calls_summary: Vec::new(),
+                timestamp: Some(timestamp.to_string()),
+                injected: false,
+            });
+        }
+        "reasoning" => {
+            if part
+                .get("synthetic")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false)
+            {
+                return;
+            }
+            let thinking = part
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            if thinking.is_empty() {
+                return;
+            }
+            messages.push(RolloutMessage {
+                role: role.to_string(),
+                content: String::new(),
+                thinking: Some(thinking),
                 tool_calls_summary: Vec::new(),
                 timestamp: Some(timestamp.to_string()),
                 injected: false,
@@ -140,6 +166,7 @@ fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, 
             messages.push(RolloutMessage {
                 role: "assistant".to_string(),
                 content: String::new(),
+                thinking: None,
                 tool_calls_summary: vec![summary],
                 timestamp: Some(timestamp.to_string()),
                 injected: false,
@@ -153,6 +180,7 @@ fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, 
             messages.push(RolloutMessage {
                 role: "tool".to_string(),
                 content: out,
+                thinking: None,
                 tool_calls_summary: Vec::new(),
                 timestamp: Some(timestamp.to_string()),
                 injected: false,
@@ -162,6 +190,7 @@ fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, 
             messages.push(RolloutMessage {
                 role: "user".to_string(),
                 content: "context compaction".to_string(),
+                thinking: None,
                 tool_calls_summary: Vec::new(),
                 timestamp: Some(timestamp.to_string()),
                 injected: true,
@@ -225,6 +254,13 @@ impl Default for OpenCodeAdapter {
 impl RolloutAdapter for OpenCodeAdapter {
     fn name(&self) -> &'static str {
         "opencode"
+    }
+
+    fn shadow_index_root(&self) -> PathBuf {
+        self.db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(".tantivy")
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
@@ -332,6 +368,7 @@ impl RolloutAdapter for OpenCodeAdapter {
                 directory,
                 parent_session_id: parent_id,
                 child_sessions: children.remove(&id).unwrap_or_default(),
+                has_tantivy_index: false,
             });
         }
         summaries
@@ -366,6 +403,7 @@ impl RolloutAdapter for OpenCodeAdapter {
             first_ts: None,
             last_ts: None,
             role_counts: HashMap::new(),
+            has_tantivy_index: false,
             interesting_events: Vec::new(),
         };
         let conn = match self.connect() {
@@ -440,6 +478,7 @@ impl RolloutAdapter for OpenCodeAdapter {
             first_ts,
             last_ts,
             role_counts,
+            has_tantivy_index: false,
             interesting_events,
         }
     }

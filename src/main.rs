@@ -7,6 +7,7 @@ use tracing_subscriber::EnvFilter;
 use total_recall::{
     MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
     harness::{make_adapter, resolve_harness},
+    index,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
         build_recall_output, build_recent_rollouts_table, build_state_prompt,
@@ -65,21 +66,49 @@ pub enum Command {
     Compact,
     /// Total recall: state summary + user goals + rollouts table + plan files
     Recall,
-    /// She-said/he-said/they-did: matched dialogue and tool actions
-    HeSaidSheSaid {
-        /// Comma-separated case-insensitive search terms (required)
-        #[arg(long, required = true)]
-        words: String,
-        /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
-        #[arg(long, value_name = "id")]
-        sessions: Vec<String>,
-        /// Hours back when no sessions are given (default 48; 0 = no bound)
-        #[arg(long, default_value_t = 48)]
-        hours: u64,
-        /// Directory substring filter (empty-session-list mode)
-        #[arg(long)]
-        directory: Option<String>,
-    },
+        /// She-said/he-said/they-did: matched dialogue and tool actions
+        HeSaidSheSaid {
+            /// Comma-separated case-insensitive search terms (required)
+            #[arg(long, required = true)]
+            words: String,
+            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+            #[arg(long, value_name = "id")]
+            sessions: Vec<String>,
+            /// Hours back when no sessions are given (default 48; 0 = no bound)
+            #[arg(long, default_value_t = 48)]
+            hours: u64,
+            /// Directory substring filter (empty-session-list mode)
+            #[arg(long)]
+            directory: Option<String>,
+        },
+        /// Build/refresh per-session tantivy shadow indexes
+        Index {
+            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+            #[arg(long, value_name = "id")]
+            sessions: Vec<String>,
+            /// Hours back when no sessions are given (default 0 = no bound)
+            #[arg(long, default_value_t = 0)]
+            hours: u64,
+            /// Directory substring filter (empty-session-list mode)
+            #[arg(long)]
+            directory: Option<String>,
+        },
+        /// Full-text search across per-session tantivy shadow indexes
+        #[command(name = "do-android-dream-of-electric-sheep")]
+        Sheep {
+            /// Tantivy query syntax (required)
+            #[arg(long, required = true)]
+            query: String,
+            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+            #[arg(long, value_name = "id")]
+            sessions: Vec<String>,
+            /// Hours back when no sessions are given (default 48; 0 = no bound)
+            #[arg(long, default_value_t = 48)]
+            hours: u64,
+            /// Directory substring filter (empty-session-list mode)
+            #[arg(long)]
+            directory: Option<String>,
+        },
     /// Start as an MCP server on stdio
     Mcp,
 }
@@ -151,7 +180,10 @@ async fn main() -> Result<()> {
         eprintln!("error: {}", e);
         std::process::exit(2);
     });
-    let session_id = if matches!(cli.command, Command::HeSaidSheSaid { .. }) {
+    let session_id = if matches!(
+        cli.command,
+        Command::HeSaidSheSaid { .. } | Command::Index { .. } | Command::Sheep { .. }
+    ) {
         String::new()
     } else {
         resolve_session(adapter.as_ref(), &cli.session)
@@ -159,7 +191,8 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::List => {
-            let sessions = adapter.list_sessions();
+            let mut sessions = adapter.list_sessions();
+            index::annotate_sessions(&mut sessions, adapter.as_ref());
             if cli.markdown {
                 println!("| Session | Title | Lines | User | Assistant | Tool | Compaction |");
                 println!("|---------|-------|-------|------|-----------|------|------------|");
@@ -195,7 +228,8 @@ async fn main() -> Result<()> {
         }
 
         Command::Profile => {
-            let profile = adapter.profile_session(&session_id);
+            let mut profile = adapter.profile_session(&session_id);
+            profile.has_tantivy_index = index::index_exists(adapter.as_ref(), &session_id);
             if cli.json {
                 let json = serde_json::to_string_pretty(&profile)?;
                 println!("{}", json);
@@ -355,6 +389,47 @@ async fn main() -> Result<()> {
                 }
             }
         }
+
+        Command::Index {
+            sessions,
+            hours,
+            directory,
+        } => {
+            let (selected, unmatched) =
+                index::select_sessions(adapter.as_ref(), &sessions, hours, directory.as_deref());
+            if !unmatched.is_empty() {
+                eprintln!("error: unmatched session ids: {}", unmatched.join(", "));
+                std::process::exit(1);
+            }
+            for summary in &selected {
+                match index::index_session(adapter.as_ref(), &summary.session_id) {
+                    Ok(stats) => {
+                        println!("indexed {} docs={}", stats.session_id, stats.doc_count)
+                    }
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+
+        Command::Sheep {
+            query,
+            sessions,
+            hours,
+            directory,
+        } => match index::search(adapter.as_ref(), &sessions, &query, hours, directory.as_deref())
+        {
+            Ok(report) => {
+                print!("{}", report);
+                let _ = std::io::stdout().flush();
+            }
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        },
 
         Command::Mcp => {}
     }

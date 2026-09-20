@@ -92,10 +92,18 @@ fn default_she_said_hours() -> u64 {
     48
 }
 
+fn default_index_hours() -> u64 {
+    0
+}
+
+fn default_sheep_hours() -> u64 {
+    48
+}
+
 /// Does `s` look like an ISO8601 timestamp (so it can be compared
 /// lexicographically against a cutoff)? Unparsable times are kept by the
 /// bound filters (safe default).
-fn is_iso8601(s: &str) -> bool {
+pub(crate) fn is_iso8601(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() >= 19 && b[4] == b'-' && b[7] == b'-' && (b[10] == b'T' || b[10] == b' ')
 }
@@ -111,6 +119,36 @@ pub struct SheSaidHeSaidParams {
     pub words: Vec<String>,
     #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 48.")]
     #[serde(default = "default_she_said_hours")]
+    pub hours_back: u64,
+    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    pub directory: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct IndexSessionsParams {
+    #[schemars(
+        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+    )]
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 0.")]
+    #[serde(default = "default_index_hours")]
+    pub hours_back: u64,
+    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    pub directory: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SheepParams {
+    #[schemars(description = "Tantivy query syntax. Required.")]
+    pub query: String,
+    #[schemars(
+        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+    )]
+    #[serde(default)]
+    pub sessions: Vec<String>,
+    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 48.")]
+    #[serde(default = "default_sheep_hours")]
     pub hours_back: u64,
     #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
     pub directory: Option<String>,
@@ -166,6 +204,7 @@ impl TotalRecallServer {
         if let Some(directory) = params.directory.as_deref().filter(|d| !d.is_empty()) {
             sessions.retain(|s| s.directory.as_deref().is_none_or(|d| d.contains(directory)));
         }
+        crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
         let json = serde_json::to_string_pretty(&sessions)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
@@ -197,6 +236,69 @@ impl TotalRecallServer {
     }
 
     #[tool(
+        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 0 = no bound) optionally filtered by a directory substring."
+    )]
+    async fn index_sessions(
+        &self,
+        Parameters(params): Parameters<IndexSessionsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let (selected, unmatched) = crate::index::select_sessions(
+            adapter.as_ref(),
+            &params.sessions,
+            params.hours_back,
+            params.directory.as_deref(),
+        );
+        if !unmatched.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "index_sessions: unmatched session ids: {}",
+                unmatched.join(", ")
+            ))]));
+        }
+        let mut lines = Vec::new();
+        for summary in &selected {
+            match crate::index::index_session(adapter.as_ref(), &summary.session_id) {
+                Ok(stats) => {
+                    lines.push(format!("indexed {} docs={}", stats.session_id, stats.doc_count))
+                }
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
+                }
+            }
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            lines.join("\n"),
+        )]))
+    }
+
+    #[tool(
+        name = "do_android_dream_of_electric_sheep",
+        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Sessions without an index are reported as not indexed (run index_sessions first)."
+    )]
+    async fn do_android_dream_of_electric_sheep(
+        &self,
+        Parameters(params): Parameters<SheepParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        if params.query.trim().is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "do_android_dream_of_electric_sheep requires a tantivy query in `query`"
+                    .to_string(),
+            )]));
+        }
+        match crate::index::search(
+            adapter.as_ref(),
+            &params.sessions,
+            &params.query,
+            params.hours_back,
+            params.directory.as_deref(),
+        ) {
+            Ok(report) => Ok(CallToolResult::success(vec![ContentBlock::text(report)])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[tool(
         description = "Total-recall MCP tool: profile a session — file size, line count, role counts, interesting events"
     )]
     async fn profile_session(
@@ -210,7 +312,8 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let profile = adapter.profile_session(&session_id);
+        let mut profile = adapter.profile_session(&session_id);
+        profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))

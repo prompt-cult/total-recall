@@ -12,6 +12,8 @@ use std::path::PathBuf;
 pub struct RolloutMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub thinking: Option<String>,
     pub tool_calls_summary: Vec<String>,
     pub timestamp: Option<String>,
     pub injected: bool,
@@ -45,6 +47,10 @@ pub trait RolloutAdapter: Send + Sync {
     /// report of HE SAID (user text), SHE SAID (assistant text) and THEY DID
     /// (tool calls). Harnesses without a native implementation return a clear
     /// unsupported error.
+    /// Root directory for the disposable per-session full-text shadow index
+    /// (`<root>/<session_id>/`). Sibling of the rollout store, never inside it.
+    fn shadow_index_root(&self) -> PathBuf;
+
     fn she_said_he_said_action(
         &self,
         _sessions: &[String],
@@ -74,6 +80,7 @@ pub struct SessionSummary {
     pub directory: Option<String>,
     pub parent_session_id: Option<String>,
     pub child_sessions: Vec<String>,
+    pub has_tantivy_index: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -84,6 +91,7 @@ pub struct SessionProfile {
     pub first_ts: Option<String>,
     pub last_ts: Option<String>,
     pub role_counts: HashMap<String, u64>,
+    pub has_tantivy_index: bool,
     pub interesting_events: Vec<InterestingEvent>,
 }
 

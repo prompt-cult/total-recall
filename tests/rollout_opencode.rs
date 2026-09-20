@@ -262,3 +262,44 @@ fn test_opencode_unknown_session_returns_empty() {
     let adapter = fixture_adapter("unknown");
     assert!(adapter.read_session("ses_nope").is_empty());
 }
+
+#[test]
+fn test_opencode_reasoning_part_becomes_thinking_message() {
+    let path = tmp_db("reasoning");
+    create_fixture(&path);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES ('msg5', 'ses_fixture0001aaaa', 5000, 5000, ?1)",
+        rusqlite::params![r#"{"role":"assistant","time":{"created":5000}}"#],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES ('part6', 'msg5', 'ses_fixture0001aaaa', 5000, 5000, ?1)",
+        rusqlite::params![r#"{"type":"reasoning","text":"pondering the query plan"}"#],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES ('part7', 'msg5', 'ses_fixture0001aaaa', 5100, 5100, ?1)",
+        rusqlite::params![r#"{"type":"reasoning","synthetic":true,"text":"synthetic reasoning"}"#],
+    )
+    .unwrap();
+
+    let adapter = OpenCodeAdapter::with_root(&path);
+    let messages = adapter.read_session("ses_fixture");
+    let reasoning = messages
+        .iter()
+        .find(|m| m.thinking.as_deref().is_some_and(|t| t.contains("pondering")))
+        .expect("reasoning part must become a thinking-carrying message");
+    assert_eq!(reasoning.role, "assistant");
+    assert_eq!(reasoning.content, "");
+    assert!(
+        !messages
+            .iter()
+            .any(|m| m.thinking.as_deref().is_some_and(|t| t.contains("synthetic"))),
+        "synthetic reasoning must be skipped: {:?}",
+        messages
+    );
+}

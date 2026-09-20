@@ -128,6 +128,7 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
     RolloutMessage {
         role,
         content,
+        thinking: None,
         tool_calls_summary,
         timestamp,
         injected,
@@ -143,6 +144,13 @@ impl Default for VibeAdapter {
 impl RolloutAdapter for VibeAdapter {
     fn name(&self) -> &'static str {
         "vibe"
+    }
+
+    fn shadow_index_root(&self) -> PathBuf {
+        self.root
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(".tantivy")
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
@@ -247,6 +255,7 @@ impl RolloutAdapter for VibeAdapter {
                 directory: None,
                 parent_session_id,
                 child_sessions: Vec::new(),
+                has_tantivy_index: false,
             });
         }
 
@@ -287,6 +296,7 @@ impl RolloutAdapter for VibeAdapter {
                     first_ts: None,
                     last_ts: None,
                     role_counts: HashMap::new(),
+                    has_tantivy_index: false,
                     interesting_events: Vec::new(),
                 };
             }
@@ -430,6 +440,7 @@ impl RolloutAdapter for VibeAdapter {
             first_ts,
             last_ts,
             role_counts,
+            has_tantivy_index: false,
             interesting_events,
         }
     }

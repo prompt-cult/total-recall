@@ -1,4 +1,5 @@
 pub mod harness;
+pub mod index;
 pub mod mcp;
 pub mod mercury;
 pub mod prompt;

@@ -42,6 +42,74 @@ the query engine, and matching rows stream out in one pass. Synthetic parts
 report, sessions ordered most-recent first. Currently implemented for
 OpenCode; other harnesses return a clear unsupported error.
 
+### `index_sessions` / `index` — tantivy shadow indexes
+
+Builds or refreshes a full-text index per session using
+[tantivy](https://github.com/quickwit-oss/tantivy), from the normalized
+message stream of any harness. One document per message that carries text:
+`content` and `thinking` are both indexed; `session_id`, `role`,
+`timestamp`, and the message sequence number are stored for display. For
+OpenCode, `reasoning` parts become the message's `thinking` text (synthetic
+reasoning skipped); other harnesses currently have no thinking content.
+
+The index lives in a shadow folder next to the session store, never inside
+it:
+
+| Harness | Shadow root |
+|---------|-------------|
+| opencode | `~/.local/share/opencode/.tantivy/` |
+| vibe | `~/.vibe/logs/.tantivy/` |
+| codex | `~/.codex/.tantivy/` |
+| claude | `~/.claude/.tantivy/` |
+
+Each session gets `<shadow root>/<session_id>/`, plus a
+`total-recall-meta.json` marker (`session_id`, `doc_count`, `built_at`).
+Re-indexing a session replaces its index from scratch — the folder is
+disposable, can be deleted at any time, and MUST NOT be committed.
+
+CLI:
+
+```bash
+# Index specific sessions (partial ids) or everything newer than --hours
+$B --harness opencode index --sessions ses_f5a4ea5e
+$B --harness opencode index --hours 24
+
+# Print the index presence flag alongside the usual session/profile output
+$B --harness opencode list
+$B --harness opencode --session ses_f5a4ea5e profile
+```
+
+### `do_android_dream_of_electric_sheep` — full-text search
+
+Searches the per-session tantivy indexes with tantivy query syntax
+(`QueryParser` over the `content` and `thinking` fields), merging the top 10
+hits per session into one ranking ordered by score. Session selection is
+identical to `she_said_he_said_action`: explicit partial IDs resolve to the
+most recent match (unmatched IDs reported in the header, not fatal); an
+empty list means all sessions updated within `hours_back` (default 48, 0 =
+no bound), optionally filtered by `directory` substring. Sessions without an
+index are listed as not indexed (run index first) and skipped; a corrupt
+index is reported in the header, not fatal.
+
+Hit lines carry the matched text and are marked `thinking` when the term
+matched only a message's thinking content:
+
+```
+ses_f5a4ea5e | 0.5395 | 2026-09-19T10:02:00Z | ASSISTANT (thinking) | contemplating the electric sheep dream
+```
+
+CLI:
+
+```bash
+$B --harness opencode do-android-dream-of-electric-sheep --query 'tantivy' --hours 48
+$B --harness opencode do-android-dream-of-electric-sheep --query 'shadow AND index' --sessions ses_f5a4ea5e
+```
+
+MCP tools: `index_sessions` (`sessions`, `hours_back` default 0, `directory`)
+and `do_android_dream_of_electric_sheep` (`query`, `sessions`, `hours_back`
+default 48, `directory`). `list_sessions` and `profile_session` gain a
+`has_tantivy_index` flag, set by the server, not by the adapters.
+
 ## Ingestion guardrails
 
 Mercury calls are guarded by measured, documented limits (probed against a
@@ -119,6 +187,10 @@ $B --harness vibe --session 4836855e recall
 $B --harness opencode he-said-she-said --words git,branch,tag,worktree --hours 48 --directory uvrr-core
 $B --harness opencode he-said-she-said --words git --sessions ses_f5a4ea5e ses_f5b87b1c
 
+# Build/refresh per-session tantivy shadow indexes, then full-text search them
+$B --harness opencode index --sessions ses_f5a4ea5e
+$B --harness opencode do-android-dream-of-electric-sheep --query 'compaction' --sessions ses_f5a4ea5e
+
 # Total recall with Mistral instead of Mercury (for A/B comparison)
 $B --harness vibe --session 4836855e --provider mistral recall
 ```
@@ -129,9 +201,10 @@ For `--provider mistral`, set `MISTRAL_API_KEY` instead.
 ## MCP server
 
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
-(with optional `hours_back`/`directory` bounds), `profile_session`,
-`extract_messages`, `extract_user_messages`, `compact_session`,
-`she_said_he_said_action`, and `total_recall`:
+(with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
+flag), `profile_session`, `extract_messages`, `extract_user_messages`,
+`compact_session`, `she_said_he_said_action`, `index_sessions`,
+`do_android_dream_of_electric_sheep`, and `total_recall`:
 
 ```bash
 $B mcp

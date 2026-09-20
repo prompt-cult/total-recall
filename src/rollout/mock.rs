@@ -62,6 +62,13 @@ impl RolloutAdapter for MockAdapter {
         "mock"
     }
 
+    fn shadow_index_root(&self) -> PathBuf {
+        self.data_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(".tantivy")
+    }
+
     fn list_sessions(&self) -> Vec<SessionSummary> {
         let messages = self.read_jsonl();
         let file_size = std::fs::metadata(&self.data_path)
@@ -102,6 +109,7 @@ impl RolloutAdapter for MockAdapter {
             directory: None,
             parent_session_id: None,
             child_sessions: Vec::new(),
+            has_tantivy_index: false,
         }]
     }
 
@@ -199,6 +207,7 @@ impl RolloutAdapter for MockAdapter {
             first_ts,
             last_ts,
             role_counts,
+            has_tantivy_index: false,
             interesting_events,
         }
     }

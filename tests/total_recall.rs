@@ -26,6 +26,7 @@ fn test_build_recent_rollouts_table_with_sessions() {
         directory: None,
         parent_session_id: None,
         child_sessions: vec![],
+        has_tantivy_index: false,
     }];
     let table = build_recent_rollouts_table(&sessions, Some("session_20260914_040914_abc123"), 24);
     assert!(table.contains("session_20260914_040914_abc123"));

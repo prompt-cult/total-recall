@@ -113,6 +113,7 @@ fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
     RolloutMessage {
         role,
         content,
+        thinking: None,
         tool_calls_summary,
         timestamp,
         injected,
@@ -174,6 +175,13 @@ impl Default for ClaudeAdapter {
 impl RolloutAdapter for ClaudeAdapter {
     fn name(&self) -> &'static str {
         "claude"
+    }
+
+    fn shadow_index_root(&self) -> PathBuf {
+        self.root
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join(".tantivy")
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
@@ -243,6 +251,7 @@ impl RolloutAdapter for ClaudeAdapter {
                 directory: None,
                 parent_session_id: None,
                 child_sessions: Vec::new(),
+                has_tantivy_index: false,
             });
         }
 
@@ -290,6 +299,7 @@ impl RolloutAdapter for ClaudeAdapter {
                     first_ts: None,
                     last_ts: None,
                     role_counts: HashMap::new(),
+                    has_tantivy_index: false,
                     interesting_events: Vec::new(),
                 };
             }
@@ -360,6 +370,7 @@ impl RolloutAdapter for ClaudeAdapter {
             first_ts,
             last_ts,
             role_counts,
+            has_tantivy_index: false,
             interesting_events,
         }
     }
