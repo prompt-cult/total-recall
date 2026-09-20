@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 use total_recall::{
     MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
-    harness::{make_adapter, resolve_harness},
+    harness::{make_adapter, resolve_harness, resolve_session},
     index,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
@@ -113,20 +113,6 @@ pub enum Command {
     Mcp,
 }
 
-fn resolve_session(adapter: &dyn RolloutAdapter, session: &Option<String>) -> String {
-    match session {
-        Some(s) => s.clone(),
-        None => {
-            let sessions = adapter.list_sessions();
-            if sessions.is_empty() {
-                eprintln!("No sessions found");
-                std::process::exit(1);
-            }
-            sessions[0].session_id.clone()
-        }
-    }
-}
-
 /// Read messages respecting --full vs --from-compaction flags.
 /// Default (neither flag): from compaction point.
 /// --full: entire session.
@@ -186,7 +172,11 @@ async fn main() -> Result<()> {
     ) {
         String::new()
     } else {
-        resolve_session(adapter.as_ref(), &cli.session)
+        resolve_session(adapter.as_ref(), cli.session.as_deref().unwrap_or(""))
+            .unwrap_or_else(|| {
+                eprintln!("No sessions found");
+                std::process::exit(1);
+            })
     };
 
     match cli.command {

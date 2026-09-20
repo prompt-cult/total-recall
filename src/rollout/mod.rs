@@ -215,6 +215,14 @@ pub fn messages_to_text(messages: &[RolloutMessage]) -> String {
     lines.join("\n")
 }
 
+/// Does `s` look like an ISO8601 timestamp (so it can be compared
+/// lexicographically against a cutoff)? Unparsable times are kept by the
+/// bound filters (safe default).
+pub fn is_iso8601(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 19 && b[4] == b'-' && b[7] == b'-' && (b[10] == b'T' || b[10] == b' ')
+}
+
 /// Truncate a string to at most `max_bytes` without splitting a UTF-8 character.
 pub(crate) fn truncate_chars(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {

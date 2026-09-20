@@ -54,7 +54,7 @@ pub fn select_sessions(
         };
         for summary in all {
             if let Some(cut) = &cutoff
-                && crate::mcp::is_iso8601(&summary.end_time)
+                && crate::rollout::is_iso8601(&summary.end_time)
                 && summary.end_time.as_str() < cut.as_str()
             {
                 continue;
@@ -227,23 +227,25 @@ fn text_of(value: Option<CompactDocValue>) -> String {
 
 fn fragment_for(text: &str, tokens: &[String], window: usize) -> String {
     let lower = text.to_lowercase();
-    let mut start = 0usize;
+    let mut pos = 0usize;
     for token in tokens {
-        if let Some(pos) = lower.find(token) {
-            start = pos;
+        if let Some(p) = lower.find(token) {
+            pos = p;
             break;
         }
     }
-    let end = (start + window).min(text.len());
-    let mut end = end;
+    let mut start = pos.saturating_sub(window / 4);
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    let mut end = (pos + window).min(text.len());
     while end > 0 && !text.is_char_boundary(end) {
         end -= 1;
     }
-    let mut start = start.saturating_sub(window / 4);
-    while start < end && !text.is_char_boundary(start) {
-        start += 1;
+    if start > end {
+        start = end;
     }
-    crate::rollout::truncate_chars(&text[start..end], window).to_string()
+    text[start..end].to_string()
 }
 
 pub fn search(

@@ -16,18 +16,6 @@ use crate::{
     },
 };
 
-fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
-    if session_id.is_empty() {
-        let sessions = adapter.list_sessions();
-        if sessions.is_empty() {
-            return String::new();
-        }
-        sessions[0].session_id.clone()
-    } else {
-        session_id.to_string()
-    }
-}
-
 // --- Tool parameter structs ---
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -98,14 +86,6 @@ fn default_index_hours() -> u64 {
 
 fn default_sheep_hours() -> u64 {
     48
-}
-
-/// Does `s` look like an ISO8601 timestamp (so it can be compared
-/// lexicographically against a cutoff)? Unparsable times are kept by the
-/// bound filters (safe default).
-pub(crate) fn is_iso8601(s: &str) -> bool {
-    let b = s.as_bytes();
-    b.len() >= 19 && b[4] == b'-' && b[7] == b'-' && (b[10] == b'T' || b[10] == b' ')
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -199,7 +179,7 @@ impl TotalRecallServer {
         let mut sessions = adapter.list_sessions();
         if params.hours_back > 0 {
             let cutoff = crate::rollout::opencode::iso_cutoff(params.hours_back);
-            sessions.retain(|s| !is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str());
+            sessions.retain(|s| !crate::rollout::is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str());
         }
         if let Some(directory) = params.directory.as_deref().filter(|d| !d.is_empty()) {
             sessions.retain(|s| s.directory.as_deref().is_none_or(|d| d.contains(directory)));
@@ -306,7 +286,8 @@ impl TotalRecallServer {
         Parameters(params): Parameters<ProfileParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),
@@ -327,7 +308,8 @@ impl TotalRecallServer {
         Parameters(params): Parameters<ExtractParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),
@@ -349,7 +331,8 @@ impl TotalRecallServer {
         Parameters(params): Parameters<UserMessagesParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),
@@ -369,7 +352,8 @@ impl TotalRecallServer {
         Parameters(params): Parameters<CompactParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),
@@ -410,7 +394,8 @@ impl TotalRecallServer {
         Parameters(params): Parameters<TotalRecallParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = resolve_session(adapter.as_ref(), &params.session_id);
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),

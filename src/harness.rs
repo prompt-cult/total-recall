@@ -33,6 +33,21 @@ pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
     Ok(value)
 }
 
+/// Resolve a (possibly empty) session id against the adapter's session list.
+/// Empty id = most recent session. Returns `None` when no sessions exist.
+pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option<String> {
+    if session_id.is_empty() {
+        let sessions = adapter.list_sessions();
+        if sessions.is_empty() {
+            None
+        } else {
+            Some(sessions[0].session_id.clone())
+        }
+    } else {
+        Some(session_id.to_string())
+    }
+}
+
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
     match harness {
         "vibe" => Ok(Box::new(VibeAdapter::new())),

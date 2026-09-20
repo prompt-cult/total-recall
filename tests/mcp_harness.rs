@@ -125,10 +125,10 @@ fn read_response(
         if trimmed.is_empty() {
             continue;
         }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if v.get("id").and_then(|id| id.as_i64()) == Some(expected_id) {
-                return v;
-            }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed)
+            && v.get("id").and_then(|id| id.as_i64()) == Some(expected_id)
+        {
+            return v;
         }
     }
 }
