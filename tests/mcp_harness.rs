@@ -1,3 +1,4 @@
+use std::io::{BufRead, Write};
 use std::sync::Mutex;
 
 use total_recall::harness::{HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness};
@@ -90,4 +91,201 @@ fn opencode_harness_is_accepted() {
     assert_eq!(resolve_harness(Some("opencode")).unwrap(), "opencode");
     let adapter = make_adapter("opencode").expect("opencode adapter must build");
     assert_eq!(adapter.name(), "opencode");
+}
+
+fn spawn_mcp_server(harness: &str) -> (std::process::Child, std::io::BufReader<std::process::ChildStdout>, std::process::ChildStdin) {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+        .args(["--harness", harness, "mcp"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn total-recall mcp");
+    let stdout = child.stdout.take().expect("stdout pipe missing");
+    let stdin = child.stdin.take().expect("stdin pipe missing");
+    (child, std::io::BufReader::new(stdout), stdin)
+}
+
+fn send_json(stdin: &mut std::process::ChildStdin, value: &serde_json::Value) {
+    let line = serde_json::to_string(value).expect("valid json");
+    writeln!(stdin, "{line}").expect("failed to write to mcp stdin");
+    stdin.flush().expect("failed to flush mcp stdin");
+}
+
+fn read_response(
+    reader: &mut std::io::BufReader<std::process::ChildStdout>,
+    expected_id: i64,
+) -> serde_json::Value {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let n = reader.read_line(&mut line).expect("failed to read mcp stdout");
+        assert!(n > 0, "mcp server closed stdout before returning id {expected_id}");
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if v.get("id").and_then(|id| id.as_i64()) == Some(expected_id) {
+                return v;
+            }
+        }
+    }
+}
+
+#[test]
+fn mcp_tools_list_includes_index_and_sheep() {
+    let (mut child, mut reader, mut stdin) = spawn_mcp_server("vibe");
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1.0" }
+            }
+        }),
+    );
+    let init = read_response(&mut reader, 1);
+    assert!(init.get("result").is_some(), "initialize must succeed: {init}");
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list"
+        }),
+    );
+    let list = read_response(&mut reader, 2);
+    let tools = list
+        .pointer("/result/tools")
+        .expect("tools/list response must contain result.tools")
+        .as_array()
+        .expect("tools must be an array");
+    let names: Vec<String> = tools
+        .iter()
+        .filter_map(|t| t.get("name").and_then(|n| n.as_str()).map(String::from))
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "index_sessions"),
+        "tools/list must include index_sessions, got: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == "do_android_dream_of_electric_sheep"),
+        "tools/list must include do_android_dream_of_electric_sheep, got: {names:?}"
+    );
+
+    let index_tool = tools
+        .iter()
+        .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("index_sessions"))
+        .expect("index_sessions metadata");
+    let index_desc = index_tool
+        .get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(
+        index_desc.contains("index"),
+        "index_sessions description must mention indexing, got: {index_desc}"
+    );
+
+    let sheep_tool = tools
+        .iter()
+        .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("do_android_dream_of_electric_sheep"))
+        .expect("sheep tool metadata");
+    let sheep_desc = sheep_tool
+        .get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    assert!(
+        sheep_desc.contains("search") || sheep_desc.contains("full-text"),
+        "sheep tool description must mention search, got: {sheep_desc}"
+    );
+
+    let _ = child.kill();
+}
+
+#[test]
+fn mcp_sheep_errors_on_empty_query() {
+    let (mut child, mut reader, mut stdin) = spawn_mcp_server("vibe");
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1.0" }
+            }
+        }),
+    );
+    let init = read_response(&mut reader, 1);
+    assert!(init.get("result").is_some(), "initialize must succeed: {init}");
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "do_android_dream_of_electric_sheep",
+                "arguments": {
+                    "query": "",
+                    "sessions": [],
+                    "hours_back": 48,
+                    "directory": null
+                }
+            }
+        }),
+    );
+    let call = read_response(&mut reader, 2);
+    let result = call
+        .pointer("/result")
+        .expect("tools/call response must contain result");
+    assert!(
+        result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false),
+        "empty query must produce a tool-level error result: {result}"
+    );
+    let content_text: String = result
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    assert!(
+        content_text.to_lowercase().contains("query"),
+        "error content must mention the missing query, got: {content_text}"
+    );
+
+    let _ = child.kill();
 }

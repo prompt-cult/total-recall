@@ -162,3 +162,137 @@ fn test_explicit_partial_id_resolves_and_unmatched_reported() {
     );
     assert!(report.contains("alpha"), "{}", report);
 }
+
+#[test]
+fn test_search_corrupt_index_reported_in_header() {
+    let (dir, adapter) = write_fixture("corrupt", &fixture_lines());
+    index::index_session(&adapter, "").unwrap();
+
+    let index_dir = dir.join(".tantivy").join("mock");
+    let meta = index_dir.join("meta.json");
+    std::fs::write(&meta, "{invalid").unwrap();
+
+    let report = index::search(&adapter, &[], "alpha", 0, None).unwrap();
+    assert!(
+        report.contains("corrupt index:"),
+        "corrupt index must be reported in header:\n{}",
+        report
+    );
+    assert!(
+        report.contains("cannot open index"),
+        "report should mention open failure:\n{}",
+        report
+    );
+}
+
+#[test]
+fn test_search_invalid_query_reported_as_corrupt() {
+    let (_dir, adapter) = write_fixture("bad_query", &fixture_lines());
+    index::index_session(&adapter, "").unwrap();
+    let report = index::search(&adapter, &[], "AND (", 0, None).unwrap();
+    assert!(
+        report.contains("corrupt index:"),
+        "invalid query must surface in header:\n{}",
+        report
+    );
+    assert!(
+        report.contains("invalid query"),
+        "report should mention query parse failure:\n{}",
+        report
+    );
+}
+
+#[test]
+fn test_select_sessions_empty_end_time_included_for_any_hours_back() {
+    let (_dir, adapter) = write_fixture("hours_back", &fixture_lines());
+    let (selected_zero, _) = index::select_sessions(&adapter, &[], 0, None);
+    assert!(
+        selected_zero.iter().any(|s| s.session_id == "mock"),
+        "hours_back=0 must include mock session"
+    );
+    let (selected_one, _) = index::select_sessions(&adapter, &[], 1, None);
+    assert!(
+        selected_one.iter().any(|s| s.session_id == "mock"),
+        "hours_back=1 must include mock session with empty end_time"
+    );
+}
+
+#[test]
+fn test_search_directory_filter_keeps_session_with_none_directory() {
+    let (_dir, adapter) = write_fixture("directory_none", &fixture_lines());
+    index::index_session(&adapter, "").unwrap();
+    let report = index::search(&adapter, &[], "alpha", 0, Some("anything")).unwrap();
+    assert!(
+        report.contains("mock |"),
+        "directory filter must not drop session with directory=None:\n{}",
+        report
+    );
+    assert!(report.contains("alpha"), "{}", report);
+}
+
+#[test]
+fn test_search_fragment_multibyte_boundary_no_panic() {
+    let prefix = "x".to_string() + &"🦀".repeat(50);
+    let content = prefix.clone() + " needle term " + &"🦀".repeat(60);
+    let lines = vec![msg("user", &content, "2026-09-19T10:00:00Z", None)];
+    let (_dir, adapter) = write_fixture("utf8_emoji", &lines);
+    index::index_session(&adapter, "").unwrap();
+    let report = index::search(&adapter, &[], "needle", 0, None).unwrap();
+    assert!(
+        report.contains("needle term"),
+        "fragment must contain the matched term:\n{}",
+        report
+    );
+}
+
+#[test]
+fn test_search_fragment_cjk_no_panic() {
+    let content = "漢字".repeat(100) + " needle term " + &"漢字".repeat(100);
+    let lines = vec![msg("user", &content, "2026-09-19T10:00:00Z", None)];
+    let (_dir, adapter) = write_fixture("utf8_cjk", &lines);
+    index::index_session(&adapter, "").unwrap();
+    let report = index::search(&adapter, &[], "needle", 0, None).unwrap();
+    assert!(
+        report.contains("needle term"),
+        "fragment must contain the matched term:\n{}",
+        report
+    );
+}
+
+#[test]
+fn test_search_score_ordering_higher_first() {
+    let lines = vec![
+        msg("user", "zebra zebra", "2026-09-19T10:00:00Z", None),
+        msg("user", "only one zebra here", "2026-09-19T10:01:00Z", None),
+    ];
+    let (_dir, adapter) = write_fixture("score_order", &lines);
+    index::index_session(&adapter, "").unwrap();
+    let report = index::search(&adapter, &[], "zebra", 0, None).unwrap();
+
+    let hit_lines: Vec<&str> = report
+        .lines()
+        .filter(|l| l.contains("zebra") && l.contains(" | "))
+        .collect();
+    assert_eq!(hit_lines.len(), 2, "expected two hits:\n{}", report);
+    let score_a: f32 = hit_lines[0]
+        .split('|')
+        .nth(1)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let score_b: f32 = hit_lines[1]
+        .split('|')
+        .nth(1)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        score_a >= score_b,
+        "higher-scoring hit must come first: {} >= {}:\n{}",
+        score_a,
+        score_b,
+        report
+    );
+}

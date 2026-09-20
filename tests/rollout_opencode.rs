@@ -303,3 +303,47 @@ fn test_opencode_reasoning_part_becomes_thinking_message() {
         messages
     );
 }
+
+#[test]
+fn test_opencode_reasoning_e2e_indexed_and_searchable_as_thinking() {
+    use total_recall::index;
+
+    let path = tmp_db("reasoning_search");
+    create_fixture(&path);
+    let conn = Connection::open(&path).unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES ('msg5', 'ses_fixture0001aaaa', 5000, 5000, ?1)",
+        rusqlite::params![r#"{"role":"assistant","time":{"created":5000}}"#],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES ('part6', 'msg5', 'ses_fixture0001aaaa', 5000, 5000, ?1)",
+        rusqlite::params![r#"{"type":"reasoning","text":"the electriczebra appears only in reasoning"}"#],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES ('part7', 'msg5', 'ses_fixture0001aaaa', 5100, 5100, ?1)",
+        rusqlite::params![r#"{"type":"text","text":"normal assistant text without the term"}"#],
+    )
+    .unwrap();
+
+    let adapter = OpenCodeAdapter::with_root(&path);
+    let stats = index::index_session(&adapter, "ses_fixture").unwrap();
+    assert_eq!(stats.session_id, "ses_fixture0001aaaa");
+    assert!(stats.doc_count > 0);
+
+    let report = index::search(&adapter, &[], "electriczebra", 0, None).unwrap();
+    assert!(
+        report.contains("electriczebra"),
+        "search must find the reasoning term:\n{}",
+        report
+    );
+    assert!(
+        report.contains("ASSISTANT (thinking)"),
+        "reasoning hit must be marked as thinking:\n{}",
+        report
+    );
+}
