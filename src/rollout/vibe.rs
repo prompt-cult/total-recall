@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
-    resolve_session_dir, slice_from_compaction, summarize_tool_call,
+    VIBE_ROOT_ENV_VAR, resolve_root, resolve_session_dir, slice_from_compaction,
+    summarize_tool_call,
 };
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
@@ -14,17 +15,20 @@ use super::{
 ///   └── meta.json        (session metadata)
 pub struct VibeAdapter {
     root: PathBuf,
+    from_env: bool,
 }
 
 impl VibeAdapter {
     pub fn new() -> Self {
-        Self {
-            root: dirs_home_vibe_session(),
-        }
+        let (root, from_env) = resolve_root(VIBE_ROOT_ENV_VAR, &[".vibe", "logs", "session"]);
+        Self { root, from_env }
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            from_env: true,
+        }
     }
 
     fn session_dir(&self, session_id: &str) -> Option<PathBuf> {
@@ -72,17 +76,6 @@ impl VibeAdapter {
         let meta_path = dir.join("meta.json");
         let data = std::fs::read(&meta_path).ok()?;
         serde_json::from_slice(&data).ok()
-    }
-}
-
-fn dirs_home_vibe_session() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".vibe")
-            .join("logs")
-            .join("session")
-    } else {
-        PathBuf::from(".vibe").join("logs").join("session")
     }
 }
 
@@ -146,6 +139,10 @@ impl RolloutAdapter for VibeAdapter {
         "vibe"
     }
 
+    fn root_is_from_env(&self) -> bool {
+        self.from_env
+    }
+
     fn shadow_index_root(&self) -> PathBuf {
         self.root
             .parent()
@@ -160,6 +157,8 @@ impl RolloutAdapter for VibeAdapter {
         };
 
         let mut summaries = Vec::new();
+        // content hash captured alongside each summary for dedupe.
+        let mut identity: Vec<u64> = Vec::new();
 
         for entry in entries.flatten() {
             let path = entry.path();
@@ -241,6 +240,17 @@ impl RolloutAdapter for VibeAdapter {
                 }
             }
 
+            // Content hash over the rollout payload. 0 marks an empty store;
+            // empty sessions are never deduped together.
+            let content_hash = if file_size == 0 {
+                0
+            } else {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                messages_data.hash(&mut h);
+                h.finish()
+            };
+
             summaries.push(SessionSummary {
                 session_id,
                 title,
@@ -256,10 +266,18 @@ impl RolloutAdapter for VibeAdapter {
                 parent_session_id,
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
+                aliases: Vec::new(),
             });
+            identity.push(content_hash);
         }
 
+        // Dedupe: one canonical entry per rollout payload. Two dirs describing
+        // the same rollout share (file_size, line_count, content hash); the
+        // canonical id is the dir-name whose date prefix agrees with
+        // meta.start_time, and the rest become aliases.
+        let summaries = dedupe_vibe_sessions(summaries, identity);
         // Sort by start_time descending (most recent first)
+        let mut summaries = summaries;
         summaries.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         summaries
     }
@@ -452,4 +470,181 @@ impl RolloutAdapter for VibeAdapter {
             .map(|m| m.content)
             .collect()
     }
+
+    /// Byte-faithful raw entries: re-parse the native `messages.jsonl` so each
+    /// emitted record is the source line's JSON, not a normalized projection.
+    fn read_session_entries(&self, session_id: &str, full: bool) -> Vec<super::RolloutEntry> {
+        let path = match self.messages_path(session_id) {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let data = std::fs::read(&path).unwrap_or_default();
+        let text = String::from_utf8_lossy(&data);
+
+        // Collect raw (line_value) pairs, then honour the compaction window.
+        let mut raw: Vec<serde_json::Value> = Vec::new();
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                raw.push(v);
+            }
+        }
+        let start = if full {
+            0
+        } else {
+            raw.iter()
+                .rposition(|v| {
+                    v.get("content")
+                        .and_then(|c| c.as_str())
+                        .map(|c| c.contains("context compaction"))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(0)
+        };
+
+        let mut out = Vec::new();
+        for v in &raw[start..] {
+            let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
+            if injected {
+                continue;
+            }
+            let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
+            let entry_type = match role {
+                "user" | "assistant" | "tool" => role.to_string(),
+                _ => continue,
+            };
+            let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            out.push(super::RolloutEntry {
+                index: out.len(),
+                entry_type,
+                timestamp,
+                record: v.clone(),
+            });
+        }
+        out
+    }
+}
+
+/// Parse the `session_YYYYMMDD_HHMMSS_<id>` directory-name prefix into a
+/// compact `YYYYMMDDHHMMSS` digit string for comparison against meta times.
+/// Returns empty when the name does not match the expected shape.
+fn dir_name_datetime(name: &str) -> String {
+    let rest = match name.strip_prefix("session_") {
+        Some(r) => r,
+        None => return String::new(),
+    };
+    let mut parts = rest.splitn(3, '_');
+    let date = parts.next().unwrap_or("");
+    let time = parts.next().unwrap_or("");
+    if date.len() == 8 && time.len() == 6 && date.bytes().all(|b| b.is_ascii_digit())
+        && time.bytes().all(|b| b.is_ascii_digit())
+    {
+        format!("{}{}", date, time)
+    } else {
+        String::new()
+    }
+}
+
+/// Compact an ISO8601 meta timestamp to `YYYYMMDDHHMMSS` digits (dropping
+/// separators, fractional seconds, and the zone) for comparison with the
+/// directory-name prefix. Empty when unparseable.
+fn iso_datetime_digits(iso: &str) -> String {
+    iso.chars().filter(|c| c.is_ascii_digit()).take(14).collect()
+}
+
+/// Group session summaries that describe the same rollout payload and keep a
+/// single canonical entry per group, recording the others as aliases.
+///
+/// Identity = (file_size, line_count, content_hash). Sessions with an empty
+/// store (hash 0) are never grouped. Canonical = the member whose dir-name
+/// date prefix best agrees with meta.start_time (smallest absolute difference
+/// in the digit-compacted datetimes); tie-break lexicographically smallest id.
+/// Payloads that share (file_size, line_count, content_hash) are byte-identical,
+/// so the canonical entry's own counters are already correct — only the
+/// directory names and meta timestamps differ between members.
+fn dedupe_vibe_sessions(
+    summaries: Vec<SessionSummary>,
+    identity: Vec<u64>,
+) -> Vec<SessionSummary> {
+    use std::collections::HashMap;
+
+    // group key -> indices into summaries
+    let mut groups: HashMap<(u64, u64, u64), Vec<usize>> = HashMap::new();
+    for (i, s) in summaries.iter().enumerate() {
+        let hash = identity[i];
+        if hash == 0 {
+            continue; // empty stores stay unique
+        }
+        groups
+            .entry((s.file_size, s.line_count, hash))
+            .or_default()
+            .push(i);
+    }
+
+    // alias_of[i] = canonical id it merged into; canonical_aliases[i] = alias list
+    let mut alias_of: Vec<Option<String>> = vec![None; summaries.len()];
+    let mut canonical_aliases: HashMap<usize, Vec<String>> = HashMap::new();
+
+    for idxs in groups.values() {
+        if idxs.len() < 2 {
+            continue;
+        }
+        // canonical: dir-name prefix closest to meta.start_time
+        let canonical = *idxs
+            .iter()
+            .min_by(|&&a, &&b| {
+                let sa = &summaries[a];
+                let sb = &summaries[b];
+                let da = dir_name_datetime(&sa.session_id);
+                let db = dir_name_datetime(&sb.session_id);
+                let ta = iso_datetime_digits(&sa.start_time);
+                let tb = iso_datetime_digits(&sb.start_time);
+                let diff_a = datetime_diff(&da, &ta);
+                let diff_b = datetime_diff(&db, &tb);
+                diff_a
+                    .cmp(&diff_b)
+                    .then_with(|| sa.session_id.cmp(&sb.session_id))
+            })
+            .unwrap();
+
+        let mut aliases: Vec<String> = idxs
+            .iter()
+            .filter(|&&i| i != canonical)
+            .map(|&i| summaries[i].session_id.clone())
+            .collect();
+        aliases.sort();
+        for &i in idxs {
+            if i != canonical {
+                alias_of[i] = Some(summaries[canonical].session_id.clone());
+            }
+        }
+        canonical_aliases.insert(canonical, aliases);
+    }
+
+    let mut out = Vec::new();
+    for (i, mut s) in summaries.into_iter().enumerate() {
+        if alias_of[i].is_some() {
+            continue; // merged into the canonical entry
+        }
+        if let Some(aliases) = canonical_aliases.remove(&i) {
+            s.aliases = aliases;
+        }
+        out.push(s);
+    }
+    out
+}
+
+/// Absolute difference between two `YYYYMMDDHHMMSS` digit strings, as an
+/// integer ordering key. Missing/unparseable sides sort as "worst" (u64::MAX)
+/// so entries whose dir-name agrees with meta start_time win.
+fn datetime_diff(dir: &str, iso: &str) -> u64 {
+    if dir.len() != 14 || iso.len() != 14 {
+        return u64::MAX;
+    }
+    let (Ok(a), Ok(b)) = (dir.parse::<u64>(), iso.parse::<u64>()) else {
+        return u64::MAX;
+    };
+    a.abs_diff(b)
 }

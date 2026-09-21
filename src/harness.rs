@@ -5,6 +5,17 @@ use crate::{
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";
 
+/// Maps a harness name to its storage-root override env var (for sandbox errors).
+pub fn root_env_var(harness: &str) -> &'static str {
+    match harness {
+        "vibe" => crate::rollout::VIBE_ROOT_ENV_VAR,
+        "codex" => crate::rollout::CODEX_ROOT_ENV_VAR,
+        "claude" => crate::rollout::CLAUDE_ROOT_ENV_VAR,
+        "opencode" => crate::rollout::OPENCODE_ROOT_ENV_VAR,
+        _ => "TOTAL_RECALL_<H>_ROOT",
+    }
+}
+
 // One match arm + one VALID_HARNESSES entry per harness.
 pub const VALID_HARNESSES: [&str; 4] = ["vibe", "codex", "claude", "opencode"];
 
@@ -49,15 +60,26 @@ pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option
 }
 
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
-    match harness {
-        "vibe" => Ok(Box::new(VibeAdapter::new())),
-        "codex" => Ok(Box::new(CodexAdapter::new())),
-        "claude" => Ok(Box::new(ClaudeAdapter::new())),
-        "opencode" => Ok(Box::new(OpenCodeAdapter::new())),
-        other => Err(format!(
-            "unknown harness '{}'. Valid values: {}",
-            other,
-            valid_harnesses()
-        )),
+    let adapter: Box<dyn RolloutAdapter> = match harness {
+        "vibe" => Box::new(VibeAdapter::new()),
+        "codex" => Box::new(CodexAdapter::new()),
+        "claude" => Box::new(ClaudeAdapter::new()),
+        "opencode" => Box::new(OpenCodeAdapter::new()),
+        other => {
+            return Err(format!(
+                "unknown harness '{}'. Valid values: {}",
+                other,
+                valid_harnesses()
+            ));
+        }
+    };
+    if crate::rollout::sandbox_enabled() && !adapter.root_is_from_env() {
+        return Err(format!(
+            "{} is set but {} is not: refusing to read the live store. Point {} at a fixture or scratch copy.",
+            crate::rollout::SANDBOX_ENV_VAR,
+            root_env_var(harness),
+            root_env_var(harness)
+        ));
     }
+    Ok(adapter)
 }

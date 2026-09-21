@@ -44,12 +44,76 @@ pub struct ExtractParams {
     )]
     #[serde(default)]
     pub full: bool,
+    #[schemars(
+        description = "Max records to return. 0 = default 100, max 1000. Larger values rejected; page with offset/limit."
+    )]
+    #[serde(default)]
+    pub limit: usize,
+    #[schemars(
+        description = "0-based start index into the chronological list. Omit = most recent `limit`; set 0 and follow bounds.next_offset to page the whole session."
+    )]
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default, clamped to the 8 MiB ceiling."
+    )]
+    #[serde(default)]
+    pub max_bytes: usize,
+    #[schemars(
+        description = "Per-record clamp for content/thinking, bytes. 0 = default 262144 (256 KiB)."
+    )]
+    #[serde(default)]
+    pub max_record_bytes: usize,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct UserMessagesParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
+    #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
+    #[serde(default)]
+    pub limit: usize,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page."
+    )]
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[schemars(description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.")]
+    #[serde(default)]
+    pub max_bytes: usize,
+    #[schemars(description = "Per-record clamp, bytes. 0 = default 256 KiB.")]
+    #[serde(default)]
+    pub max_record_bytes: usize,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct ExtractByTypeParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    pub session_id: String,
+    #[schemars(
+        description = "If true, read entire session. If false, read from last compaction point."
+    )]
+    #[serde(default)]
+    pub full: bool,
+    #[schemars(
+        description = "Entry types to include: any of user|assistant|tool|thinking, or \"all\". Empty = all."
+    )]
+    #[serde(default)]
+    pub types: Vec<String>,
+    #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
+    #[serde(default)]
+    pub limit: usize,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page."
+    )]
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[schemars(description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.")]
+    #[serde(default)]
+    pub max_bytes: usize,
+    #[schemars(description = "Per-record clamp, bytes. 0 = default 256 KiB.")]
+    #[serde(default)]
+    pub max_record_bytes: usize,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -301,7 +365,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: extract all messages from a session as structured JSON"
+        description = "Total-recall MCP tool: extract messages from a session as a bounded JSON envelope. Output is capped (default most-recent-100, 8 MiB ceiling); bounds carries next_offset to page large sessions and an explicit truncation notice."
     )]
     async fn extract_messages(
         &self,
@@ -315,17 +379,36 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
+        let limit = match crate::bound::normalize_limit(params.limit) {
+            Ok(l) => l,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
+        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
+
         let messages = if params.full {
             adapter.read_session_mmap(&session_id)
         } else {
             adapter.read_session_from_compaction(&session_id)
         };
-        let json = serde_json::to_string_pretty(&messages)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let json = bounded_messages_envelope(
+            &session_id,
+            self.harness(),
+            params.full,
+            "messages",
+            messages,
+            limit,
+            params.offset,
+            max_bytes,
+            max_record_bytes,
+        );
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
-    #[tool(description = "Total-recall MCP tool: extract verbatim user messages from a session")]
+    #[tool(
+        description = "Total-recall MCP tool: extract verbatim user messages from a session as a bounded JSON envelope. Output is capped (default most-recent-100, 8 MiB ceiling); bounds carries next_offset to page and an explicit truncation notice."
+    )]
     async fn extract_user_messages(
         &self,
         Parameters(params): Parameters<UserMessagesParams>,
@@ -338,10 +421,96 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let messages = adapter.extract_user_messages(&session_id);
-        let json = serde_json::to_string_pretty(&messages)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let limit = match crate::bound::normalize_limit(params.limit) {
+            Ok(l) => l,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
+        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
+
+        // Derive from the bounded message stream so we bound during iteration
+        // rather than materializing the full unbounded Vec first.
+        let messages = adapter.read_session_mmap(&session_id);
+        let user: Vec<crate::RolloutMessage> = messages
+            .into_iter()
+            .filter(|m| m.role == "user" && !m.injected)
+            .collect();
+
+        let json = bounded_messages_envelope(
+            &session_id,
+            self.harness(),
+            false,
+            "user_messages",
+            user,
+            limit,
+            params.offset,
+            max_bytes,
+            max_record_bytes,
+        );
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        name = "extract_by_type",
+        description = "Total-recall MCP tool: raw extract of a session's entries filtered by type (user|assistant|tool|thinking, or \"all\"). Emits one record per line as `type,timestamp,json` with no summarization, under a hard byte cap (default most-recent-100, 8 MiB ceiling); a `#` header line carries bounds with next_offset and an explicit truncation notice. Recovers data from large or damaged sessions."
+    )]
+    async fn extract_by_type(
+        &self,
+        Parameters(params): Parameters<ExtractByTypeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate type selection up front.
+        const VALID: [&str; 4] = ["user", "assistant", "tool", "thinking"];
+        let want_all = params.types.is_empty() || params.types.iter().any(|t| t == "all");
+        if !want_all {
+            for t in &params.types {
+                if !VALID.contains(&t.as_str()) {
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                        "extract_by_type: unknown type '{}'; valid: {} or \"all\"",
+                        t,
+                        VALID.join("|")
+                    ))]));
+                }
+            }
+        }
+
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let limit = match crate::bound::normalize_limit(params.limit) {
+            Ok(l) => l,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
+        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
+
+        let entries = adapter.read_session_entries(&session_id, params.full);
+        let selected: Vec<String> = if want_all {
+            VALID.iter().map(|s| s.to_string()).collect()
+        } else {
+            params.types.clone()
+        };
+        let filtered: Vec<&crate::rollout::RolloutEntry> = entries
+            .iter()
+            .filter(|e| want_all || params.types.contains(&e.entry_type))
+            .collect();
+
+        let text = extract_by_type_report(
+            &session_id,
+            self.harness(),
+            params.full,
+            &selected,
+            &filtered,
+            limit,
+            params.offset,
+            max_bytes,
+            max_record_bytes,
+        );
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
     #[tool(
@@ -472,4 +641,164 @@ impl ServerHandler for TotalRecallServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
+}
+
+/// Build a bounded JSON envelope around a window of messages. Selects the
+/// window (tail when `offset` is None, else an index range), clamps oversized
+/// records, fits as many as the byte budget allows, and emits a pretty JSON
+/// object `{ session_id, harness, full, bounds, <records_key>: [...] }` whose
+/// serialized size never exceeds `max_bytes`. Truncation is always signalled
+/// in `bounds.notice` / `bounds.truncated`.
+#[allow(clippy::too_many_arguments)]
+fn bounded_messages_envelope(
+    session_id: &str,
+    harness: &str,
+    full: bool,
+    records_key: &str,
+    messages: Vec<crate::RolloutMessage>,
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
+) -> String {
+    let total = messages.len();
+    let (start, end) = crate::bound::window(total, offset, limit);
+    let windowed = &messages[start..end];
+
+    // Clamp oversized records; remember which (window-relative) indices.
+    let mut clamped_indices = Vec::new();
+    let mut sized: Vec<crate::bound::SizedRecord> = Vec::with_capacity(windowed.len());
+    for (i, m) in windowed.iter().cloned().enumerate() {
+        let mut m = m;
+        if crate::bound::clamp_message(&mut m, max_record_bytes) {
+            clamped_indices.push(i);
+        }
+        let json = serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string());
+        let bytes = json.len();
+        sized.push(crate::bound::SizedRecord { json, bytes });
+    }
+
+    // Fit under the byte budget (reserving room for the envelope keys).
+    let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
+    let fit = crate::bound::fit_count(&sized, budget);
+    // record_limit truncation: the requested window could not be satisfied in
+    // full — tail mode dropped leading records (start>0), or offset mode
+    // couldn't reach the end (end<total).
+    let record_limit_hit = start > 0 || end < total;
+    let byte_cap_hit = fit < sized.len();
+    let kept = &sized[..fit];
+    let bytes: usize = kept.iter().map(|r| r.bytes).sum();
+
+    let bounds = crate::bound::finalize_bounds(
+        total,
+        start,
+        limit,
+        fit,
+        record_limit_hit,
+        byte_cap_hit,
+        clamped_indices,
+        max_bytes,
+        bytes,
+    );
+
+    let records: Vec<serde_json::Value> = kept
+        .iter()
+        .map(|r| serde_json::from_str(&r.json).unwrap_or(serde_json::Value::Null))
+        .collect();
+
+    let mut envelope = serde_json::json!({
+        "session_id": session_id,
+        "harness": harness,
+        "full": full,
+        "bounds": bounds,
+    });
+    envelope[records_key] = serde_json::Value::Array(records);
+
+    serde_json::to_string_pretty(&envelope).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Assemble the `extract_by_type` line-format report. Line 1 is a `#`-prefixed
+/// compact-JSON header carrying the bounds; each subsequent line is
+/// `type,timestamp,json` (compact JSON, embedded newlines escaped so the
+/// one-record-per-line invariant holds). On truncation a final `# TRUNCATED:`
+/// line is appended. Never summarizes or aggregates.
+#[allow(clippy::too_many_arguments)]
+fn extract_by_type_report(
+    session_id: &str,
+    harness: &str,
+    full: bool,
+    selected_types: &[String],
+    entries: &[&crate::rollout::RolloutEntry],
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
+) -> String {
+    let total = entries.len();
+    let (start, end) = crate::bound::window(total, offset, limit);
+    let windowed = &entries[start..end];
+
+    // Serialize each record to a single line, clamping the JSON payload.
+    let mut clamped_indices = Vec::new();
+    let mut sized: Vec<crate::bound::SizedRecord> = Vec::with_capacity(windowed.len());
+    for (i, e) in windowed.iter().enumerate() {
+        let mut record_json = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
+        let mut clamped = false;
+        if record_json.len() > max_record_bytes {
+            record_json = crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
+            clamped = true;
+        }
+        if clamped {
+            clamped_indices.push(i);
+        }
+        let line = format!(
+            "{},{},{}",
+            e.entry_type,
+            crate::rollout::entry_timestamp(e.timestamp.as_deref()),
+            record_json
+        );
+        let bytes = line.len();
+        sized.push(crate::bound::SizedRecord { json: line, bytes });
+    }
+
+    let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
+    let fit = crate::bound::fit_count(&sized, budget);
+    let record_limit_hit = start > 0 || end < total;
+    let byte_cap_hit = fit < sized.len();
+    let kept = &sized[..fit];
+    let bytes: usize = kept.iter().map(|r| r.bytes).sum();
+
+    let bounds = crate::bound::finalize_bounds(
+        total,
+        start,
+        limit,
+        fit,
+        record_limit_hit,
+        byte_cap_hit,
+        clamped_indices,
+        max_bytes,
+        bytes,
+    );
+
+    let header = serde_json::json!({
+        "session_id": session_id,
+        "harness": harness,
+        "full": full,
+        "types": selected_types,
+        "bounds": bounds,
+    });
+    let mut out = String::new();
+    out.push('#');
+    out.push_str(&serde_json::to_string(&header).unwrap_or_else(|_| "{}".to_string()));
+    out.push('\n');
+    for r in kept {
+        out.push_str(&r.json);
+        out.push('\n');
+    }
+    if bounds.truncated {
+        out.push_str("# TRUNCATED: ");
+        out.push_str(&bounds.notice);
+        out.push('\n');
+    }
+    out
 }

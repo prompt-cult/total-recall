@@ -25,6 +25,63 @@ and tool counts, byte size, parent/children. Optional bounds: `hours_back`
 implementation is a single GROUP BY query (no correlated subqueries), so the
 index over thousands of sessions reads at disk speed.
 
+Each entry also carries `aliases`: other session directory names that resolve
+to the same underlying rollout payload. The vibe store can hold two directories
+for one rollout (for example a resumed session that kept its content under a
+new directory name); `list_sessions` emits one canonical entry per payload —
+the id whose directory-name date prefix agrees with the session's start time —
+and lists the rest under `aliases`, so a caller paging the index never
+processes the same rollout twice. `aliases` is empty for a unique session.
+
+### Bounded extraction — `extract_messages` / `extract_user_messages`
+
+Both return a JSON envelope, never a bare array, so a large session can never
+exceed what an MCP client can hold:
+
+```json
+{ "session_id": "…", "harness": "vibe", "full": false,
+  "bounds": { "total_records": 7525, "returned_records": 100, "offset": 7425,
+              "limit": 100, "next_offset": null, "truncated": true,
+              "truncation_reason": "record_limit", "max_bytes": 8388608,
+              "bytes": 153220, "clamped_record_indices": [],
+              "notice": "TRUNCATED: returned records 7425..7525 of 7525 …" },
+  "messages": [ … ] }
+```
+
+`extract_user_messages` is identical with `user_messages` in place of
+`messages`. Defaults: `limit` 100 (max 1000), `max_bytes` 8 MiB (a hard
+ceiling, ~2× headroom under typical client limits), `max_record_bytes`
+256 KiB per-record clamp. Omit `offset` for the most recent `limit` (a tail
+window); pass `offset` (from `0`) and follow `bounds.next_offset` to page the
+whole session in bounded chunks. `truncated` and `notice` always state when
+output was cut and why (`record_limit` / `byte_cap` / `record_clamp`).
+
+### `extract_by_type` — raw recovery dump
+
+A pure read of the raw rollout store for recovering data from large, partially
+corrupt, or poisoned sessions. Selects entries by type — `user`, `assistant`,
+`tool`, `thinking`, individually, in combination, or `"all"` — and emits one
+record per line with no summarization or aggregation:
+
+```
+# {"session_id":"…","harness":"vibe","types":["user","tool"],"bounds":{…}}
+user,2026-09-15T09:59:55Z,{"role":"user","content":"…","injected":false}
+tool,2026-09-15T10:00:02Z,{"role":"tool","content":"…"}
+```
+
+Line 1 is a `#`-prefixed JSON header carrying the same `bounds` envelope
+(including `next_offset` and a truncation notice). Each record line is
+`type,timestamp,json`: `timestamp` is ISO8601 (or a unix epoch, or `0` when
+absent); `json` is the source record serialized compactly, so embedded
+newlines are escaped and the one-record-per-line invariant always holds. On
+truncation a final `# TRUNCATED: …` line is appended. The stable prefix lets
+callers filter and re-merge with standard Unix tools (`awk -F, '$1=="user"'`,
+`jq -R 'fromjson'`, `sort -t, -k2`). Output is bounded by the same `limit` /
+`offset` / `max_bytes` / `max_record_bytes` parameters as bounded extraction.
+For vibe the records are the byte-faithful source lines re-parsed from
+`messages.jsonl`; other harnesses derive entries from the normalized message
+stream.
+
 ### `she_said_he_said_action` — matched dialogue and actions
 
 Given case-insensitive terms and a session list (partial IDs) — or, when the
@@ -176,6 +233,12 @@ $B --harness vibe --session 4836855e profile
 # Extract what the user said verbatim
 $B --harness vibe --session 4836855e user-messages --markdown
 
+# Raw recovery dump by type (one `type,timestamp,json` record per line)
+$B --harness vibe --session 4836855e extract-by-type --type user --type thinking
+# CLI extraction is unbounded by default; bound it explicitly when paging large
+# sessions (--limit/--offset/--max-bytes/--max-record-bytes, notice on stderr)
+$B --harness vibe --session 4836855e extract --limit 100 --offset 0
+
 # Compact from the last compaction point (default) or the full rollout
 $B --harness vibe --session 4836855e compact
 $B --harness vibe --session 4836855e --full compact
@@ -198,13 +261,35 @@ $B --harness vibe --session 4836855e --provider mistral recall
 Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
 For `--provider mistral`, set `MISTRAL_API_KEY` instead.
 
+## Environment: storage-root overrides and the sandbox guard
+
+Each adapter resolves its storage root from `$HOME` by default (the live
+store). To point the CLI and MCP server at fixtures or a scratch copy instead
+— without ever touching live sessions — set the harness's root override.
+Precedence: an explicit `with_root` (tests) > the env override (non-empty) >
+the `$HOME`-derived default. An empty value counts as unset; an override that
+resolves to nothing usable is an error, never a silent fall-back to `$HOME`.
+
+| Harness | Env var | Default root |
+|---------|---------|--------------|
+| vibe | `TOTAL_RECALL_VIBE_ROOT` | `~/.vibe/logs/session/` |
+| claude | `TOTAL_RECALL_CLAUDE_ROOT` | `~/.claude/projects/` |
+| codex | `TOTAL_RECALL_CODEX_ROOT` | `~/.codex/sessions/` |
+| opencode | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
+
+Set `TOTAL_RECALL_SANDBOX=1` to refuse to build any adapter whose root did not
+come from its override. With the sandbox armed and no override set,
+`make_adapter` fails closed with a descriptive error instead of reading the
+live store — a mechanical guarantee that sandboxed dev/test runs never read
+live sessions.
+
 ## MCP server
 
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session`, `extract_messages`, `extract_user_messages`,
-`compact_session`, `she_said_he_said_action`, `index_sessions`,
-`do_android_dream_of_electric_sheep`, and `total_recall`:
+`extract_by_type`, `compact_session`, `she_said_he_said_action`,
+`index_sessions`, `do_android_dream_of_electric_sheep`, and `total_recall`:
 
 ```bash
 $B mcp

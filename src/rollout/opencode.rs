@@ -8,8 +8,9 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
-    slice_from_compaction, summarize_tool_call, truncate_chars,
+    EventType, InterestingEvent, OPENCODE_ROOT_ENV_VAR, RolloutAdapter, RolloutMessage,
+    SessionProfile, SessionSummary, resolve_root, slice_from_compaction, summarize_tool_call,
+    truncate_chars,
 };
 
 /// OpenCode adapter. Reads session history from the local SQLite database at
@@ -19,25 +20,27 @@ use super::{
 /// part(id, message_id, data JSON with type text|tool|compaction|...).
 pub struct OpenCodeAdapter {
     db_path: PathBuf,
+    from_env: bool,
 }
 
 impl OpenCodeAdapter {
     pub fn new() -> Self {
-        Self {
-            db_path: opencode_db_path(),
-        }
+        let (db_path, from_env) = resolve_root(OPENCODE_ROOT_ENV_VAR, &[
+            ".local/share/opencode",
+            "opencode.db",
+        ]);
+        let db_path = normalize_db_path(db_path);
+        Self { db_path, from_env }
     }
 
     /// Path points at the opencode SQLite database file. If a directory is
     /// given, `opencode.db` inside it is used.
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        let path = root.into();
-        let db_path = if path.is_dir() {
-            path.join("opencode.db")
-        } else {
-            path
-        };
-        Self { db_path }
+        let db_path = normalize_db_path(root.into());
+        Self {
+            db_path,
+            from_env: true,
+        }
     }
 
     fn connect(&self) -> Option<Connection> {
@@ -235,13 +238,11 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if month <= 2 { y + 1 } else { y }, month, day)
 }
 
-fn opencode_db_path() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home)
-            .join(".local/share/opencode")
-            .join("opencode.db")
+fn normalize_db_path(path: PathBuf) -> PathBuf {
+    if path.is_dir() {
+        path.join("opencode.db")
     } else {
-        PathBuf::from(".local/share/opencode").join("opencode.db")
+        path
     }
 }
 
@@ -254,6 +255,10 @@ impl Default for OpenCodeAdapter {
 impl RolloutAdapter for OpenCodeAdapter {
     fn name(&self) -> &'static str {
         "opencode"
+    }
+
+    fn root_is_from_env(&self) -> bool {
+        self.from_env
     }
 
     fn shadow_index_root(&self) -> PathBuf {
@@ -369,6 +374,7 @@ impl RolloutAdapter for OpenCodeAdapter {
                 parent_session_id: parent_id,
                 child_sessions: children.remove(&id).unwrap_or_default(),
                 has_tantivy_index: false,
+                aliases: Vec::new(),
             });
         }
         summaries

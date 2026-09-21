@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
-    resolve_session_dir, slice_from_compaction, summarize_tool_call,
+    CLAUDE_ROOT_ENV_VAR, EventType, InterestingEvent, RolloutAdapter, RolloutMessage,
+    SessionProfile, SessionSummary, resolve_root, resolve_session_dir, slice_from_compaction,
+    summarize_tool_call,
 };
 
 /// Claude adapter. Reads JSONL files from ~/.claude/projects/
@@ -12,17 +13,20 @@ use super::{
 /// nested `message.content` field.
 pub struct ClaudeAdapter {
     root: PathBuf,
+    from_env: bool,
 }
 
 impl ClaudeAdapter {
     pub fn new() -> Self {
-        Self {
-            root: claude_projects_root(),
-        }
+        let (root, from_env) = resolve_root(CLAUDE_ROOT_ENV_VAR, &[".claude", "projects"]);
+        Self { root, from_env }
     }
 
     pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            from_env: true,
+        }
     }
 
     fn session_path(&self, session_id: &str) -> Option<PathBuf> {
@@ -46,14 +50,6 @@ impl ClaudeAdapter {
             }
         }
         messages
-    }
-}
-
-fn claude_projects_root() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".claude").join("projects")
-    } else {
-        PathBuf::from(".claude").join("projects")
     }
 }
 
@@ -177,6 +173,10 @@ impl RolloutAdapter for ClaudeAdapter {
         "claude"
     }
 
+    fn root_is_from_env(&self) -> bool {
+        self.from_env
+    }
+
     fn shadow_index_root(&self) -> PathBuf {
         self.root
             .parent()
@@ -252,6 +252,7 @@ impl RolloutAdapter for ClaudeAdapter {
                 parent_session_id: None,
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
+                aliases: Vec::new(),
             });
         }
 

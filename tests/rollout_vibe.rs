@@ -185,3 +185,90 @@ fn test_vibe_read_from_compaction_no_marker() {
         "Without compaction marker, should return all messages"
     );
 }
+
+// --- #9: list_sessions dedupes the same rollout under two session ids ---
+
+fn make_session_dir(root: &std::path::Path, name: &str, start: &str, end: &str, messages: &str) {
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("messages.jsonl"), messages).unwrap();
+    std::fs::write(
+        dir.join("meta.json"),
+        format!(
+            "{{\"session_id\":\"uuid-{name}\",\"start_time\":\"{start}\",\"end_time\":\"{end}\",\"title\":\"t\",\"total_messages\":1}}"
+        ),
+    )
+    .unwrap();
+}
+
+fn tmp_root(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::var("CARGO_TARGET_TMPDIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join(format!("tr_vibe_dedupe_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+const DUP_MSGS: &str = "{\"role\":\"user\",\"content\":\"same body\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}\n";
+
+#[test]
+fn duplicate_rollout_dirs_dedupe_to_one_canonical_entry() {
+    let root = tmp_root("dup");
+    // The canonical id's date prefix agrees with meta.start_time; the alias's
+    // date prefix disagrees (the reported #9 shape).
+    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+
+    let adapter = VibeAdapter::with_root(&root);
+    let sessions = adapter.list_sessions();
+    assert_eq!(sessions.len(), 1, "duplicate dirs must collapse to one entry");
+    let s = &sessions[0];
+    assert_eq!(
+        s.session_id, "session_20260915_095955_51a9645a",
+        "canonical id is the one whose date prefix agrees with start_time"
+    );
+    assert_eq!(s.aliases, vec!["session_20260921_135113_c20a924e".to_string()]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn distinct_rollouts_are_not_deduped() {
+    let root = tmp_root("distinct");
+    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-21T13:51:13+00:00", "2026-09-21T14:00:00+00:00", "{\"role\":\"user\",\"content\":\"different body\"}\n");
+
+    let adapter = VibeAdapter::with_root(&root);
+    let sessions = adapter.list_sessions();
+    assert_eq!(sessions.len(), 2, "distinct content must stay two entries");
+    assert!(sessions.iter().all(|s| s.aliases.is_empty()));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn empty_sessions_are_never_deduped_together() {
+    let root = tmp_root("empty");
+    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", "");
+    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-21T13:51:13+00:00", "2026-09-21T14:00:00+00:00", "");
+
+    let adapter = VibeAdapter::with_root(&root);
+    let sessions = adapter.list_sessions();
+    assert_eq!(sessions.len(), 2, "empty stores must not merge");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn canonical_and_alias_read_the_same_rollout() {
+    let root = tmp_root("read_same");
+    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+
+    let adapter = VibeAdapter::with_root(&root);
+    let via_canonical = adapter.read_session("51a9645a");
+    let via_alias = adapter.read_session("c20a924e");
+    assert_eq!(via_canonical.len(), via_alias.len());
+    assert_eq!(via_canonical.len(), 1);
+    assert_eq!(via_canonical[0].content, via_alias[0].content);
+    let _ = std::fs::remove_dir_all(&root);
+}

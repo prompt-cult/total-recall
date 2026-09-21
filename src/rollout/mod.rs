@@ -19,6 +19,61 @@ pub struct RolloutMessage {
     pub injected: bool,
 }
 
+/// A raw typed entry for `extract_by_type`: one source record with its type
+/// (`user` | `assistant` | `tool` | `thinking`), timestamp, and the record
+/// itself as JSON. No summarization or aggregation is applied.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RolloutEntry {
+    pub index: usize,
+    pub entry_type: String,
+    pub timestamp: Option<String>,
+    pub record: serde_json::Value,
+}
+
+/// Derive typed entries from the normalized message stream (default source for
+/// `read_session_entries`). Each message maps to its role type; a non-empty
+/// `thinking` payload adds a separate `thinking` entry. Injected (synthetic)
+/// user messages are skipped.
+pub fn entries_from_messages(messages: &[RolloutMessage]) -> Vec<RolloutEntry> {
+    let mut out = Vec::new();
+    for m in messages {
+        if m.injected {
+            continue;
+        }
+        let entry_type = match m.role.as_str() {
+            "user" | "assistant" | "tool" => m.role.clone(),
+            _ => continue,
+        };
+        out.push(RolloutEntry {
+            index: out.len(),
+            entry_type,
+            timestamp: m.timestamp.clone(),
+            record: serde_json::to_value(m).unwrap_or(serde_json::Value::Null),
+        });
+        if let Some(t) = &m.thinking
+            && !t.is_empty()
+        {
+            out.push(RolloutEntry {
+                index: out.len(),
+                entry_type: "thinking".to_string(),
+                timestamp: m.timestamp.clone(),
+                record: serde_json::json!({ "role": m.role, "thinking": t, "timestamp": m.timestamp }),
+            });
+        }
+    }
+    out
+}
+
+/// Render an entry timestamp for the `type,timestamp,json` line format:
+/// ISO8601 when it parses, else a unix-epoch integer string, else "0".
+pub fn entry_timestamp(ts: Option<&str>) -> String {
+    match ts {
+        Some(s) if is_iso8601(s) => s.to_string(),
+        Some(s) if s.chars().all(|c| c.is_ascii_digit()) && !s.is_empty() => s.to_string(),
+        _ => "0".to_string(),
+    }
+}
+
 /// Trait abstracting over different CLI tool session formats.
 pub trait RolloutAdapter: Send + Sync {
     /// Name of the harness ("vibe", "codex", "claude", "opencode")
@@ -43,6 +98,21 @@ pub trait RolloutAdapter: Send + Sync {
     /// Extract only user messages (verbatim)
     fn extract_user_messages(&self, session_id: &str) -> Vec<String>;
 
+    /// Raw typed entries for `extract_by_type`: one record per user message,
+    /// assistant message, tool call/result, or thinking entry, preserving the
+    /// source record where the adapter can reach it. `full` reads the entire
+    /// session; `false` reads from the last compaction point. Default derives
+    /// entries from the normalized message stream; adapters with access to the
+    /// native format override for byte-faithful records.
+    fn read_session_entries(&self, session_id: &str, full: bool) -> Vec<RolloutEntry> {
+        let messages = if full {
+            self.read_session_mmap(session_id)
+        } else {
+            self.read_session_from_compaction(session_id)
+        };
+        entries_from_messages(&messages)
+    }
+
     /// Case-insensitive term-matched dialogue and tool actions, as a markdown
     /// report of HE SAID (user text), SHE SAID (assistant text) and THEY DID
     /// (tool calls). Harnesses without a native implementation return a clear
@@ -50,6 +120,14 @@ pub trait RolloutAdapter: Send + Sync {
     /// Root directory for the disposable per-session full-text shadow index
     /// (`<root>/<session_id>/`). Sibling of the rollout store, never inside it.
     fn shadow_index_root(&self) -> PathBuf;
+
+    /// Whether this adapter's storage root came from its `TOTAL_RECALL_<H>_ROOT`
+    /// environment override (true) or the `$HOME`-derived live default (false).
+    /// Used by the sandbox guard; adapters that take an explicit root (`with_root`,
+    /// mock) report true so they are never refused.
+    fn root_is_from_env(&self) -> bool {
+        true
+    }
 
     fn she_said_he_said_action(
         &self,
@@ -81,6 +159,12 @@ pub struct SessionSummary {
     pub parent_session_id: Option<String>,
     pub child_sessions: Vec<String>,
     pub has_tantivy_index: bool,
+    /// Other directory/session names that resolve to the same underlying
+    /// rollout payload as this canonical entry (e.g. a resumed session that
+    /// kept its content but got a new directory name). Empty when the entry
+    /// is unique. Lets callers discover aliases without a second selectable
+    /// row that would double-process the store.
+    pub aliases: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -224,7 +308,7 @@ pub fn is_iso8601(s: &str) -> bool {
 }
 
 /// Truncate a string to at most `max_bytes` without splitting a UTF-8 character.
-pub(crate) fn truncate_chars(s: &str, max_bytes: usize) -> &str {
+pub fn truncate_chars(s: &str, max_bytes: usize) -> &str {
     if s.len() <= max_bytes {
         return s;
     }
@@ -267,4 +351,51 @@ pub fn slice_from_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessag
         Some(idx) => messages[idx..].to_vec(),
         None => messages,
     }
+}
+
+// --- Storage-root environment overrides -------------------------------------
+
+/// Per-harness environment variable that overrides the storage root.
+/// When set (non-empty), the adapter reads from this path instead of the
+/// `$HOME`-derived live store. Used to point the CLI and MCP server at
+/// fixtures or simulated data without ever touching live sessions.
+pub const VIBE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_VIBE_ROOT";
+pub const CLAUDE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_CLAUDE_ROOT";
+pub const CODEX_ROOT_ENV_VAR: &str = "TOTAL_RECALL_CODEX_ROOT";
+pub const OPENCODE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_OPENCODE_ROOT";
+
+/// When set to "1"/"true", `make_adapter` refuses to build any adapter whose
+/// root did NOT come from its env override — mechanically enforcing that no
+/// code path reads a live store in sandboxed dev/test runs.
+pub const SANDBOX_ENV_VAR: &str = "TOTAL_RECALL_SANDBOX";
+
+/// Read a root-override env var. Empty string counts as unset.
+pub fn env_root(var: &str) -> Option<PathBuf> {
+    std::env::var(var)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+/// Whether the sandbox guard is armed.
+pub fn sandbox_enabled() -> bool {
+    std::env::var(SANDBOX_ENV_VAR)
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Resolve an adapter storage root. Precedence:
+/// `TOTAL_RECALL_<H>_ROOT` (non-empty) > `$HOME`-derived default > relative fallback.
+/// Returns the path and whether it came from the env override.
+pub fn resolve_root(var: &str, home_segments: &[&str]) -> (PathBuf, bool) {
+    if let Some(p) = env_root(var) {
+        return (p, true);
+    }
+    let mut path = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    for seg in home_segments {
+        path.push(seg);
+    }
+    (path, false)
 }

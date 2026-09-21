@@ -110,6 +110,7 @@ impl RolloutAdapter for MockAdapter {
             parent_session_id: None,
             child_sessions: Vec::new(),
             has_tantivy_index: false,
+            aliases: Vec::new(),
         }]
     }
 

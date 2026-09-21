@@ -48,6 +48,23 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub provider: Option<String>,
 
+    /// Bound extract/user-messages to at most N records. 0 = unbounded (default;
+    /// stdout is a stream). Truncation notice goes to stderr.
+    #[arg(long, global = true, default_value_t = 0)]
+    pub limit: usize,
+
+    /// Start record index for extract/user-messages (omit = most recent `limit`).
+    #[arg(long, global = true)]
+    pub offset: Option<usize>,
+
+    /// Byte cap on extract/user-messages output. 0 = unbounded (default).
+    #[arg(long, global = true, default_value_t = 0)]
+    pub max_bytes: usize,
+
+    /// Per-record clamp for extract/user-messages, bytes. 0 = default 256 KiB.
+    #[arg(long, global = true, default_value_t = 0)]
+    pub max_record_bytes: usize,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -62,6 +79,14 @@ pub enum Command {
     Extract,
     /// Extract what the user said verbatim
     UserMessages,
+    /// Raw extract of entries by type (user|assistant|tool|thinking), one
+    /// `type,timestamp,json` record per line, for recovering large/damaged sessions
+    #[command(name = "extract-by-type")]
+    ExtractByType {
+        /// Entry type to include (repeatable): user|assistant|tool|thinking, or "all"
+        #[arg(long = "type", value_name = "kind")]
+        types: Vec<String>,
+    },
     /// Compact a rollout using Mercury 2.5
     Compact,
     /// Total recall: state summary + user goals + rollouts table + plan files
@@ -126,6 +151,81 @@ fn read_messages(
     } else {
         adapter.read_session_from_compaction(session_id)
     }
+}
+
+/// CLI-side bounding: unbounded by default. When `limit` or `max_bytes` is
+/// given, apply the same window/fit/clamp primitives as the MCP envelope and
+/// emit a truncation notice to stderr (stdout stays machine-parseable).
+fn bound_cli_messages(
+    mut messages: Vec<RolloutMessage>,
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
+) -> Vec<RolloutMessage> {
+    if limit == 0 && max_bytes == 0 {
+        return messages;
+    }
+    let total = messages.len();
+    let limit = if limit == 0 { total.max(1) } else { limit };
+    let (start, end) = total_recall::bound::window(total, offset, limit);
+    let mut windowed: Vec<RolloutMessage> = messages.drain(start..end).collect();
+    let max_record_bytes = total_recall::bound::normalize_max_record_bytes(max_record_bytes);
+    let mut clamped = 0usize;
+    for m in windowed.iter_mut() {
+        if total_recall::bound::clamp_message(m, max_record_bytes) {
+            clamped += 1;
+        }
+    }
+    if max_bytes > 0 {
+        let sized: Vec<total_recall::bound::SizedRecord> = windowed
+            .iter()
+            .map(|m| {
+                let json = serde_json::to_string(m).unwrap_or_default();
+                let bytes = json.len();
+                total_recall::bound::SizedRecord { json, bytes }
+            })
+            .collect();
+        let keep = total_recall::bound::fit_count(&sized, max_bytes);
+        windowed.truncate(keep);
+    }
+    let returned = windowed.len();
+    if returned < total || clamped > 0 {
+        eprintln!(
+            "TRUNCATED: returned records {}..{} of {}{}{}. Use --offset/--limit/--max-bytes to page.",
+            start,
+            start + returned,
+            total,
+            if clamped > 0 { format!(", {} records clamped", clamped) } else { String::new() },
+            if start + returned < total { format!(", next_offset={}", start + returned) } else { String::new() }
+        );
+    }
+    windowed
+}
+
+/// String variant for user-messages.
+fn bound_cli_strings(
+    messages: Vec<String>,
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
+) -> Vec<String> {
+    let wrapped: Vec<RolloutMessage> = messages
+        .into_iter()
+        .map(|content| RolloutMessage {
+            role: "user".to_string(),
+            content,
+            thinking: None,
+            tool_calls_summary: Vec::new(),
+            timestamp: None,
+            injected: false,
+        })
+        .collect();
+    bound_cli_messages(wrapped, limit, offset, max_bytes, max_record_bytes)
+        .into_iter()
+        .map(|m| m.content)
+        .collect()
 }
 
 #[tokio::main]
@@ -249,6 +349,13 @@ async fn main() -> Result<()> {
 
         Command::Extract => {
             let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
+            let messages = bound_cli_messages(
+                messages,
+                cli.limit,
+                cli.offset,
+                cli.max_bytes,
+                cli.max_record_bytes,
+            );
             if cli.json || !cli.markdown {
                 for msg in &messages {
                     let json = serde_json::to_string(msg)?;
@@ -270,6 +377,13 @@ async fn main() -> Result<()> {
 
         Command::UserMessages => {
             let messages = adapter.extract_user_messages(&session_id);
+            let messages = bound_cli_strings(
+                messages,
+                cli.limit,
+                cli.offset,
+                cli.max_bytes,
+                cli.max_record_bytes,
+            );
             if cli.json || !cli.markdown {
                 let json = serde_json::to_string_pretty(&messages)?;
                 println!("{}", json);
@@ -279,6 +393,64 @@ async fn main() -> Result<()> {
                     println!();
                 }
             }
+        }
+
+        Command::ExtractByType { types } => {
+            const VALID: [&str; 4] = ["user", "assistant", "tool", "thinking"];
+            let want_all = types.is_empty() || types.iter().any(|t| t == "all");
+            if !want_all {
+                for t in &types {
+                    if !VALID.contains(&t.as_str()) {
+                        eprintln!(
+                            "error: unknown type '{}'; valid: {} or \"all\"",
+                            t,
+                            VALID.join("|")
+                        );
+                        std::process::exit(2);
+                    }
+                }
+            }
+            let entries = adapter.read_session_entries(&session_id, cli.full);
+            let filtered: Vec<&total_recall::rollout::RolloutEntry> = entries
+                .iter()
+                .filter(|e| want_all || types.contains(&e.entry_type))
+                .collect();
+            // CLI: unbounded unless --limit/--max-bytes given.
+            let limit = if cli.limit == 0 { filtered.len().max(1) } else { cli.limit };
+            let total = filtered.len();
+            let (start, end) = total_recall::bound::window(total, cli.offset, limit);
+            let max_record_bytes = total_recall::bound::normalize_max_record_bytes(cli.max_record_bytes);
+            let mut out = String::new();
+            let mut used = 0usize;
+            for e in &filtered[start..end] {
+                let mut rec = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
+                if rec.len() > max_record_bytes {
+                    rec = total_recall::rollout::truncate_chars(&rec, max_record_bytes).to_string();
+                }
+                let line = format!(
+                    "{},{},{}",
+                    e.entry_type,
+                    total_recall::rollout::entry_timestamp(e.timestamp.as_deref()),
+                    rec
+                );
+                if cli.max_bytes > 0 && used + line.len() + 1 > cli.max_bytes {
+                    break;
+                }
+                used += line.len() + 1;
+                out.push_str(&line);
+                out.push('\n');
+            }
+            let returned = out.lines().count();
+            if returned < total {
+                eprintln!(
+                    "TRUNCATED: returned records {}..{} of {}. Use --offset/--limit/--max-bytes to page.",
+                    start,
+                    start + returned,
+                    total
+                );
+            }
+            print!("{}", out);
+            let _ = std::io::stdout().flush();
         }
 
         Command::Compact => {

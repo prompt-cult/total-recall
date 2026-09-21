@@ -1,3 +1,4 @@
+pub mod bound;
 pub mod harness;
 pub mod index;
 pub mod mcp;
