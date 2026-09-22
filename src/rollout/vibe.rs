@@ -176,7 +176,13 @@ impl RolloutAdapter for VibeAdapter {
                 .map(|m| m.len())
                 .unwrap_or(0);
 
-            let messages_data = std::fs::read(&messages_path).unwrap_or_default();
+            // Distinguish read damage (permissions, I/O error) from a payload
+            // that does not exist yet: damage is surfaced on the entry.
+            let (messages_data, read_error) = match std::fs::read(&messages_path) {
+                Ok(data) => (data, None),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+                Err(e) => (Vec::new(), Some(e.to_string())),
+            };
             let line_count = String::from_utf8_lossy(&messages_data)
                 .lines()
                 .filter(|l| !l.trim().is_empty())
@@ -267,6 +273,7 @@ impl RolloutAdapter for VibeAdapter {
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
+                read_error,
             });
             identity.push(content_hash);
         }
@@ -473,7 +480,12 @@ impl RolloutAdapter for VibeAdapter {
 
     /// Byte-faithful raw entries: re-parse the native `messages.jsonl` so each
     /// emitted record is the source line's JSON, not a normalized projection.
-    fn read_session_entries(&self, session_id: &str, full: bool) -> Vec<super::RolloutEntry> {
+    fn read_session_entries(
+        &self,
+        session_id: &str,
+        full: bool,
+        include_injected: bool,
+    ) -> Vec<super::RolloutEntry> {
         let path = match self.messages_path(session_id) {
             Some(p) => p,
             None => return Vec::new(),
@@ -507,7 +519,7 @@ impl RolloutAdapter for VibeAdapter {
         let mut out = Vec::new();
         for v in &raw[start..] {
             let injected = v.get("injected").and_then(|i| i.as_bool()).unwrap_or(false);
-            if injected {
+            if injected && !include_injected {
                 continue;
             }
             let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");

@@ -65,6 +65,10 @@ pub struct Cli {
     #[arg(long, global = true, default_value_t = 0)]
     pub max_record_bytes: usize,
 
+    /// Include injected (synthetic) user records in extract-by-type. Default false.
+    #[arg(long, global = true, default_value_t = false)]
+    pub include_injected: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -186,10 +190,26 @@ fn bound_cli_messages(
                 total_recall::bound::SizedRecord { json, bytes }
             })
             .collect();
+        // Even one record must fit; otherwise stdout would break the cap.
+        if sized
+            .first()
+            .is_some_and(|r| r.bytes.saturating_add(1) > max_bytes)
+        {
+            eprintln!(
+                "error: even one record ({}) exceeds --max-bytes ({}); raise --max-bytes or set --max-record-bytes to enable the clamp",
+                sized[0].bytes, max_bytes
+            );
+            std::process::exit(2);
+        }
         let keep = total_recall::bound::fit_count(&sized, max_bytes);
         windowed.truncate(keep);
     }
     let returned = windowed.len();
+    // An empty result window (paging past the end) cut nothing; never signal
+    // truncation for it.
+    if returned == 0 {
+        return windowed;
+    }
     if returned < total || clamped > 0 {
         eprintln!(
             "TRUNCATED: returned records {}..{} of {}{}{}. Use --offset/--limit/--max-bytes to page.",
@@ -410,7 +430,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            let entries = adapter.read_session_entries(&session_id, cli.full);
+            let entries = adapter.read_session_entries(&session_id, cli.full, cli.include_injected);
             let filtered: Vec<&total_recall::rollout::RolloutEntry> = entries
                 .iter()
                 .filter(|e| want_all || types.contains(&e.entry_type))
@@ -420,8 +440,7 @@ async fn main() -> Result<()> {
             let total = filtered.len();
             let (start, end) = total_recall::bound::window(total, cli.offset, limit);
             let max_record_bytes = total_recall::bound::normalize_max_record_bytes(cli.max_record_bytes);
-            let mut out = String::new();
-            let mut used = 0usize;
+            let mut sized: Vec<total_recall::bound::SizedRecord> = Vec::with_capacity(end - start);
             for e in &filtered[start..end] {
                 let mut rec = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
                 if rec.len() > max_record_bytes {
@@ -433,15 +452,30 @@ async fn main() -> Result<()> {
                     total_recall::rollout::entry_timestamp(e.timestamp.as_deref()),
                     rec
                 );
-                if cli.max_bytes > 0 && used + line.len() + 1 > cli.max_bytes {
-                    break;
-                }
-                used += line.len() + 1;
-                out.push_str(&line);
-                out.push('\n');
+                let bytes = line.len();
+                sized.push(total_recall::bound::SizedRecord { json: line, bytes });
             }
-            let returned = out.lines().count();
-            if returned < total {
+            // Even one record must fit; otherwise stdout would break the cap.
+            if cli.max_bytes > 0
+                && sized
+                    .first()
+                    .is_some_and(|r| r.bytes.saturating_add(1) > cli.max_bytes)
+            {
+                eprintln!(
+                    "error: even one record ({}) exceeds --max-bytes ({}); raise --max-bytes or set --max-record-bytes to enable the clamp",
+                    sized[0].bytes, cli.max_bytes
+                );
+                std::process::exit(2);
+            }
+            let kept = if cli.max_bytes > 0 {
+                &sized[..total_recall::bound::fit_count(&sized, cli.max_bytes)]
+            } else {
+                &sized[..]
+            };
+            let returned = kept.len();
+            // An empty result window (paging past the end) cut nothing; never
+            // signal truncation for it.
+            if returned > 0 && (start > 0 || start + returned < total) {
                 eprintln!(
                     "TRUNCATED: returned records {}..{} of {}. Use --offset/--limit/--max-bytes to page.",
                     start,
@@ -449,7 +483,9 @@ async fn main() -> Result<()> {
                     total
                 );
             }
-            print!("{}", out);
+            for r in kept {
+                println!("{}", r.json);
+            }
             let _ = std::io::stdout().flush();
         }
 

@@ -111,7 +111,8 @@ impl RolloutAdapter for MockAdapter {
             child_sessions: Vec::new(),
             has_tantivy_index: false,
             aliases: Vec::new(),
-        }]
+                read_error: None,
+}]
     }
 
     fn read_session(&self, _session_id: &str) -> Vec<RolloutMessage> {

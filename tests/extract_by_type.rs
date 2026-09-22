@@ -159,3 +159,52 @@ fn extract_by_type_is_bounded_with_notice() {
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn extract_by_type_omitted_types_defaults_to_all() {
+    let root = tmp_root("omitted");
+    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    send(&mut stdin, &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true}}}));
+    let resp = read_id(&mut reader, 2);
+    let text = text_of(&resp);
+    let lines = data_lines(&text);
+    assert_eq!(lines.len(), 3, "all types, injected excluded: {lines:?}");
+    let hj: serde_json::Value = serde_json::from_str(&text.lines().next().unwrap()[1..]).unwrap();
+    assert_eq!(hj.get("types").unwrap().as_array().unwrap().len(), 4, "header echoes all four types");
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn extract_by_type_include_toggle_at_mcp_level() {
+    let root = tmp_root("toggle");
+    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    // Default: injected skipped (3 records). With the toggle: 4.
+    send(&mut stdin, &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"],"include_injected":true}}}));
+    let resp = read_id(&mut reader, 2);
+    let text = text_of(&resp);
+    let lines = data_lines(&text);
+    assert_eq!(lines.len(), 2, "injected user record included: {lines:?}");
+    let injected = lines.iter().find(|l| l.contains("injected marker")).expect("injected record present");
+    assert!(injected.contains("\"injected\":true"), "record carries the injected flag");
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
+    let root = tmp_root("tinycap");
+    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    send(&mut stdin, &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"max_bytes":50}}}));
+    let resp = read_id(&mut reader, 2);
+    assert_eq!(resp.pointer("/result/isError").and_then(|v| v.as_bool()), Some(true));
+    assert!(text_of(&resp).contains("even one record"));
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -32,14 +32,13 @@ pub struct RolloutEntry {
 
 /// Derive typed entries from the normalized message stream (default source for
 /// `read_session_entries`). Each message maps to its role type; a non-empty
-/// `thinking` payload adds a separate `thinking` entry. Injected (synthetic)
-/// user messages are skipped.
-pub fn entries_from_messages(messages: &[RolloutMessage]) -> Vec<RolloutEntry> {
+/// `thinking` payload adds a separate `thinking` entry. Callers pre-filter
+/// injected messages (see `RolloutAdapter::read_session_entries`).
+pub fn entries_from_messages<'a>(
+    messages: impl IntoIterator<Item = &'a RolloutMessage>,
+) -> Vec<RolloutEntry> {
     let mut out = Vec::new();
     for m in messages {
-        if m.injected {
-            continue;
-        }
         let entry_type = match m.role.as_str() {
             "user" | "assistant" | "tool" => m.role.clone(),
             _ => continue,
@@ -101,16 +100,26 @@ pub trait RolloutAdapter: Send + Sync {
     /// Raw typed entries for `extract_by_type`: one record per user message,
     /// assistant message, tool call/result, or thinking entry, preserving the
     /// source record where the adapter can reach it. `full` reads the entire
-    /// session; `false` reads from the last compaction point. Default derives
-    /// entries from the normalized message stream; adapters with access to the
-    /// native format override for byte-faithful records.
-    fn read_session_entries(&self, session_id: &str, full: bool) -> Vec<RolloutEntry> {
+    /// session; `false` reads from the last compaction point. Injected
+    /// (synthetic) user messages are skipped unless `include_injected`.
+    /// Default derives entries from the normalized message stream; adapters
+    /// with access to the native format override for byte-faithful records.
+    fn read_session_entries(
+        &self,
+        session_id: &str,
+        full: bool,
+        include_injected: bool,
+    ) -> Vec<RolloutEntry> {
         let messages = if full {
             self.read_session_mmap(session_id)
         } else {
             self.read_session_from_compaction(session_id)
         };
-        entries_from_messages(&messages)
+        let selected: Vec<&RolloutMessage> = messages
+            .iter()
+            .filter(|m| include_injected || !m.injected)
+            .collect();
+        entries_from_messages(selected.iter().copied())
     }
 
     /// Case-insensitive term-matched dialogue and tool actions, as a markdown
@@ -165,6 +174,12 @@ pub struct SessionSummary {
     /// is unique. Lets callers discover aliases without a second selectable
     /// row that would double-process the store.
     pub aliases: Vec<String>,
+    /// Set when the rollout payload could not be read (permissions, I/O
+    /// error) — the entry is still listed so damage is visible, with counts
+    /// from whatever could be read. Absent for a healthy payload, and also
+    /// absent when the payload file simply does not exist yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_error: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
