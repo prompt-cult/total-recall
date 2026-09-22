@@ -100,6 +100,11 @@ pub struct ExtractByTypeParams {
     )]
     #[serde(default)]
     pub types: Vec<String>,
+    #[schemars(
+        description = "Include injected (synthetic) user records. Default false: they are skipped as in user-message extraction."
+    )]
+    #[serde(default)]
+    pub include_injected: bool,
     #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
     #[serde(default)]
     pub limit: usize,
@@ -392,7 +397,7 @@ impl TotalRecallServer {
             adapter.read_session_from_compaction(&session_id)
         };
 
-        let json = bounded_messages_envelope(
+        let json = match bounded_messages_envelope(
             &session_id,
             self.harness(),
             params.full,
@@ -402,7 +407,10 @@ impl TotalRecallServer {
             params.offset,
             max_bytes,
             max_record_bytes,
-        );
+        ) {
+            Ok(json) => json,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -436,7 +444,7 @@ impl TotalRecallServer {
             .filter(|m| m.role == "user" && !m.injected)
             .collect();
 
-        let json = bounded_messages_envelope(
+        let json = match bounded_messages_envelope(
             &session_id,
             self.harness(),
             false,
@@ -446,7 +454,10 @@ impl TotalRecallServer {
             params.offset,
             max_bytes,
             max_record_bytes,
-        );
+        ) {
+            Ok(json) => json,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -488,7 +499,7 @@ impl TotalRecallServer {
         let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
         let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
-        let entries = adapter.read_session_entries(&session_id, params.full);
+        let entries = adapter.read_session_entries(&session_id, params.full, params.include_injected);
         let selected: Vec<String> = if want_all {
             VALID.iter().map(|s| s.to_string()).collect()
         } else {
@@ -499,7 +510,7 @@ impl TotalRecallServer {
             .filter(|e| want_all || params.types.contains(&e.entry_type))
             .collect();
 
-        let text = extract_by_type_report(
+        let text = match extract_by_type_report(
             &session_id,
             self.harness(),
             params.full,
@@ -509,7 +520,10 @@ impl TotalRecallServer {
             params.offset,
             max_bytes,
             max_record_bytes,
-        );
+        ) {
+            Ok(text) => text,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
@@ -645,10 +659,13 @@ impl ServerHandler for TotalRecallServer {
 
 /// Build a bounded JSON envelope around a window of messages. Selects the
 /// window (tail when `offset` is None, else an index range), clamps oversized
-/// records, fits as many as the byte budget allows, and emits a pretty JSON
+/// records, fits as many as the byte budget allows, and emits a compact JSON
 /// object `{ session_id, harness, full, bounds, <records_key>: [...] }` whose
-/// serialized size never exceeds `max_bytes`. Truncation is always signalled
-/// in `bounds.notice` / `bounds.truncated`.
+/// serialized size never exceeds `max_bytes` (bounding is computed on the same
+/// compact serialization that is emitted, so pretty-printing cannot inflate
+/// the payload past the contract). Truncation is always signalled in
+/// `bounds.notice` / `bounds.truncated`. Errors when even one record cannot
+/// fit under the budget (fix: raise `max_bytes` or enable the clamp).
 #[allow(clippy::too_many_arguments)]
 fn bounded_messages_envelope(
     session_id: &str,
@@ -660,7 +677,7 @@ fn bounded_messages_envelope(
     offset: Option<usize>,
     max_bytes: usize,
     max_record_bytes: usize,
-) -> String {
+) -> Result<String, String> {
     let total = messages.len();
     let (start, end) = crate::bound::window(total, offset, limit);
     let windowed = &messages[start..end];
@@ -680,6 +697,12 @@ fn bounded_messages_envelope(
 
     // Fit under the byte budget (reserving room for the envelope keys).
     let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
+    if sized.first().is_some_and(|r| r.bytes.saturating_add(1) > budget) {
+        return Err(format!(
+            "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
+            sized[0].bytes, max_bytes
+        ));
+    }
     let fit = crate::bound::fit_count(&sized, budget);
     // record_limit truncation: the requested window could not be satisfied in
     // full — tail mode dropped leading records (start>0), or offset mode
@@ -714,14 +737,16 @@ fn bounded_messages_envelope(
     });
     envelope[records_key] = serde_json::Value::Array(records);
 
-    serde_json::to_string_pretty(&envelope).unwrap_or_else(|_| "{}".to_string())
+    Ok(serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string()))
 }
 
 /// Assemble the `extract_by_type` line-format report. Line 1 is a `#`-prefixed
 /// compact-JSON header carrying the bounds; each subsequent line is
 /// `type,timestamp,json` (compact JSON, embedded newlines escaped so the
 /// one-record-per-line invariant holds). On truncation a final `# TRUNCATED:`
-/// line is appended. Never summarizes or aggregates.
+/// line is appended. Never summarizes or aggregates. Errors when even one
+/// record cannot fit under the budget (fix: raise `max_bytes` or enable the
+/// clamp).
 #[allow(clippy::too_many_arguments)]
 fn extract_by_type_report(
     session_id: &str,
@@ -733,7 +758,7 @@ fn extract_by_type_report(
     offset: Option<usize>,
     max_bytes: usize,
     max_record_bytes: usize,
-) -> String {
+) -> Result<String, String> {
     let total = entries.len();
     let (start, end) = crate::bound::window(total, offset, limit);
     let windowed = &entries[start..end];
@@ -762,6 +787,12 @@ fn extract_by_type_report(
     }
 
     let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
+    if sized.first().is_some_and(|r| r.bytes.saturating_add(1) > budget) {
+        return Err(format!(
+            "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
+            sized[0].bytes, max_bytes
+        ));
+    }
     let fit = crate::bound::fit_count(&sized, budget);
     let record_limit_hit = start > 0 || end < total;
     let byte_cap_hit = fit < sized.len();
@@ -800,5 +831,5 @@ fn extract_by_type_report(
         out.push_str(&bounds.notice);
         out.push('\n');
     }
-    out
+    Ok(out)
 }

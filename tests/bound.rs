@@ -88,3 +88,19 @@ fn finalize_bounds_reports_truncation_and_next_offset() {
     assert_eq!(done.next_offset, None);
     assert!(done.notice.is_empty());
 }
+
+#[test]
+fn finalize_bounds_empty_window_never_signals_truncation() {
+    // Paging past the end: offset clamps to total, returned 0 — nothing was
+    // cut, so truncated must be false and the notice empty.
+    let b = finalize_bounds(1000, 5000, 100, 0, true, false, vec![], 8_388_608, 0);
+    assert_eq!(b.returned_records, 0);
+    assert!(!b.truncated);
+    assert!(b.truncation_reason.is_empty());
+    assert!(b.notice.is_empty());
+    assert_eq!(b.next_offset, None);
+    // An empty session behaves the same.
+    let empty = finalize_bounds(0, 0, 100, 0, false, false, vec![], 8_388_608, 0);
+    assert!(!empty.truncated);
+    assert!(empty.notice.is_empty());
+}

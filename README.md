@@ -32,6 +32,10 @@ new directory name); `list_sessions` emits one canonical entry per payload —
 the id whose directory-name date prefix agrees with the session's start time —
 and lists the rest under `aliases`, so a caller paging the index never
 processes the same rollout twice. `aliases` is empty for a unique session.
+When a rollout payload cannot be read (permissions, I/O error), the entry is
+still listed — with counts from whatever could be read — and carries a
+`read_error` message so damage is visible in the index instead of the
+payload silently appearing empty.
 
 ### Bounded extraction — `extract_messages` / `extract_user_messages`
 
@@ -54,7 +58,13 @@ ceiling, ~2× headroom under typical client limits), `max_record_bytes`
 256 KiB per-record clamp. Omit `offset` for the most recent `limit` (a tail
 window); pass `offset` (from `0`) and follow `bounds.next_offset` to page the
 whole session in bounded chunks. `truncated` and `notice` always state when
-output was cut and why (`record_limit` / `byte_cap` / `record_clamp`).
+output was cut and why (`record_limit` / `byte_cap` / `record_clamp`); an
+empty result window (an empty session, or paging past the end) never signals
+truncation. The payload is emitted as compact JSON and bounding is computed
+on the same compact serialization that is emitted, so the contract holds
+exactly. When even one record cannot fit under the budget (fix: raise
+`max_bytes` or enable the clamp) the tool emits a descriptive error instead
+of silently breaking the cap.
 
 ### `extract_by_type` — raw recovery dump
 
@@ -77,7 +87,12 @@ newlines are escaped and the one-record-per-line invariant always holds. On
 truncation a final `# TRUNCATED: …` line is appended. The stable prefix lets
 callers filter and re-merge with standard Unix tools (`awk -F, '$1=="user"'`,
 `jq -R 'fromjson'`, `sort -t, -k2`). Output is bounded by the same `limit` /
-`offset` / `max_bytes` / `max_record_bytes` parameters as bounded extraction.
+`offset` / `max_bytes` / `max_record_bytes` parameters as bounded extraction
+(with the same exact contract and error behavior). Injected (synthetic) user
+records are skipped by default; pass `include_injected: true` (MCP) or
+`--include-injected` (CLI) to include them — the record itself carries the
+`injected` flag either way. When even one record cannot fit under the budget,
+the tool emits a descriptive error (raise `max_bytes` or enable the clamp).
 For vibe the records are the byte-faithful source lines re-parsed from
 `messages.jsonl`; other harnesses derive entries from the normalized message
 stream.

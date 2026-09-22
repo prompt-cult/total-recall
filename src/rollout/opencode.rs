@@ -375,7 +375,8 @@ impl RolloutAdapter for OpenCodeAdapter {
                 child_sessions: children.remove(&id).unwrap_or_default(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
-            });
+                        read_error: None,
+});
         }
         summaries
     }

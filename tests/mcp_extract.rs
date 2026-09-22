@@ -181,3 +181,68 @@ fn extract_messages_rejects_excessive_limit() {
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn extract_messages_small_max_bytes_drives_byte_cap() {
+    let root = tmp_root("bytecap");
+    // 3000 * ~2KB = 6MB; window default 100 records ~200KB; budget 50KB-8KB
+    // forces byte_cap truncation well inside the window.
+    make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
+        "session_id": "51a9645a", "full": true, "max_bytes": 50000
+    }));
+    assert!(resp.pointer("/result/isError").and_then(|v| v.as_bool()) != Some(true), "not a tool error: {resp}");
+    let text = result_text(&resp);
+    let env: serde_json::Value = serde_json::from_str(&text).expect("envelope is valid JSON");
+    let b = env.get("bounds").unwrap();
+    assert_eq!(b.get("truncated").and_then(|v| v.as_bool()), Some(true));
+    // Both flags are legitimately true: the default limit-100 window cuts the
+    // 3000-record session, and the 50KB byte cap cuts inside that window.
+    assert!(b.get("truncation_reason").and_then(|v| v.as_str()).unwrap().contains("byte_cap"), "reason: {b}");
+    assert!(b.get("returned_records").and_then(|n| n.as_u64()).unwrap() < 100, "byte cap cuts inside the window");
+    // Compact emission: bounding is computed on the same serialization that is
+    // emitted, so the contract holds exactly.
+    assert!(text.len() <= 50000, "envelope must respect max_bytes exactly, got {}", text.len());
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn extract_messages_offset_past_end_is_not_truncated() {
+    let root = tmp_root("pastend");
+    make_big_session(&root, "session_20260915_095955_51a9645a", 50, 100);
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
+        "session_id": "51a9645a", "full": true, "offset": 99999, "limit": 100
+    }));
+    let text = result_text(&resp);
+    let env: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let b = env.get("bounds").unwrap();
+    assert_eq!(b.get("truncated").and_then(|v| v.as_bool()), Some(false), "nothing cut: {b}");
+    assert_eq!(b.get("returned_records").and_then(|n| n.as_u64()), Some(0));
+    assert_eq!(b.get("notice").and_then(|n| n.as_str()).unwrap_or("x"), "", "notice empty");
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn extract_messages_tiny_max_bytes_is_a_tool_error() {
+    // Even one record cannot fit under the budget: a descriptive tool error
+    // instead of silently breaking the cap.
+    let root = tmp_root("tinycap");
+    make_big_session(&root, "session_20260915_095955_51a9645a", 10, 500);
+    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
+        "session_id": "51a9645a", "full": true, "max_bytes": 100
+    }));
+    assert_eq!(resp.pointer("/result/isError").and_then(|v| v.as_bool()), Some(true));
+    let text = result_text(&resp);
+    assert!(text.contains("even one record"), "error names the fix: {text}");
+    assert!(text.contains("max_record_bytes"), "error names the clamp: {text}");
+    let _ = child.kill();
+    let _ = std::fs::remove_dir_all(&root);
+}

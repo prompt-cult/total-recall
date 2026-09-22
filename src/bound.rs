@@ -164,6 +164,11 @@ pub fn finalize_bounds(
     if !clamped_indices.is_empty() {
         reasons.push("record_clamp");
     }
+    // An empty result window (e.g. paging past the end, or an empty session)
+    // cut nothing; never signal truncation for it.
+    if returned == 0 {
+        reasons.clear();
+    }
     let truncated = !reasons.is_empty();
     let next_offset = if offset + returned < total {
         Some(offset + returned)
