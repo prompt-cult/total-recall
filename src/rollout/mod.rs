@@ -99,7 +99,10 @@ pub trait RolloutAdapter: Send + Sync {
     /// Most recent session id. Default scans the full session list; adapters
     /// with a cheap store-side index override this.
     fn most_recent_session_id(&self) -> Option<String> {
-        self.list_sessions().into_iter().next().map(|s| s.session_id)
+        self.list_sessions()
+            .into_iter()
+            .next()
+            .map(|s| s.session_id)
     }
 
     /// `profile_session` with the opt-in on-disk profile cache. `cache = true`

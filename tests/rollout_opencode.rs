@@ -291,14 +291,19 @@ fn test_opencode_reasoning_part_becomes_thinking_message() {
     let messages = adapter.read_session("ses_fixture");
     let reasoning = messages
         .iter()
-        .find(|m| m.thinking.as_deref().is_some_and(|t| t.contains("pondering")))
+        .find(|m| {
+            m.thinking
+                .as_deref()
+                .is_some_and(|t| t.contains("pondering"))
+        })
         .expect("reasoning part must become a thinking-carrying message");
     assert_eq!(reasoning.role, "assistant");
     assert_eq!(reasoning.content, "");
     assert!(
-        !messages
-            .iter()
-            .any(|m| m.thinking.as_deref().is_some_and(|t| t.contains("synthetic"))),
+        !messages.iter().any(|m| m
+            .thinking
+            .as_deref()
+            .is_some_and(|t| t.contains("synthetic"))),
         "synthetic reasoning must be skipped: {:?}",
         messages
     );
@@ -320,7 +325,9 @@ fn test_opencode_reasoning_e2e_indexed_and_searchable_as_thinking() {
     conn.execute(
         "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
          VALUES ('part6', 'msg5', 'ses_fixture0001aaaa', 5000, 5000, ?1)",
-        rusqlite::params![r#"{"type":"reasoning","text":"the electriczebra appears only in reasoning"}"#],
+        rusqlite::params![
+            r#"{"type":"reasoning","text":"the electriczebra appears only in reasoning"}"#
+        ],
     )
     .unwrap();
     conn.execute(

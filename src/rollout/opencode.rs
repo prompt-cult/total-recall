@@ -25,10 +25,10 @@ pub struct OpenCodeAdapter {
 
 impl OpenCodeAdapter {
     pub fn new() -> Self {
-        let (db_path, from_env) = resolve_root(OPENCODE_ROOT_ENV_VAR, &[
-            ".local/share/opencode",
-            "opencode.db",
-        ]);
+        let (db_path, from_env) = resolve_root(
+            OPENCODE_ROOT_ENV_VAR,
+            &[".local/share/opencode", "opencode.db"],
+        );
         let db_path = normalize_db_path(db_path);
         Self { db_path, from_env }
     }
@@ -380,8 +380,8 @@ impl RolloutAdapter for OpenCodeAdapter {
                 child_sessions: children.remove(&id).unwrap_or_default(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
-                        read_error: None,
-});
+                read_error: None,
+            });
         }
         summaries
     }

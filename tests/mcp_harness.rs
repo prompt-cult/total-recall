@@ -93,7 +93,13 @@ fn opencode_harness_is_accepted() {
     assert_eq!(adapter.name(), "opencode");
 }
 
-fn spawn_mcp_server(harness: &str) -> (std::process::Child, std::io::BufReader<std::process::ChildStdout>, std::process::ChildStdin) {
+fn spawn_mcp_server(
+    harness: &str,
+) -> (
+    std::process::Child,
+    std::io::BufReader<std::process::ChildStdout>,
+    std::process::ChildStdin,
+) {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", harness, "mcp"])
         .stdin(std::process::Stdio::piped())
@@ -119,8 +125,13 @@ fn read_response(
     let mut line = String::new();
     loop {
         line.clear();
-        let n = reader.read_line(&mut line).expect("failed to read mcp stdout");
-        assert!(n > 0, "mcp server closed stdout before returning id {expected_id}");
+        let n = reader
+            .read_line(&mut line)
+            .expect("failed to read mcp stdout");
+        assert!(
+            n > 0,
+            "mcp server closed stdout before returning id {expected_id}"
+        );
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -151,7 +162,10 @@ fn mcp_tools_list_includes_index_and_sheep() {
         }),
     );
     let init = read_response(&mut reader, 1);
-    assert!(init.get("result").is_some(), "initialize must succeed: {init}");
+    assert!(
+        init.get("result").is_some(),
+        "initialize must succeed: {init}"
+    );
 
     send_json(
         &mut stdin,
@@ -184,7 +198,9 @@ fn mcp_tools_list_includes_index_and_sheep() {
         "tools/list must include index_sessions, got: {names:?}"
     );
     assert!(
-        names.iter().any(|n| n == "do_android_dream_of_electric_sheep"),
+        names
+            .iter()
+            .any(|n| n == "do_android_dream_of_electric_sheep"),
         "tools/list must include do_android_dream_of_electric_sheep, got: {names:?}"
     );
 
@@ -204,7 +220,9 @@ fn mcp_tools_list_includes_index_and_sheep() {
 
     let sheep_tool = tools
         .iter()
-        .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("do_android_dream_of_electric_sheep"))
+        .find(|t| {
+            t.get("name").and_then(|n| n.as_str()) == Some("do_android_dream_of_electric_sheep")
+        })
         .expect("sheep tool metadata");
     let sheep_desc = sheep_tool
         .get("description")
@@ -237,7 +255,10 @@ fn mcp_sheep_errors_on_empty_query() {
         }),
     );
     let init = read_response(&mut reader, 1);
-    assert!(init.get("result").is_some(), "initialize must succeed: {init}");
+    assert!(
+        init.get("result").is_some(),
+        "initialize must succeed: {init}"
+    );
 
     send_json(
         &mut stdin,
@@ -269,7 +290,10 @@ fn mcp_sheep_errors_on_empty_query() {
         .pointer("/result")
         .expect("tools/call response must contain result");
     assert!(
-        result.get("isError").and_then(|v| v.as_bool()).unwrap_or(false),
+        result
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         "empty query must produce a tool-level error result: {result}"
     );
     let content_text: String = result

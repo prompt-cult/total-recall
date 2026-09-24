@@ -2,10 +2,8 @@ use std::path::PathBuf;
 
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::document::{
-    CompactDocValue, ReferenceValue, ReferenceValueLeaf, Value as _,
-};
-use tantivy::schema::{NumericOptions, Schema, TantivyDocument, TextOptions, STORED, TEXT};
+use tantivy::schema::document::{CompactDocValue, ReferenceValue, ReferenceValueLeaf, Value as _};
+use tantivy::schema::{NumericOptions, STORED, Schema, TEXT, TantivyDocument, TextOptions};
 use tantivy::{Index, IndexWriter};
 
 use crate::rollout::{RolloutAdapter, SessionSummary};
@@ -60,10 +58,7 @@ pub fn select_sessions(
                 continue;
             }
             if let Some(dir) = directory.filter(|d| !d.is_empty())
-                && !summary
-                    .directory
-                    .as_deref()
-                    .is_none_or(|d| d.contains(dir))
+                && !summary.directory.as_deref().is_none_or(|d| d.contains(dir))
             {
                 continue;
             }
@@ -71,10 +66,7 @@ pub fn select_sessions(
         }
     } else {
         for partial in sessions {
-            if let Some(found) = all
-                .iter()
-                .find(|s| s.session_id.contains(partial.as_str()))
-            {
+            if let Some(found) = all.iter().find(|s| s.session_id.contains(partial.as_str())) {
                 if !selected.iter().any(|s| s.session_id == found.session_id) {
                     selected.push(found.clone());
                 }
@@ -99,10 +91,7 @@ fn build_schema() -> Schema {
     builder.build()
 }
 
-pub fn index_session(
-    adapter: &dyn RolloutAdapter,
-    session_id: &str,
-) -> Result<IndexStats, String> {
+pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<IndexStats, String> {
     let resolved = if session_id.is_empty() {
         adapter
             .list_sessions()
@@ -121,13 +110,8 @@ pub fn index_session(
     let messages = adapter.read_session_mmap(&resolved);
     let dir = session_index_dir(adapter, &resolved);
     if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| {
-            format!(
-                "cannot clear existing index dir {}: {}",
-                dir.display(),
-                e
-            )
-        })?;
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| format!("cannot clear existing index dir {}: {}", dir.display(), e))?;
     }
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("cannot create index dir {}: {}", dir.display(), e))?;
@@ -304,12 +288,8 @@ pub fn search(
                 let content = text_of(doc.get_first(content_field));
                 let thinking = text_of(doc.get_first(thinking_field));
                 let in_thinking = {
-                    let content_hit = tokens
-                        .iter()
-                        .any(|t| content.to_lowercase().contains(t));
-                    let thinking_hit = tokens
-                        .iter()
-                        .any(|t| thinking.to_lowercase().contains(t));
+                    let content_hit = tokens.iter().any(|t| content.to_lowercase().contains(t));
+                    let thinking_hit = tokens.iter().any(|t| thinking.to_lowercase().contains(t));
                     !content_hit && thinking_hit
                 };
                 let (text, marked) = if in_thinking {
@@ -341,12 +321,13 @@ pub fn search(
         }
     }
 
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
-    let mut out = format!(
-        "# do-android-dream-of-electric-sheep — query: {}\n",
-        query
-    );
+    let mut out = format!("# do-android-dream-of-electric-sheep — query: {}\n", query);
     let mut header = format!(
         "{} sessions searched, {} with hits, {} not indexed (run index first)",
         selected.len(),

@@ -468,7 +468,7 @@ impl RolloutAdapter for VibeAdapter {
             }
         }
 
-            let profile = SessionProfile {
+        let profile = SessionProfile {
             session_id: session_id.to_string(),
             file_size,
             line_count,
@@ -541,7 +541,10 @@ impl RolloutAdapter for VibeAdapter {
                 "user" | "assistant" | "tool" => role.to_string(),
                 _ => continue,
             };
-            let timestamp = v.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            let timestamp = v
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .map(String::from);
             out.push(super::RolloutEntry {
                 index: out.len(),
                 entry_type,
@@ -564,7 +567,9 @@ fn dir_name_datetime(name: &str) -> String {
     let mut parts = rest.splitn(3, '_');
     let date = parts.next().unwrap_or("");
     let time = parts.next().unwrap_or("");
-    if date.len() == 8 && time.len() == 6 && date.bytes().all(|b| b.is_ascii_digit())
+    if date.len() == 8
+        && time.len() == 6
+        && date.bytes().all(|b| b.is_ascii_digit())
         && time.bytes().all(|b| b.is_ascii_digit())
     {
         format!("{}{}", date, time)
@@ -577,7 +582,10 @@ fn dir_name_datetime(name: &str) -> String {
 /// separators, fractional seconds, and the zone) for comparison with the
 /// directory-name prefix. Empty when unparseable.
 fn iso_datetime_digits(iso: &str) -> String {
-    iso.chars().filter(|c| c.is_ascii_digit()).take(14).collect()
+    iso.chars()
+        .filter(|c| c.is_ascii_digit())
+        .take(14)
+        .collect()
 }
 
 /// Group session summaries that describe the same rollout payload and keep a
@@ -590,10 +598,7 @@ fn iso_datetime_digits(iso: &str) -> String {
 /// Payloads that share (file_size, line_count, content_hash) are byte-identical,
 /// so the canonical entry's own counters are already correct — only the
 /// directory names and meta timestamps differ between members.
-fn dedupe_vibe_sessions(
-    summaries: Vec<SessionSummary>,
-    identity: Vec<u64>,
-) -> Vec<SessionSummary> {
+fn dedupe_vibe_sessions(summaries: Vec<SessionSummary>, identity: Vec<u64>) -> Vec<SessionSummary> {
     use std::collections::HashMap;
 
     // group key -> indices into summaries

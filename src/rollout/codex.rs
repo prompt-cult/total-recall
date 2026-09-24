@@ -187,8 +187,8 @@ impl RolloutAdapter for CodexAdapter {
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
-                        read_error: None,
-});
+                read_error: None,
+            });
         }
 
         summaries.sort_by(|a, b| b.session_id.cmp(&a.session_id));

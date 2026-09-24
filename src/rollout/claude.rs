@@ -3,8 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     CLAUDE_ROOT_ENV_VAR, EventType, InterestingEvent, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, resolve_root, slice_from_compaction,
-    summarize_tool_call,
+    SessionProfile, SessionSummary, resolve_root, slice_from_compaction, summarize_tool_call,
 };
 
 /// Claude adapter. Reads JSONL files from ~/.claude/projects/
@@ -224,23 +223,21 @@ fn extract_content(v: &serde_json::Value) -> String {
                             parts.push(text.to_string());
                         }
                     }
-                    "tool_result" => {
-                        match block.get("content") {
-                            Some(serde_json::Value::String(content)) => {
-                                parts.push(format!("TOOL RESULT: {content}"));
-                            }
-                            Some(serde_json::Value::Array(blocks)) => {
-                                for tb in blocks {
-                                    if tb.get("type").and_then(|t| t.as_str()) == Some("text")
-                                        && let Some(text) = tb.get("text").and_then(|t| t.as_str())
-                                    {
-                                        parts.push(format!("TOOL RESULT: {text}"));
-                                    }
+                    "tool_result" => match block.get("content") {
+                        Some(serde_json::Value::String(content)) => {
+                            parts.push(format!("TOOL RESULT: {content}"));
+                        }
+                        Some(serde_json::Value::Array(blocks)) => {
+                            for tb in blocks {
+                                if tb.get("type").and_then(|t| t.as_str()) == Some("text")
+                                    && let Some(text) = tb.get("text").and_then(|t| t.as_str())
+                                {
+                                    parts.push(format!("TOOL RESULT: {text}"));
                                 }
                             }
-                            _ => {}
                         }
-                    }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }

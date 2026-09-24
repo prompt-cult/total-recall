@@ -69,8 +69,14 @@ fn sandbox_refuses_when_root_not_from_env() {
         Ok(_) => panic!("sandbox must refuse live store"),
         Err(e) => e,
     };
-    assert!(err.contains(SANDBOX_ENV_VAR), "names the sandbox var: {err}");
-    assert!(err.contains(VIBE_ROOT_ENV_VAR), "names the missing override: {err}");
+    assert!(
+        err.contains(SANDBOX_ENV_VAR),
+        "names the sandbox var: {err}"
+    );
+    assert!(
+        err.contains(VIBE_ROOT_ENV_VAR),
+        "names the missing override: {err}"
+    );
 }
 
 #[test]

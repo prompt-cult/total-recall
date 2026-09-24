@@ -100,9 +100,17 @@ fn test_claude_real_project_layout() {
     let adapter = ClaudeAdapter::with_root(&tmp);
 
     let sessions = adapter.list_sessions();
-    assert_eq!(sessions.len(), 1, "subagents/ must not count as a session: {:?}", sessions);
+    assert_eq!(
+        sessions.len(),
+        1,
+        "subagents/ must not count as a session: {:?}",
+        sessions
+    );
     let s = &sessions[0];
-    assert_eq!(s.session_id, sid, "session id must be the uuid stem, no .jsonl");
+    assert_eq!(
+        s.session_id, sid,
+        "session id must be the uuid stem, no .jsonl"
+    );
     assert_eq!(s.title, "Fix the flux capacitor");
     assert_eq!(s.directory.as_deref(), Some("-Users-someone-code-myrepo"));
     assert_eq!(s.start_time, "2026-09-20T10:00:00.000Z");
@@ -121,7 +129,9 @@ fn test_claude_real_project_layout() {
         "thinking blocks must surface in the message stream"
     );
     assert!(
-        asst.tool_calls_summary.iter().any(|t| t.contains("read_file")),
+        asst.tool_calls_summary
+            .iter()
+            .any(|t| t.contains("read_file")),
         "tool_use blocks must summarize: {:?}",
         asst.tool_calls_summary
     );
@@ -134,6 +144,9 @@ fn test_claude_real_project_layout() {
     let profile = adapter.profile_session(sid);
     assert_eq!(profile.session_id, sid);
     assert!(profile.line_count >= 5);
-    assert_eq!(profile.first_ts.as_deref(), Some("2026-09-20T10:00:00.000Z"));
+    assert_eq!(
+        profile.first_ts.as_deref(),
+        Some("2026-09-20T10:00:00.000Z")
+    );
     assert_eq!(profile.last_ts.as_deref(), Some("2026-09-20T10:02:00.000Z"));
 }

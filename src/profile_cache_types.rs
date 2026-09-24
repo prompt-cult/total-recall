@@ -2,199 +2,254 @@
 // This code is generated from a JSON Type Definition schema.
 // Do not edit manually.
 
-#![allow(unused_variables, clippy::unnecessary_map_or, clippy::useless_format, clippy::collapsible_if)]
+#![allow(
+    unused_variables,
+    clippy::unnecessary_map_or,
+    clippy::useless_format,
+    clippy::collapsible_if
+)]
 
 use serde_json::Value;
 
 fn validate_interesting_event(v: &Value, e: &mut Vec<(String, String)>, p: &str, sp: &str) {
-  if let Some(obj) = v.as_object() {
-    if let Some(pv) = obj.get("event_type") {
-      let ip_p_event_type = format!("{p}/event_type");
-      let sp_p_event_type = format!("{sp}/properties/event_type");
-      if !pv.is_string() {
-        e.push((ip_p_event_type.to_string(), format!("{sp_p_event_type}/type")));
-      }
+    if let Some(obj) = v.as_object() {
+        if let Some(pv) = obj.get("event_type") {
+            let ip_p_event_type = format!("{p}/event_type");
+            let sp_p_event_type = format!("{sp}/properties/event_type");
+            if !pv.is_string() {
+                e.push((
+                    ip_p_event_type.to_string(),
+                    format!("{sp_p_event_type}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/event_type")));
+        }
+        if let Some(pv) = obj.get("gap_lines") {
+            let ip_p_gap_lines = format!("{p}/gap_lines");
+            let sp_p_gap_lines = format!("{sp}/properties/gap_lines");
+            if !pv.as_f64().map_or(false, |n| n.is_finite()) {
+                e.push((ip_p_gap_lines.to_string(), format!("{sp_p_gap_lines}/type")));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/gap_lines")));
+        }
+        if let Some(pv) = obj.get("line_number") {
+            let ip_p_line_number = format!("{p}/line_number");
+            let sp_p_line_number = format!("{sp}/properties/line_number");
+            if !pv.as_f64().map_or(false, |n| n.is_finite()) {
+                e.push((
+                    ip_p_line_number.to_string(),
+                    format!("{sp_p_line_number}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/line_number")));
+        }
+        if let Some(pv) = obj.get("summary") {
+            let ip_p_summary = format!("{p}/summary");
+            let sp_p_summary = format!("{sp}/properties/summary");
+            if !pv.is_string() {
+                e.push((ip_p_summary.to_string(), format!("{sp_p_summary}/type")));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/summary")));
+        }
+        for k in obj.keys() {
+            if k.as_str() != "event_type"
+                && k.as_str() != "gap_lines"
+                && k.as_str() != "line_number"
+                && k.as_str() != "summary"
+            {
+                e.push((format!("{p}/{k}"), sp.to_string()));
+            }
+        }
     } else {
-      e.push((p.to_string(), format!("{sp}/properties/event_type")));
+        e.push((p.to_string(), format!("{sp}/properties")));
     }
-    if let Some(pv) = obj.get("gap_lines") {
-      let ip_p_gap_lines = format!("{p}/gap_lines");
-      let sp_p_gap_lines = format!("{sp}/properties/gap_lines");
-      if !pv.as_f64().map_or(false, |n| n.is_finite()) {
-        e.push((ip_p_gap_lines.to_string(), format!("{sp_p_gap_lines}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/gap_lines")));
-    }
-    if let Some(pv) = obj.get("line_number") {
-      let ip_p_line_number = format!("{p}/line_number");
-      let sp_p_line_number = format!("{sp}/properties/line_number");
-      if !pv.as_f64().map_or(false, |n| n.is_finite()) {
-        e.push((ip_p_line_number.to_string(), format!("{sp_p_line_number}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/line_number")));
-    }
-    if let Some(pv) = obj.get("summary") {
-      let ip_p_summary = format!("{p}/summary");
-      let sp_p_summary = format!("{sp}/properties/summary");
-      if !pv.is_string() {
-        e.push((ip_p_summary.to_string(), format!("{sp_p_summary}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/summary")));
-    }
-    for k in obj.keys() {
-      if k.as_str() != "event_type" && k.as_str() != "gap_lines" && k.as_str() != "line_number" && k.as_str() != "summary" {
-        e.push((format!("{p}/{k}"), sp.to_string()));
-      }
-    }
-  } else {
-    e.push((p.to_string(), format!("{sp}/properties")));
-  }
 }
 
 fn validate_profile(v: &Value, e: &mut Vec<(String, String)>, p: &str, sp: &str) {
-  if let Some(obj) = v.as_object() {
-    if let Some(pv) = obj.get("file_size") {
-      let ip_p_file_size = format!("{p}/file_size");
-      let sp_p_file_size = format!("{sp}/properties/file_size");
-      if !pv.as_f64().map_or(false, |n| n.is_finite()) {
-        e.push((ip_p_file_size.to_string(), format!("{sp_p_file_size}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/file_size")));
-    }
-    if let Some(pv) = obj.get("first_ts") {
-      let ip_p_first_ts = format!("{p}/first_ts");
-      let sp_p_first_ts = format!("{sp}/properties/first_ts");
-      if !pv.is_null() {
-        if !pv.is_string() {
-          e.push((ip_p_first_ts.to_string(), format!("{sp_p_first_ts}/type")));
+    if let Some(obj) = v.as_object() {
+        if let Some(pv) = obj.get("file_size") {
+            let ip_p_file_size = format!("{p}/file_size");
+            let sp_p_file_size = format!("{sp}/properties/file_size");
+            if !pv.as_f64().map_or(false, |n| n.is_finite()) {
+                e.push((ip_p_file_size.to_string(), format!("{sp_p_file_size}/type")));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/file_size")));
         }
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/first_ts")));
-    }
-    if let Some(pv) = obj.get("has_tantivy_index") {
-      let ip_p_has_tantivy_index = format!("{p}/has_tantivy_index");
-      let sp_p_has_tantivy_index = format!("{sp}/properties/has_tantivy_index");
-      if !pv.is_boolean() {
-        e.push((ip_p_has_tantivy_index.to_string(), format!("{sp_p_has_tantivy_index}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/has_tantivy_index")));
-    }
-    if let Some(pv) = obj.get("interesting_events") {
-      let ip_p_interesting_events = format!("{p}/interesting_events");
-      let sp_p_interesting_events = format!("{sp}/properties/interesting_events");
-      if let Some(arr) = pv.as_array() {
-        for (i, elem) in arr.iter().enumerate() {
-          let ip_e0 = format!("{ip_p_interesting_events}/{i}");
-          let sp_e0 = format!("{sp_p_interesting_events}/elements");
-          validate_interesting_event(elem, e, &ip_e0, &format!("/definitions/interesting_event"));
+        if let Some(pv) = obj.get("first_ts") {
+            let ip_p_first_ts = format!("{p}/first_ts");
+            let sp_p_first_ts = format!("{sp}/properties/first_ts");
+            if !pv.is_null() {
+                if !pv.is_string() {
+                    e.push((ip_p_first_ts.to_string(), format!("{sp_p_first_ts}/type")));
+                }
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/first_ts")));
         }
-      } else {
-        e.push((ip_p_interesting_events.to_string(), format!("{sp_p_interesting_events}/elements")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/interesting_events")));
-    }
-    if let Some(pv) = obj.get("last_ts") {
-      let ip_p_last_ts = format!("{p}/last_ts");
-      let sp_p_last_ts = format!("{sp}/properties/last_ts");
-      if !pv.is_null() {
-        if !pv.is_string() {
-          e.push((ip_p_last_ts.to_string(), format!("{sp_p_last_ts}/type")));
+        if let Some(pv) = obj.get("has_tantivy_index") {
+            let ip_p_has_tantivy_index = format!("{p}/has_tantivy_index");
+            let sp_p_has_tantivy_index = format!("{sp}/properties/has_tantivy_index");
+            if !pv.is_boolean() {
+                e.push((
+                    ip_p_has_tantivy_index.to_string(),
+                    format!("{sp_p_has_tantivy_index}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/has_tantivy_index")));
         }
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/last_ts")));
-    }
-    if let Some(pv) = obj.get("line_count") {
-      let ip_p_line_count = format!("{p}/line_count");
-      let sp_p_line_count = format!("{sp}/properties/line_count");
-      if !pv.as_f64().map_or(false, |n| n.is_finite()) {
-        e.push((ip_p_line_count.to_string(), format!("{sp_p_line_count}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/line_count")));
-    }
-    if let Some(pv) = obj.get("role_counts") {
-      let ip_p_role_counts = format!("{p}/role_counts");
-      let sp_p_role_counts = format!("{sp}/properties/role_counts");
-      if let Some(obj) = pv.as_object() {
-        for (k, vv) in obj {
-          let ip_v0 = format!("{ip_p_role_counts}/{k}");
-          let sp_v0 = format!("{sp_p_role_counts}/values");
-          if !vv.as_f64().map_or(false, |n| n.is_finite()) {
-            e.push((ip_v0.to_string(), format!("{sp_v0}/type")));
-          }
+        if let Some(pv) = obj.get("interesting_events") {
+            let ip_p_interesting_events = format!("{p}/interesting_events");
+            let sp_p_interesting_events = format!("{sp}/properties/interesting_events");
+            if let Some(arr) = pv.as_array() {
+                for (i, elem) in arr.iter().enumerate() {
+                    let ip_e0 = format!("{ip_p_interesting_events}/{i}");
+                    let sp_e0 = format!("{sp_p_interesting_events}/elements");
+                    validate_interesting_event(
+                        elem,
+                        e,
+                        &ip_e0,
+                        &format!("/definitions/interesting_event"),
+                    );
+                }
+            } else {
+                e.push((
+                    ip_p_interesting_events.to_string(),
+                    format!("{sp_p_interesting_events}/elements"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/interesting_events")));
         }
-      } else {
-        e.push((ip_p_role_counts.to_string(), format!("{sp_p_role_counts}/values")));
-      }
+        if let Some(pv) = obj.get("last_ts") {
+            let ip_p_last_ts = format!("{p}/last_ts");
+            let sp_p_last_ts = format!("{sp}/properties/last_ts");
+            if !pv.is_null() {
+                if !pv.is_string() {
+                    e.push((ip_p_last_ts.to_string(), format!("{sp_p_last_ts}/type")));
+                }
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/last_ts")));
+        }
+        if let Some(pv) = obj.get("line_count") {
+            let ip_p_line_count = format!("{p}/line_count");
+            let sp_p_line_count = format!("{sp}/properties/line_count");
+            if !pv.as_f64().map_or(false, |n| n.is_finite()) {
+                e.push((
+                    ip_p_line_count.to_string(),
+                    format!("{sp_p_line_count}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/line_count")));
+        }
+        if let Some(pv) = obj.get("role_counts") {
+            let ip_p_role_counts = format!("{p}/role_counts");
+            let sp_p_role_counts = format!("{sp}/properties/role_counts");
+            if let Some(obj) = pv.as_object() {
+                for (k, vv) in obj {
+                    let ip_v0 = format!("{ip_p_role_counts}/{k}");
+                    let sp_v0 = format!("{sp_p_role_counts}/values");
+                    if !vv.as_f64().map_or(false, |n| n.is_finite()) {
+                        e.push((ip_v0.to_string(), format!("{sp_v0}/type")));
+                    }
+                }
+            } else {
+                e.push((
+                    ip_p_role_counts.to_string(),
+                    format!("{sp_p_role_counts}/values"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/role_counts")));
+        }
+        if let Some(pv) = obj.get("session_id") {
+            let ip_p_session_id = format!("{p}/session_id");
+            let sp_p_session_id = format!("{sp}/properties/session_id");
+            if !pv.is_string() {
+                e.push((
+                    ip_p_session_id.to_string(),
+                    format!("{sp_p_session_id}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/session_id")));
+        }
+        for k in obj.keys() {
+            if k.as_str() != "file_size"
+                && k.as_str() != "first_ts"
+                && k.as_str() != "has_tantivy_index"
+                && k.as_str() != "interesting_events"
+                && k.as_str() != "last_ts"
+                && k.as_str() != "line_count"
+                && k.as_str() != "role_counts"
+                && k.as_str() != "session_id"
+            {
+                e.push((format!("{p}/{k}"), sp.to_string()));
+            }
+        }
     } else {
-      e.push((p.to_string(), format!("{sp}/properties/role_counts")));
+        e.push((p.to_string(), format!("{sp}/properties")));
     }
-    if let Some(pv) = obj.get("session_id") {
-      let ip_p_session_id = format!("{p}/session_id");
-      let sp_p_session_id = format!("{sp}/properties/session_id");
-      if !pv.is_string() {
-        e.push((ip_p_session_id.to_string(), format!("{sp_p_session_id}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/session_id")));
-    }
-    for k in obj.keys() {
-      if k.as_str() != "file_size" && k.as_str() != "first_ts" && k.as_str() != "has_tantivy_index" && k.as_str() != "interesting_events" && k.as_str() != "last_ts" && k.as_str() != "line_count" && k.as_str() != "role_counts" && k.as_str() != "session_id" {
-        e.push((format!("{p}/{k}"), sp.to_string()));
-      }
-    }
-  } else {
-    e.push((p.to_string(), format!("{sp}/properties")));
-  }
 }
 
 pub fn validate(instance: &Value) -> Vec<(String, String)> {
-  let mut e: Vec<(String, String)> = Vec::new();
-  let p = "";
-  let sp = "";
-  if let Some(obj) = instance.as_object() {
-    if let Some(pv) = obj.get("profile") {
-      let ip_p_profile = format!("{p}/profile");
-      let sp_p_profile = format!("{sp}/properties/profile");
-      validate_profile(pv, &mut e, &ip_p_profile, &format!("/definitions/profile"));
+    let mut e: Vec<(String, String)> = Vec::new();
+    let p = "";
+    let sp = "";
+    if let Some(obj) = instance.as_object() {
+        if let Some(pv) = obj.get("profile") {
+            let ip_p_profile = format!("{p}/profile");
+            let sp_p_profile = format!("{sp}/properties/profile");
+            validate_profile(pv, &mut e, &ip_p_profile, &format!("/definitions/profile"));
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/profile")));
+        }
+        if let Some(pv) = obj.get("session_id") {
+            let ip_p_session_id = format!("{p}/session_id");
+            let sp_p_session_id = format!("{sp}/properties/session_id");
+            if !pv.is_string() {
+                e.push((
+                    ip_p_session_id.to_string(),
+                    format!("{sp_p_session_id}/type"),
+                ));
+            }
+        } else {
+            e.push((p.to_string(), format!("{sp}/properties/session_id")));
+        }
+        if let Some(pv) = obj.get("written_at_epoch_ms") {
+            let ip_p_written_at_epoch_ms = format!("{p}/written_at_epoch_ms");
+            let sp_p_written_at_epoch_ms = format!("{sp}/properties/written_at_epoch_ms");
+            if !pv.as_f64().map_or(false, |n| n.is_finite()) {
+                e.push((
+                    ip_p_written_at_epoch_ms.to_string(),
+                    format!("{sp_p_written_at_epoch_ms}/type"),
+                ));
+            }
+        } else {
+            e.push((
+                p.to_string(),
+                format!("{sp}/properties/written_at_epoch_ms"),
+            ));
+        }
+        for k in obj.keys() {
+            if k.as_str() != "profile"
+                && k.as_str() != "session_id"
+                && k.as_str() != "written_at_epoch_ms"
+            {
+                e.push((format!("{p}/{k}"), sp.to_string()));
+            }
+        }
     } else {
-      e.push((p.to_string(), format!("{sp}/properties/profile")));
+        e.push((p.to_string(), format!("{sp}/properties")));
     }
-    if let Some(pv) = obj.get("session_id") {
-      let ip_p_session_id = format!("{p}/session_id");
-      let sp_p_session_id = format!("{sp}/properties/session_id");
-      if !pv.is_string() {
-        e.push((ip_p_session_id.to_string(), format!("{sp_p_session_id}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/session_id")));
-    }
-    if let Some(pv) = obj.get("written_at_epoch_ms") {
-      let ip_p_written_at_epoch_ms = format!("{p}/written_at_epoch_ms");
-      let sp_p_written_at_epoch_ms = format!("{sp}/properties/written_at_epoch_ms");
-      if !pv.as_f64().map_or(false, |n| n.is_finite()) {
-        e.push((ip_p_written_at_epoch_ms.to_string(), format!("{sp_p_written_at_epoch_ms}/type")));
-      }
-    } else {
-      e.push((p.to_string(), format!("{sp}/properties/written_at_epoch_ms")));
-    }
-    for k in obj.keys() {
-      if k.as_str() != "profile" && k.as_str() != "session_id" && k.as_str() != "written_at_epoch_ms" {
-        e.push((format!("{p}/{k}"), sp.to_string()));
-      }
-    }
-  } else {
-    e.push((p.to_string(), format!("{sp}/properties")));
-  }
-  e
+    e
 }
 
 // --- Adaptation: typed envelope + conversion into the real SessionProfile ---
@@ -253,8 +308,7 @@ impl TryFrom<ProfileCacheEnvelope> for SessionProfile {
     type Error = ();
 
     fn try_from(envelope: ProfileCacheEnvelope) -> Result<Self, Self::Error> {
-        let mut interesting_events =
-            Vec::with_capacity(envelope.profile.interesting_events.len());
+        let mut interesting_events = Vec::with_capacity(envelope.profile.interesting_events.len());
         for event in envelope.profile.interesting_events {
             interesting_events.push(InterestingEvent {
                 line_number: event.line_number,
@@ -282,7 +336,10 @@ impl TryFrom<ProfileCacheEnvelope> for SessionProfile {
 pub fn envelope_json(profile: &SessionProfile, written_at_epoch_ms: u64) -> Value {
     Value::Object({
         let mut map = serde_json::Map::new();
-        map.insert("session_id".into(), Value::String(profile.session_id.clone()));
+        map.insert(
+            "session_id".into(),
+            Value::String(profile.session_id.clone()),
+        );
         map.insert(
             "written_at_epoch_ms".into(),
             Value::from(written_at_epoch_ms),

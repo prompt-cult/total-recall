@@ -101,49 +101,49 @@ pub enum Command {
     Compact,
     /// Total recall: state summary + user goals + rollouts table + plan files
     Recall,
-        /// She-said/he-said/they-did: matched dialogue and tool actions
-        HeSaidSheSaid {
-            /// Comma-separated case-insensitive search terms (required)
-            #[arg(long, required = true)]
-            words: String,
-            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
-            #[arg(long, value_name = "id")]
-            sessions: Vec<String>,
-            /// Hours back when no sessions are given (default 48; 0 = no bound)
-            #[arg(long, default_value_t = 48)]
-            hours: u64,
-            /// Directory substring filter (empty-session-list mode)
-            #[arg(long)]
-            directory: Option<String>,
-        },
-        /// Build/refresh per-session tantivy shadow indexes
-        Index {
-            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
-            #[arg(long, value_name = "id")]
-            sessions: Vec<String>,
-            /// Hours back when no sessions are given (default 0 = no bound)
-            #[arg(long, default_value_t = 0)]
-            hours: u64,
-            /// Directory substring filter (empty-session-list mode)
-            #[arg(long)]
-            directory: Option<String>,
-        },
-        /// Full-text search across per-session tantivy shadow indexes
-        #[command(name = "do-android-dream-of-electric-sheep")]
-        Sheep {
-            /// Tantivy query syntax (required)
-            #[arg(long, required = true)]
-            query: String,
-            /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
-            #[arg(long, value_name = "id")]
-            sessions: Vec<String>,
-            /// Hours back when no sessions are given (default 48; 0 = no bound)
-            #[arg(long, default_value_t = 48)]
-            hours: u64,
-            /// Directory substring filter (empty-session-list mode)
-            #[arg(long)]
-            directory: Option<String>,
-        },
+    /// She-said/he-said/they-did: matched dialogue and tool actions
+    HeSaidSheSaid {
+        /// Comma-separated case-insensitive search terms (required)
+        #[arg(long, required = true)]
+        words: String,
+        /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+        #[arg(long, value_name = "id")]
+        sessions: Vec<String>,
+        /// Hours back when no sessions are given (default 48; 0 = no bound)
+        #[arg(long, default_value_t = 48)]
+        hours: u64,
+        /// Directory substring filter (empty-session-list mode)
+        #[arg(long)]
+        directory: Option<String>,
+    },
+    /// Build/refresh per-session tantivy shadow indexes
+    Index {
+        /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+        #[arg(long, value_name = "id")]
+        sessions: Vec<String>,
+        /// Hours back when no sessions are given (default 0 = no bound)
+        #[arg(long, default_value_t = 0)]
+        hours: u64,
+        /// Directory substring filter (empty-session-list mode)
+        #[arg(long)]
+        directory: Option<String>,
+    },
+    /// Full-text search across per-session tantivy shadow indexes
+    #[command(name = "do-android-dream-of-electric-sheep")]
+    Sheep {
+        /// Tantivy query syntax (required)
+        #[arg(long, required = true)]
+        query: String,
+        /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
+        #[arg(long, value_name = "id")]
+        sessions: Vec<String>,
+        /// Hours back when no sessions are given (default 48; 0 = no bound)
+        #[arg(long, default_value_t = 48)]
+        hours: u64,
+        /// Directory substring filter (empty-session-list mode)
+        #[arg(long)]
+        directory: Option<String>,
+    },
     /// Start as an MCP server on stdio
     Mcp,
 }
@@ -222,8 +222,16 @@ fn bound_cli_messages(
             start,
             start + returned,
             total,
-            if clamped > 0 { format!(", {} records clamped", clamped) } else { String::new() },
-            if start + returned < total { format!(", next_offset={}", start + returned) } else { String::new() }
+            if clamped > 0 {
+                format!(", {} records clamped", clamped)
+            } else {
+                String::new()
+            },
+            if start + returned < total {
+                format!(", next_offset={}", start + returned)
+            } else {
+                String::new()
+            }
         );
     }
     windowed
@@ -298,11 +306,12 @@ async fn main() -> Result<()> {
     ) {
         String::new()
     } else {
-        resolve_session(adapter.as_ref(), cli.session.as_deref().unwrap_or(""))
-            .unwrap_or_else(|| {
+        resolve_session(adapter.as_ref(), cli.session.as_deref().unwrap_or("")).unwrap_or_else(
+            || {
                 eprintln!("No sessions found");
                 std::process::exit(1);
-            })
+            },
+        )
     };
 
     match cli.command {
@@ -442,10 +451,15 @@ async fn main() -> Result<()> {
                 .filter(|e| want_all || types.contains(&e.entry_type))
                 .collect();
             // CLI: unbounded unless --limit/--max-bytes given.
-            let limit = if cli.limit == 0 { filtered.len().max(1) } else { cli.limit };
+            let limit = if cli.limit == 0 {
+                filtered.len().max(1)
+            } else {
+                cli.limit
+            };
             let total = filtered.len();
             let (start, end) = total_recall::bound::window(total, cli.offset, limit);
-            let max_record_bytes = total_recall::bound::normalize_max_record_bytes(cli.max_record_bytes);
+            let max_record_bytes =
+                total_recall::bound::normalize_max_record_bytes(cli.max_record_bytes);
             let mut sized: Vec<total_recall::bound::SizedRecord> = Vec::with_capacity(end - start);
             for e in &filtered[start..end] {
                 let mut rec = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
@@ -623,8 +637,13 @@ async fn main() -> Result<()> {
             sessions,
             hours,
             directory,
-        } => match index::search(adapter.as_ref(), &sessions, &query, hours, directory.as_deref())
-        {
+        } => match index::search(
+            adapter.as_ref(),
+            &sessions,
+            &query,
+            hours,
+            directory.as_deref(),
+        ) {
             Ok(report) => {
                 print!("{}", report);
                 let _ = std::io::stdout().flush();

@@ -104,13 +104,8 @@ fn index_and_sheep_appear_in_help() {
 
 #[test]
 fn harness_global_flag_works_after_index_and_sheep() {
-    let index = Cli::try_parse_from([
-        "bin",
-        "index",
-        "--harness",
-        "vibe",
-    ])
-    .unwrap_or_else(|e| panic!("clap rejected --harness after index: {e}"));
+    let index = Cli::try_parse_from(["bin", "index", "--harness", "vibe"])
+        .unwrap_or_else(|e| panic!("clap rejected --harness after index: {e}"));
     assert!(matches!(index.command, cli::Command::Index { .. }));
     assert_eq!(index.harness.as_deref(), Some("vibe"));
 
@@ -129,10 +124,8 @@ fn harness_global_flag_works_after_index_and_sheep() {
 
 #[test]
 fn index_hours_accepts_numbers_and_rejects_garbage() {
-    Cli::try_parse_from(["bin", "index", "--hours", "0"])
-        .expect("--hours 0 must parse");
-    Cli::try_parse_from(["bin", "index", "--hours", "999"])
-        .expect("--hours 999 must parse");
+    Cli::try_parse_from(["bin", "index", "--hours", "0"]).expect("--hours 0 must parse");
+    Cli::try_parse_from(["bin", "index", "--hours", "999"]).expect("--hours 999 must parse");
 
     let err = match Cli::try_parse_from(["bin", "index", "--hours", "abc"]) {
         Ok(_) => panic!("--hours abc must be rejected"),

@@ -36,7 +36,13 @@ fn make_big_session(root: &std::path::Path, name: &str, n: usize, msg_len: usize
     .unwrap();
 }
 
-fn spawn_mcp(root: &std::path::Path) -> (std::process::Child, std::io::BufReader<std::process::ChildStdout>, std::process::ChildStdin) {
+fn spawn_mcp(
+    root: &std::path::Path,
+) -> (
+    std::process::Child,
+    std::io::BufReader<std::process::ChildStdout>,
+    std::process::ChildStdin,
+) {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "vibe", "mcp"])
         .env("TOTAL_RECALL_VIBE_ROOT", root)
@@ -55,7 +61,10 @@ fn send(stdin: &mut std::process::ChildStdin, v: &serde_json::Value) {
     stdin.flush().unwrap();
 }
 
-fn read_id(reader: &mut std::io::BufReader<std::process::ChildStdout>, id: i64) -> serde_json::Value {
+fn read_id(
+    reader: &mut std::io::BufReader<std::process::ChildStdout>,
+    id: i64,
+) -> serde_json::Value {
     let mut line = String::new();
     loop {
         line.clear();
@@ -69,10 +78,19 @@ fn read_id(reader: &mut std::io::BufReader<std::process::ChildStdout>, id: i64) 
     }
 }
 
-fn init(reader: &mut std::io::BufReader<std::process::ChildStdout>, stdin: &mut std::process::ChildStdin) {
-    send(stdin, &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}));
+fn init(
+    reader: &mut std::io::BufReader<std::process::ChildStdout>,
+    stdin: &mut std::process::ChildStdin,
+) {
+    send(
+        stdin,
+        &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}),
+    );
     assert!(read_id(reader, 1).get("result").is_some());
-    send(stdin, &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    send(
+        stdin,
+        &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+    );
 }
 
 fn call_tool(
@@ -82,14 +100,21 @@ fn call_tool(
     name: &str,
     args: serde_json::Value,
 ) -> serde_json::Value {
-    send(stdin, &serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}}));
+    send(
+        stdin,
+        &serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":args}}),
+    );
     read_id(reader, id)
 }
 
 fn result_text(resp: &serde_json::Value) -> String {
     resp.pointer("/result/content")
         .and_then(|c| c.as_array())
-        .map(|arr| arr.iter().filter_map(|b| b.get("text").and_then(|t| t.as_str())).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -101,19 +126,49 @@ fn extract_messages_is_bounded_with_truncation_notice() {
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true
-    }));
-    assert!(resp.pointer("/result/isError").and_then(|v| v.as_bool()) != Some(true), "not a tool error: {resp}");
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true
+        }),
+    );
+    assert!(
+        resp.pointer("/result/isError").and_then(|v| v.as_bool()) != Some(true),
+        "not a tool error: {resp}"
+    );
     let text = result_text(&resp);
     // Bounded: never emits the full ~6MB.
-    assert!(text.len() <= 8 * 1024 * 1024, "payload under ceiling, got {}", text.len());
+    assert!(
+        text.len() <= 8 * 1024 * 1024,
+        "payload under ceiling, got {}",
+        text.len()
+    );
     let env: serde_json::Value = serde_json::from_str(&text).expect("envelope is valid JSON");
     let bounds = env.get("bounds").expect("bounds present");
-    assert_eq!(bounds.get("truncated").and_then(|v| v.as_bool()), Some(true));
-    assert!(!bounds.get("notice").and_then(|n| n.as_str()).unwrap_or("").is_empty(), "notice non-empty");
-    assert_eq!(bounds.get("returned_records").and_then(|n| n.as_u64()), Some(100), "default limit 100");
-    assert!(env.get("messages").and_then(|m| m.as_array()).is_some(), "messages array present");
+    assert_eq!(
+        bounds.get("truncated").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(
+        !bounds
+            .get("notice")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .is_empty(),
+        "notice non-empty"
+    );
+    assert_eq!(
+        bounds.get("returned_records").and_then(|n| n.as_u64()),
+        Some(100),
+        "default limit 100"
+    );
+    assert!(
+        env.get("messages").and_then(|m| m.as_array()).is_some(),
+        "messages array present"
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -126,24 +181,57 @@ fn extract_messages_next_offset_pages_through_session() {
     init(&mut reader, &mut stdin);
 
     // Page 1: offset 0, limit 100
-    let p1 = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "offset": 0, "limit": 100
-    }));
+    let p1 = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "offset": 0, "limit": 100
+        }),
+    );
     let b1: serde_json::Value = serde_json::from_str(&result_text(&p1)).unwrap();
-    let next = b1.pointer("/bounds/next_offset").and_then(|n| n.as_u64()).expect("next_offset");
+    let next = b1
+        .pointer("/bounds/next_offset")
+        .and_then(|n| n.as_u64())
+        .expect("next_offset");
     assert_eq!(next, 100);
 
     // Page 2: follow next_offset
-    let p2 = call_tool(&mut reader, &mut stdin, 3, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "offset": next, "limit": 100
-    }));
+    let p2 = call_tool(
+        &mut reader,
+        &mut stdin,
+        3,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "offset": next, "limit": 100
+        }),
+    );
     let b2: serde_json::Value = serde_json::from_str(&result_text(&p2)).unwrap();
-    assert_eq!(b2.pointer("/bounds/offset").and_then(|n| n.as_u64()), Some(100));
-    assert_eq!(b2.pointer("/bounds/next_offset").and_then(|n| n.as_u64()), Some(200));
+    assert_eq!(
+        b2.pointer("/bounds/offset").and_then(|n| n.as_u64()),
+        Some(100)
+    );
+    assert_eq!(
+        b2.pointer("/bounds/next_offset").and_then(|n| n.as_u64()),
+        Some(200)
+    );
 
     // Distinct pages, no overlap
-    let m1: std::collections::HashSet<String> = b1.pointer("/messages").and_then(|m| m.as_array()).unwrap().iter().map(|m| m.to_string()).collect();
-    let m2: std::collections::HashSet<String> = b2.pointer("/messages").and_then(|m| m.as_array()).unwrap().iter().map(|m| m.to_string()).collect();
+    let m1: std::collections::HashSet<String> = b1
+        .pointer("/messages")
+        .and_then(|m| m.as_array())
+        .unwrap()
+        .iter()
+        .map(|m| m.to_string())
+        .collect();
+    let m2: std::collections::HashSet<String> = b2
+        .pointer("/messages")
+        .and_then(|m| m.as_array())
+        .unwrap()
+        .iter()
+        .map(|m| m.to_string())
+        .collect();
     assert!(m1.is_disjoint(&m2), "pages must not overlap");
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
@@ -156,14 +244,28 @@ fn extract_user_messages_is_bounded() {
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_user_messages", serde_json::json!({
-        "session_id": "51a9645a"
-    }));
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_user_messages",
+        serde_json::json!({
+            "session_id": "51a9645a"
+        }),
+    );
     let text = result_text(&resp);
     assert!(text.len() <= 8 * 1024 * 1024, "user_messages under ceiling");
     let env: serde_json::Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(env.pointer("/bounds/truncated").and_then(|v| v.as_bool()), Some(true));
-    assert!(env.get("user_messages").and_then(|m| m.as_array()).is_some(), "user_messages key present");
+    assert_eq!(
+        env.pointer("/bounds/truncated").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(
+        env.get("user_messages")
+            .and_then(|m| m.as_array())
+            .is_some(),
+        "user_messages key present"
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -174,10 +276,20 @@ fn extract_messages_rejects_excessive_limit() {
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 10);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "limit": 5000
-    }));
-    assert_eq!(resp.pointer("/result/isError").and_then(|v| v.as_bool()), Some(true), "over-max limit is a tool error");
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "limit": 5000
+        }),
+    );
+    assert_eq!(
+        resp.pointer("/result/isError").and_then(|v| v.as_bool()),
+        Some(true),
+        "over-max limit is a tool error"
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -190,21 +302,43 @@ fn extract_messages_small_max_bytes_drives_byte_cap() {
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "max_bytes": 50000
-    }));
-    assert!(resp.pointer("/result/isError").and_then(|v| v.as_bool()) != Some(true), "not a tool error: {resp}");
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "max_bytes": 50000
+        }),
+    );
+    assert!(
+        resp.pointer("/result/isError").and_then(|v| v.as_bool()) != Some(true),
+        "not a tool error: {resp}"
+    );
     let text = result_text(&resp);
     let env: serde_json::Value = serde_json::from_str(&text).expect("envelope is valid JSON");
     let b = env.get("bounds").unwrap();
     assert_eq!(b.get("truncated").and_then(|v| v.as_bool()), Some(true));
     // Both flags are legitimately true: the default limit-100 window cuts the
     // 3000-record session, and the 50KB byte cap cuts inside that window.
-    assert!(b.get("truncation_reason").and_then(|v| v.as_str()).unwrap().contains("byte_cap"), "reason: {b}");
-    assert!(b.get("returned_records").and_then(|n| n.as_u64()).unwrap() < 100, "byte cap cuts inside the window");
+    assert!(
+        b.get("truncation_reason")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .contains("byte_cap"),
+        "reason: {b}"
+    );
+    assert!(
+        b.get("returned_records").and_then(|n| n.as_u64()).unwrap() < 100,
+        "byte cap cuts inside the window"
+    );
     // Compact emission: bounding is computed on the same serialization that is
     // emitted, so the contract holds exactly.
-    assert!(text.len() <= 50000, "envelope must respect max_bytes exactly, got {}", text.len());
+    assert!(
+        text.len() <= 50000,
+        "envelope must respect max_bytes exactly, got {}",
+        text.len()
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -215,15 +349,29 @@ fn extract_messages_offset_past_end_is_not_truncated() {
     make_big_session(&root, "session_20260915_095955_51a9645a", 50, 100);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "offset": 99999, "limit": 100
-    }));
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "offset": 99999, "limit": 100
+        }),
+    );
     let text = result_text(&resp);
     let env: serde_json::Value = serde_json::from_str(&text).unwrap();
     let b = env.get("bounds").unwrap();
-    assert_eq!(b.get("truncated").and_then(|v| v.as_bool()), Some(false), "nothing cut: {b}");
+    assert_eq!(
+        b.get("truncated").and_then(|v| v.as_bool()),
+        Some(false),
+        "nothing cut: {b}"
+    );
     assert_eq!(b.get("returned_records").and_then(|n| n.as_u64()), Some(0));
-    assert_eq!(b.get("notice").and_then(|n| n.as_str()).unwrap_or("x"), "", "notice empty");
+    assert_eq!(
+        b.get("notice").and_then(|n| n.as_str()).unwrap_or("x"),
+        "",
+        "notice empty"
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -236,13 +384,28 @@ fn extract_messages_tiny_max_bytes_is_a_tool_error() {
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 500);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
-    let resp = call_tool(&mut reader, &mut stdin, 2, "extract_messages", serde_json::json!({
-        "session_id": "51a9645a", "full": true, "max_bytes": 100
-    }));
-    assert_eq!(resp.pointer("/result/isError").and_then(|v| v.as_bool()), Some(true));
+    let resp = call_tool(
+        &mut reader,
+        &mut stdin,
+        2,
+        "extract_messages",
+        serde_json::json!({
+            "session_id": "51a9645a", "full": true, "max_bytes": 100
+        }),
+    );
+    assert_eq!(
+        resp.pointer("/result/isError").and_then(|v| v.as_bool()),
+        Some(true)
+    );
     let text = result_text(&resp);
-    assert!(text.contains("even one record"), "error names the fix: {text}");
-    assert!(text.contains("max_record_bytes"), "error names the clamp: {text}");
+    assert!(
+        text.contains("even one record"),
+        "error names the fix: {text}"
+    );
+    assert!(
+        text.contains("max_record_bytes"),
+        "error names the clamp: {text}"
+    );
     let _ = child.kill();
     let _ = std::fs::remove_dir_all(&root);
 }

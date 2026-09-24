@@ -253,7 +253,9 @@ impl TotalRecallServer {
         let mut sessions = adapter.list_sessions();
         if params.hours_back > 0 {
             let cutoff = crate::rollout::opencode::iso_cutoff(params.hours_back);
-            sessions.retain(|s| !crate::rollout::is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str());
+            sessions.retain(|s| {
+                !crate::rollout::is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str()
+            });
         }
         if let Some(directory) = params.directory.as_deref().filter(|d| !d.is_empty()) {
             sessions.retain(|s| s.directory.as_deref().is_none_or(|d| d.contains(directory)));
@@ -312,9 +314,10 @@ impl TotalRecallServer {
         let mut lines = Vec::new();
         for summary in &selected {
             match crate::index::index_session(adapter.as_ref(), &summary.session_id) {
-                Ok(stats) => {
-                    lines.push(format!("indexed {} docs={}", stats.session_id, stats.doc_count))
-                }
+                Ok(stats) => lines.push(format!(
+                    "indexed {} docs={}",
+                    stats.session_id, stats.doc_count
+                )),
                 Err(e) => {
                     return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
                 }
@@ -504,7 +507,8 @@ impl TotalRecallServer {
         let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
         let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
-        let entries = adapter.read_session_entries(&session_id, params.full, params.include_injected);
+        let entries =
+            adapter.read_session_entries(&session_id, params.full, params.include_injected);
         let selected: Vec<String> = if want_all {
             VALID.iter().map(|s| s.to_string()).collect()
         } else {
@@ -702,7 +706,10 @@ fn bounded_messages_envelope(
 
     // Fit under the byte budget (reserving room for the envelope keys).
     let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
-    if sized.first().is_some_and(|r| r.bytes.saturating_add(1) > budget) {
+    if sized
+        .first()
+        .is_some_and(|r| r.bytes.saturating_add(1) > budget)
+    {
         return Err(format!(
             "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
             sized[0].bytes, max_bytes
@@ -775,7 +782,8 @@ fn extract_by_type_report(
         let mut record_json = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
         let mut clamped = false;
         if record_json.len() > max_record_bytes {
-            record_json = crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
+            record_json =
+                crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
             clamped = true;
         }
         if clamped {
@@ -792,7 +800,10 @@ fn extract_by_type_report(
     }
 
     let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
-    if sized.first().is_some_and(|r| r.bytes.saturating_add(1) > budget) {
+    if sized
+        .first()
+        .is_some_and(|r| r.bytes.saturating_add(1) > budget)
+    {
         return Err(format!(
             "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
             sized[0].bytes, max_bytes

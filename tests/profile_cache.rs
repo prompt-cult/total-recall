@@ -48,15 +48,11 @@ fn write_fixture(name: &str, lines: &[String]) -> (PathBuf, MockAdapter, PathBuf
 }
 
 fn set_mtime_epoch_secs(path: &Path, epoch_secs: i64) {
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .unwrap();
-    file.set_times(
-        std::fs::FileTimes::new().set_modified(
-            std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(epoch_secs.max(0) as u64),
-        ),
-    )
+    let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_times(std::fs::FileTimes::new().set_modified(
+        std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(epoch_secs.max(0) as u64),
+    ))
     .unwrap();
 }
 
@@ -102,7 +98,8 @@ fn test_stale_cache_recomputes_and_rewrites() {
 
     let second = adapter.profile_session_opts("mock", true);
     assert_eq!(
-        second.line_count, first.line_count + 1,
+        second.line_count,
+        first.line_count + 1,
         "stale cache must recompute from the changed fixture"
     );
     assert!(
@@ -174,8 +171,7 @@ fn test_cli_cache_flag_parses_on_profile() {
     assert!(cli.cache);
     assert!(matches!(cli.command, cli::Command::Profile));
 
-    let cli =
-        Cli::try_parse_from(["bin", "profile"]).expect("profile must parse without --cache");
+    let cli = Cli::try_parse_from(["bin", "profile"]).expect("profile must parse without --cache");
     assert!(!cli.cache, "cache must default to false");
 }
 

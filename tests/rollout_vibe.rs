@@ -218,26 +218,57 @@ fn duplicate_rollout_dirs_dedupe_to_one_canonical_entry() {
     let root = tmp_root("dup");
     // The canonical id's date prefix agrees with meta.start_time; the alias's
     // date prefix disagrees (the reported #9 shape).
-    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
-    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+    make_session_dir(
+        &root,
+        "session_20260915_095955_51a9645a",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        DUP_MSGS,
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135113_c20a924e",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        DUP_MSGS,
+    );
 
     let adapter = VibeAdapter::with_root(&root);
     let sessions = adapter.list_sessions();
-    assert_eq!(sessions.len(), 1, "duplicate dirs must collapse to one entry");
+    assert_eq!(
+        sessions.len(),
+        1,
+        "duplicate dirs must collapse to one entry"
+    );
     let s = &sessions[0];
     assert_eq!(
         s.session_id, "session_20260915_095955_51a9645a",
         "canonical id is the one whose date prefix agrees with start_time"
     );
-    assert_eq!(s.aliases, vec!["session_20260921_135113_c20a924e".to_string()]);
+    assert_eq!(
+        s.aliases,
+        vec!["session_20260921_135113_c20a924e".to_string()]
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn distinct_rollouts_are_not_deduped() {
     let root = tmp_root("distinct");
-    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
-    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-21T13:51:13+00:00", "2026-09-21T14:00:00+00:00", "{\"role\":\"user\",\"content\":\"different body\"}\n");
+    make_session_dir(
+        &root,
+        "session_20260915_095955_51a9645a",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        DUP_MSGS,
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135113_c20a924e",
+        "2026-09-21T13:51:13+00:00",
+        "2026-09-21T14:00:00+00:00",
+        "{\"role\":\"user\",\"content\":\"different body\"}\n",
+    );
 
     let adapter = VibeAdapter::with_root(&root);
     let sessions = adapter.list_sessions();
@@ -249,8 +280,20 @@ fn distinct_rollouts_are_not_deduped() {
 #[test]
 fn empty_sessions_are_never_deduped_together() {
     let root = tmp_root("empty");
-    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", "");
-    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-21T13:51:13+00:00", "2026-09-21T14:00:00+00:00", "");
+    make_session_dir(
+        &root,
+        "session_20260915_095955_51a9645a",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        "",
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135113_c20a924e",
+        "2026-09-21T13:51:13+00:00",
+        "2026-09-21T14:00:00+00:00",
+        "",
+    );
 
     let adapter = VibeAdapter::with_root(&root);
     let sessions = adapter.list_sessions();
@@ -261,8 +304,20 @@ fn empty_sessions_are_never_deduped_together() {
 #[test]
 fn canonical_and_alias_read_the_same_rollout() {
     let root = tmp_root("read_same");
-    make_session_dir(&root, "session_20260915_095955_51a9645a", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
-    make_session_dir(&root, "session_20260921_135113_c20a924e", "2026-09-15T09:59:55+00:00", "2026-09-15T10:00:00+00:00", DUP_MSGS);
+    make_session_dir(
+        &root,
+        "session_20260915_095955_51a9645a",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        DUP_MSGS,
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135113_c20a924e",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        DUP_MSGS,
+    );
 
     let adapter = VibeAdapter::with_root(&root);
     let via_canonical = adapter.read_session("51a9645a");
