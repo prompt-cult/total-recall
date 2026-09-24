@@ -1,0 +1,29 @@
+{
+  "definitions": {
+    "interesting_event": {
+      "properties": {
+        "line_number": {"type": "float64"},
+        "event_type": {"type": "string"},
+        "summary": {"type": "string"},
+        "gap_lines": {"type": "float64"}
+      }
+    },
+    "profile": {
+      "properties": {
+        "session_id": {"type": "string"},
+        "file_size": {"type": "float64"},
+        "line_count": {"type": "float64"},
+        "first_ts": {"type": "string", "nullable": true},
+        "last_ts": {"type": "string", "nullable": true},
+        "role_counts": {"values": {"type": "float64"}},
+        "has_tantivy_index": {"type": "boolean"},
+        "interesting_events": {"elements": {"ref": "interesting_event"}}
+      }
+    }
+  },
+  "properties": {
+    "session_id": {"type": "string"},
+    "written_at_epoch_ms": {"type": "float64"},
+    "profile": {"ref": "profile"}
+  }
+}

@@ -92,7 +92,22 @@ pub trait RolloutAdapter: Send + Sync {
     fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage>;
 
     /// Profile a session: file size, line count, role counts, interesting events
-    fn profile_session(&self, session_id: &str) -> SessionProfile;
+    fn profile_session(&self, session_id: &str) -> SessionProfile {
+        self.profile_session_opts(session_id, false)
+    }
+
+    /// Most recent session id. Default scans the full session list; adapters
+    /// with a cheap store-side index override this.
+    fn most_recent_session_id(&self) -> Option<String> {
+        self.list_sessions().into_iter().next().map(|s| s.session_id)
+    }
+
+    /// `profile_session` with the opt-in on-disk profile cache. `cache = true`
+    /// serves the profile from `<shadow_root>/tr_<session-id>_meta.json` when
+    /// it is fresh (staleness checked against this adapter's cheap
+    /// time-updated source, 15 s tolerance); otherwise the profile is computed
+    /// as today and the cache is rewritten.
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile;
 
     /// Extract only user messages (verbatim)
     fn extract_user_messages(&self, session_id: &str) -> Vec<String>;

@@ -3,6 +3,8 @@ pub mod harness;
 pub mod index;
 pub mod mcp;
 pub mod mercury;
+pub mod profile_cache;
+pub mod profile_cache_types;
 pub mod prompt;
 pub mod recall;
 pub mod rollout;

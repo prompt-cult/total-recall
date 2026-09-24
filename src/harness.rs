@@ -48,12 +48,7 @@ pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
 /// Empty id = most recent session. Returns `None` when no sessions exist.
 pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option<String> {
     if session_id.is_empty() {
-        let sessions = adapter.list_sessions();
-        if sessions.is_empty() {
-            None
-        } else {
-            Some(sessions[0].session_id.clone())
-        }
+        adapter.most_recent_session_id()
     } else {
         Some(session_id.to_string())
     }

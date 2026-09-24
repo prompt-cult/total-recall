@@ -290,7 +290,7 @@ impl RolloutAdapter for ClaudeAdapter {
         slice_from_compaction(self.read_session_mmap(session_id))
     }
 
-    fn profile_session(&self, session_id: &str) -> SessionProfile {
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile {
         let path = match self.session_path(session_id) {
             Some(p) => p,
             None => {
@@ -306,6 +306,16 @@ impl RolloutAdapter for ClaudeAdapter {
                 };
             }
         };
+
+        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), session_id);
+        if cache
+            && let Some(cached) = crate::profile_cache::read_fresh(
+                &cache_path,
+                crate::profile_cache::mtime_ms(&path).unwrap_or(0),
+            )
+        {
+            return cached;
+        }
 
         let data = std::fs::read(&path).unwrap_or_default();
         let file_size = data.len() as u64;
@@ -365,7 +375,7 @@ impl RolloutAdapter for ClaudeAdapter {
             }
         }
 
-        SessionProfile {
+        let profile = SessionProfile {
             session_id: session_id.to_string(),
             file_size,
             line_count,
@@ -374,7 +384,11 @@ impl RolloutAdapter for ClaudeAdapter {
             role_counts,
             has_tantivy_index: false,
             interesting_events,
+        };
+        if cache {
+            crate::profile_cache::write(&cache_path, &profile);
         }
+        profile
     }
 
     fn extract_user_messages(&self, session_id: &str) -> Vec<String> {
