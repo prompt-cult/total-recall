@@ -1,5 +1,13 @@
 # AGENTS.md
 
+## Trunk Development Lite (TM)
+
+Issue → branch → PR → squash-merge to main → pull. No review theatre for
+routine, obvious fixes: the test suite is the review. Green tests on main are
+the contract — the user bumps, tests locally, and rolls out if they like it.
+Tag main only when it is tested. Squash-merge keeps history at one commit per
+issue. Never leave a branch hanging: merge it or kill it.
+
 ## Andon アンドン — Prime Directive
 
 Andon is a kernel panic. It halts the line, halts planning, halts todo
