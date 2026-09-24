@@ -127,7 +127,17 @@ impl RolloutAdapter for MockAdapter {
         slice_from_compaction(self.read_jsonl_mmap())
     }
 
-    fn profile_session(&self, _session_id: &str) -> SessionProfile {
+    fn profile_session_opts(&self, _session_id: &str, cache: bool) -> SessionProfile {
+        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), "mock");
+        if cache
+            && let Some(cached) = crate::profile_cache::read_fresh(
+                &cache_path,
+                crate::profile_cache::mtime_ms(&self.data_path).unwrap_or(0),
+            )
+        {
+            return cached;
+        }
+
         let messages = self.read_jsonl();
         let file_size = std::fs::metadata(&self.data_path)
             .map(|m| m.len())
@@ -202,7 +212,7 @@ impl RolloutAdapter for MockAdapter {
         let first_ts = messages.first().and_then(|m| m.timestamp.clone());
         let last_ts = messages.last().and_then(|m| m.timestamp.clone());
 
-        SessionProfile {
+        let profile = SessionProfile {
             session_id: "mock".to_string(),
             file_size,
             line_count,
@@ -211,7 +221,11 @@ impl RolloutAdapter for MockAdapter {
             role_counts,
             has_tantivy_index: false,
             interesting_events,
+        };
+        if cache {
+            crate::profile_cache::write(&cache_path, &profile);
         }
+        profile
     }
 
     fn extract_user_messages(&self, _session_id: &str) -> Vec<String> {

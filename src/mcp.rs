@@ -33,6 +33,11 @@ pub struct ListSessionsParams {
 pub struct ProfileParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     pub session_id: String,
+    #[schemars(
+        description = "Opt-in on-disk profile cache: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Default false."
+    )]
+    #[serde(default)]
+    pub cache: bool,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -362,7 +367,7 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let mut profile = adapter.profile_session(&session_id);
+        let mut profile = adapter.profile_session_opts(&session_id, params.cache);
         profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;

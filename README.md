@@ -182,6 +182,40 @@ and `do_android_dream_of_electric_sheep` (`query`, `sessions`, `hours_back`
 default 48, `directory`). `list_sessions` and `profile_session` gain a
 `has_tantivy_index` flag, set by the server, not by the adapters.
 
+### `profile_session` cache — opt-in, staleness-checked
+
+`profile --cache` (CLI global flag) and the MCP `profile_session` tool
+(`cache: bool`, default false) serve the profile from an on-disk cache inside
+the adapter's shadow root: `<shadow root>/tr_<session-id>_meta.json`. One
+flat JSON file per session, sibling of the per-session index folders, same
+disposable rules as the shadow indexes: never inside the session store,
+MUST NOT be committed, safe to delete at any time.
+
+Staleness is checked against one cheap time-updated source — for opencode a
+single `SELECT time_updated` row (never the full `list_sessions` aggregates);
+for the file-based harnesses the source file's mtime. The cache is fresh when
+`time_updated_ms <= cache_mtime_ms + 15_000` (15 s tolerance). Fresh → served
+from the cache; stale, missing, or corrupt → recomputed as today and the
+cache is rewritten. With the flag off, behaviour is byte-for-byte the
+pre-cache path and no cache file is created.
+
+The cached JSON is validated on read through a
+[RFC 8927 JSON Type Definition](https://www.rfc-editor.org/rfc/rfc8927)
+schema, `schemas/profile-cache.jtd`: `jtd-codegen` compiles it into the
+standalone validator in `src/profile_cache_types.rs`, and any cached payload
+that fails that gate (or whose `event_type` strings are not known
+`EventType` variant names) is treated as corrupt and recomputed. Regenerate
+the validator after changing the schema:
+
+```bash
+cargo install --locked --git https://github.com/prompt-cult/json-type-definition-RFC-8927 --rev 767806d42f3ff4654503a6207fe8a18d75fe8211 jtd-codegen
+jtd-codegen --target rust schemas/profile-cache.jtd > src/profile_cache_types.rs
+```
+
+(The generated file also carries the typed envelope and the
+`TryFrom` conversion into `SessionProfile`; re-apply that adaptation after
+regenerating.)
+
 ## Ingestion guardrails
 
 Mercury calls are guarded by measured, documented limits (probed against a
@@ -245,6 +279,9 @@ $B --harness vibe list
 # Profile a rollout (counts, compaction markers, interesting events)
 $B --harness vibe --session 4836855e profile
 
+# Same, served from the opt-in on-disk profile cache (15 s staleness tolerance)
+$B --harness vibe --session 4836855e --cache profile
+
 # Extract what the user said verbatim
 $B --harness vibe --session 4836855e user-messages --markdown
 
@@ -302,9 +339,10 @@ live sessions.
 
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
-flag), `profile_session`, `extract_messages`, `extract_user_messages`,
-`extract_by_type`, `compact_session`, `she_said_he_said_action`,
-`index_sessions`, `do_android_dream_of_electric_sheep`, and `total_recall`:
+flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
+`extract_user_messages`, `extract_by_type`, `compact_session`,
+`she_said_he_said_action`, `index_sessions`,
+`do_android_dream_of_electric_sheep`, and `total_recall`:
 
 ```bash
 $B mcp

@@ -261,6 +261,11 @@ impl RolloutAdapter for OpenCodeAdapter {
         self.from_env
     }
 
+    fn most_recent_session_id(&self) -> Option<String> {
+        let conn = self.connect()?;
+        self.resolve_session_id(&conn, "")
+    }
+
     fn shadow_index_root(&self) -> PathBuf {
         self.db_path
             .parent()
@@ -402,8 +407,8 @@ impl RolloutAdapter for OpenCodeAdapter {
         slice_from_compaction(self.read_session_mmap(session_id))
     }
 
-    fn profile_session(&self, session_id: &str) -> SessionProfile {
-        let empty = SessionProfile {
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile {
+        let empty = || SessionProfile {
             session_id: session_id.to_string(),
             file_size: 0,
             line_count: 0,
@@ -413,81 +418,26 @@ impl RolloutAdapter for OpenCodeAdapter {
             has_tantivy_index: false,
             interesting_events: Vec::new(),
         };
-        let conn = match self.connect() {
-            Some(c) => c,
-            None => return empty,
+        let Some(conn) = self.connect() else {
+            return empty();
         };
         let Some(full_id) = self.resolve_session_id(&conn, session_id) else {
-            return empty;
+            return empty();
         };
 
-        let file_size: i64 = conn
-            .query_row(
-                "SELECT (SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?1)
-                    + (SELECT COALESCE(SUM(length(data)), 0) FROM part WHERE session_id = ?1)",
-                [&full_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        let line_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM part WHERE session_id = ?1",
-                [&full_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        let messages = Self::load_messages(&conn, &full_id);
-        drop(conn);
-
-        let mut role_counts: HashMap<String, u64> = HashMap::new();
-        let mut interesting_events = Vec::new();
-        let mut last_event_line = 0u64;
-        let mut first_ts: Option<String> = None;
-        let mut last_ts: Option<String> = None;
-
-        for (i, msg) in messages.iter().enumerate() {
-            let line_num = (i + 1) as u64;
-            *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
-
-            if msg.content.contains("context compaction") && msg.injected {
-                interesting_events.push(InterestingEvent {
-                    line_number: line_num,
-                    event_type: EventType::Compaction,
-                    summary: "Compaction marker".to_string(),
-                    gap_lines: line_num - last_event_line,
-                });
-                last_event_line = line_num;
-            }
-
-            if msg.role == "user" && !msg.injected && !msg.content.is_empty() {
-                interesting_events.push(InterestingEvent {
-                    line_number: line_num,
-                    event_type: EventType::UserMessage,
-                    summary: msg.content.chars().take(80).collect(),
-                    gap_lines: line_num - last_event_line,
-                });
-                last_event_line = line_num;
-            }
-
-            if let Some(ts) = &msg.timestamp {
-                if first_ts.is_none() {
-                    first_ts = Some(ts.clone());
-                }
-                last_ts = Some(ts.clone());
-            }
+        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), &full_id);
+        if cache
+            && let Some(time_updated) = session_time_updated(&conn, &full_id)
+            && let Some(cached) = crate::profile_cache::read_fresh(&cache_path, time_updated)
+        {
+            return cached;
         }
 
-        SessionProfile {
-            session_id: full_id,
-            file_size: file_size.max(0) as u64,
-            line_count: line_count.max(0) as u64,
-            first_ts,
-            last_ts,
-            role_counts,
-            has_tantivy_index: false,
-            interesting_events,
+        let profile = profile_session_sqlite(&conn, &full_id);
+        if cache {
+            crate::profile_cache::write(&cache_path, &profile);
         }
+        profile
     }
 
     fn extract_user_messages(&self, session_id: &str) -> Vec<String> {
@@ -506,6 +456,87 @@ impl RolloutAdapter for OpenCodeAdapter {
         directory: Option<&str>,
     ) -> Result<String, String> {
         she_said_he_said(&self.db_path, sessions, words, hours_back, directory)
+    }
+}
+
+/// One cheap single-row query for the staleness check: the session's
+/// `time_updated` only — never the full `list_sessions` aggregates.
+fn session_time_updated(conn: &Connection, full_id: &str) -> Option<i64> {
+    conn.query_row(
+        "SELECT time_updated FROM session WHERE id = ?1",
+        [full_id],
+        |r| r.get(0),
+    )
+    .ok()
+}
+
+/// Compute the profile from SQLite for an already-resolved session id.
+fn profile_session_sqlite(conn: &Connection, full_id: &str) -> SessionProfile {
+    let file_size: i64 = conn
+        .query_row(
+            "SELECT (SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?1)
+                + (SELECT COALESCE(SUM(length(data)), 0) FROM part WHERE session_id = ?1)",
+            [full_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let line_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM part WHERE session_id = ?1",
+            [full_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    let messages = OpenCodeAdapter::load_messages(conn, full_id);
+
+    let mut role_counts: HashMap<String, u64> = HashMap::new();
+    let mut interesting_events = Vec::new();
+    let mut last_event_line = 0u64;
+    let mut first_ts: Option<String> = None;
+    let mut last_ts: Option<String> = None;
+
+    for (i, msg) in messages.iter().enumerate() {
+        let line_num = (i + 1) as u64;
+        *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
+
+        if msg.content.contains("context compaction") && msg.injected {
+            interesting_events.push(InterestingEvent {
+                line_number: line_num,
+                event_type: EventType::Compaction,
+                summary: "Compaction marker".to_string(),
+                gap_lines: line_num - last_event_line,
+            });
+            last_event_line = line_num;
+        }
+
+        if msg.role == "user" && !msg.injected && !msg.content.is_empty() {
+            interesting_events.push(InterestingEvent {
+                line_number: line_num,
+                event_type: EventType::UserMessage,
+                summary: msg.content.chars().take(80).collect(),
+                gap_lines: line_num - last_event_line,
+            });
+            last_event_line = line_num;
+        }
+
+        if let Some(ts) = &msg.timestamp {
+            if first_ts.is_none() {
+                first_ts = Some(ts.clone());
+            }
+            last_ts = Some(ts.clone());
+        }
+    }
+
+    SessionProfile {
+        session_id: full_id.to_string(),
+        file_size: file_size.max(0) as u64,
+        line_count: line_count.max(0) as u64,
+        first_ts,
+        last_ts,
+        role_counts,
+        has_tantivy_index: false,
+        interesting_events,
     }
 }
 

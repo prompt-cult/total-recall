@@ -69,6 +69,12 @@ pub struct Cli {
     #[arg(long, global = true, default_value_t = false)]
     pub include_injected: bool,
 
+    /// Opt-in on-disk profile cache for `profile`: serve from
+    /// <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness
+    /// tolerance); recompute and rewrite otherwise. Default off.
+    #[arg(long, global = true, default_value_t = false)]
+    pub cache: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -338,7 +344,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Profile => {
-            let mut profile = adapter.profile_session(&session_id);
+            let mut profile = adapter.profile_session_opts(&session_id, cli.cache);
             profile.has_tantivy_index = index::index_exists(adapter.as_ref(), &session_id);
             if cli.json {
                 let json = serde_json::to_string_pretty(&profile)?;
