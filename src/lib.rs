@@ -9,7 +9,11 @@ pub mod prompt;
 pub mod recall;
 pub mod rollout;
 
-pub use mercury::{MAX_CONCURRENCY, MAX_INPUT_TOKENS_PER_CALL, MercuryProvider, estimate_tokens};
+pub use mercury::{
+    KNOWN_VENDORS, MAX_5XX_RETRIES, MAX_429_RETRIES, MAX_BACKOFF, MAX_CONCURRENCY,
+    MAX_INPUT_TOKENS_PER_CALL, MercuryProvider, VENDORS, estimate_tokens, provider_for,
+    retry_after_or, unknown_provider_error, vendor_not_compiled_error,
+};
 pub use prompt::{SYSTEM_PROMPT, build_structured_prompt};
 pub use recall::{
     GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,

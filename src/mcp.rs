@@ -6,8 +6,9 @@ use rmcp::{
 };
 
 use crate::{
-    MercuryProvider, RolloutAdapter, build_structured_prompt,
+    RolloutAdapter, build_structured_prompt,
     harness::make_adapter,
+    mercury::provider_for,
     prompt::SYSTEM_PROMPT,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
@@ -545,7 +546,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: fast compaction of a session using Mercury 2.5 — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
+        description = "Total-recall MCP tool: fast compaction of a session using the compiled-in LLM provider (mercury by default, --provider selects) — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
     )]
     async fn compact_session(
         &self,
@@ -572,9 +573,16 @@ impl TotalRecallServer {
 
         let prompt = build_structured_prompt(&messages);
 
-        let provider = MercuryProvider::new().map_err(|e| {
-            McpError::internal_error(format!("Failed to create Mercury provider: {}", e), None)
-        })?;
+        // A vendor-free build keeps this tool registered (clients bind by
+        // name) and reports the missing feature as a tool error.
+        let provider = match provider_for(None) {
+            Ok(provider) => provider,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{e:#}"
+                ))]));
+            }
+        };
 
         let summary = provider
             .compact(SYSTEM_PROMPT, &prompt)
@@ -623,9 +631,14 @@ impl TotalRecallServer {
         let goals_prompt = build_goals_prompt(&user_messages);
 
         // Create provider
-        let provider = MercuryProvider::new().map_err(|e| {
-            McpError::internal_error(format!("Failed to create Mercury provider: {}", e), None)
-        })?;
+        let provider = match provider_for(None) {
+            Ok(provider) => provider,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{e:#}"
+                ))]));
+            }
+        };
 
         // One bounded-concurrency batch call for both LLM calls
         let t0 = std::time::Instant::now();

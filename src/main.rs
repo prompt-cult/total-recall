@@ -5,9 +5,10 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use total_recall::{
-    MercuryProvider, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
+    RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
     harness::{make_adapter, resolve_harness, resolve_session},
     index,
+    mercury::provider_for,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
         build_recall_output, build_recent_rollouts_table, build_state_prompt,
@@ -44,7 +45,8 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
-    /// LLM provider: mercury (default) or mistral
+    /// LLM provider: mercury (default) or mistral. A provider not compiled
+    /// into this build fails with an explicit error — see README "Build features"
     #[arg(long, global = true)]
     pub provider: Option<String>,
 
@@ -97,7 +99,7 @@ pub enum Command {
         #[arg(long = "type", value_name = "kind")]
         types: Vec<String>,
     },
-    /// Compact a rollout using Mercury 2.5
+    /// Compact a rollout using the configured LLM provider (`--provider`)
     Compact,
     /// Total recall: state summary + user goals + rollouts table + plan files
     Recall,
@@ -544,7 +546,7 @@ async fn main() -> Result<()> {
             let format_time = t0.elapsed();
             tracing::info!("Prompt built in {:?}", format_time);
 
-            let provider = MercuryProvider::new()?;
+            let provider = provider_for(cli.provider.as_deref())?;
             let t1 = std::time::Instant::now();
             let summary = provider.compact(SYSTEM_PROMPT, &prompt).await?;
             let mercury_time = t1.elapsed();
@@ -569,10 +571,7 @@ async fn main() -> Result<()> {
             let state_prompt = build_state_prompt(&messages);
             let goals_prompt = build_goals_prompt(&user_messages);
 
-            let provider = match cli.provider.as_deref() {
-                Some("mistral") => MercuryProvider::new_mistral()?,
-                _ => MercuryProvider::new()?,
-            };
+            let provider = provider_for(cli.provider.as_deref())?;
             let t0 = std::time::Instant::now();
             let batch_results = provider
                 .compact_batch_pairs(vec![

@@ -4,8 +4,81 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+#[cfg(feature = "mercury")]
 const MERCURY_API_URL: &str = "https://api.inceptionlabs.ai/v1/chat/completions";
+#[cfg(feature = "mercury")]
 const MERCURY_MODEL: &str = "mercury-2.5";
+
+#[cfg(feature = "mistral")]
+const MISTRAL_API_URL: &str = "https://api.mistral.ai/v1/chat/completions";
+#[cfg(feature = "mistral")]
+const MISTRAL_MODEL: &str = "mistral-small-latest";
+
+/// The LLM vendors compiled into this build. Empty in a vendor-free build
+/// (`--no-default-features`); see [`provider_for`].
+pub const VENDORS: &[&str] = &[
+    #[cfg(feature = "mercury")]
+    "mercury",
+    #[cfg(feature = "mistral")]
+    "mistral",
+];
+
+/// Every vendor name this crate knows about, whether or not it is compiled
+/// into this build. Separates "you asked for a vendor that isn't in this
+/// build" from "that is not a vendor at all".
+pub const KNOWN_VENDORS: &[&str] = &["mercury", "mistral"];
+
+/// The LLM providers compiled into this build, for error messages.
+fn vendor_list() -> String {
+    if VENDORS.is_empty() {
+        "none".to_string()
+    } else {
+        VENDORS.join(", ")
+    }
+}
+
+/// The error a vendor-free (or vendor-mismatched) build returns instead of
+/// silently falling back to a different vendor. States what is missing, how to
+/// get it, and that the current binary is otherwise fully functional.
+pub fn vendor_not_compiled_error(requested: &str) -> String {
+    format!(
+        "LLM provider `{requested}` is not compiled into this build: it was built without the \
+         `{requested}` cargo feature. Rebuild with `cargo build --release --features {requested}`, \
+         or use the vendor-free build (`--no-default-features`) — it makes no LLM calls and needs \
+         no API key, and every log-mining tool still works. Vendors compiled into this build: {}.",
+        vendor_list()
+    )
+}
+
+/// The error for a `--provider` value that is not a vendor name at all. Names
+/// the valid values so the flag is self-documenting.
+pub fn unknown_provider_error(requested: &str) -> String {
+    format!(
+        "unknown LLM provider `{requested}`: pass it to --provider. Known vendors: {}; compiled \
+         into this build: {}.",
+        KNOWN_VENDORS.join(", "),
+        vendor_list()
+    )
+}
+
+/// Build the LLM provider for `name` (`None` = the default vendor, `mercury`),
+/// or fail descriptively when that vendor is not compiled into this build.
+/// This is the single construction point for both the CLI and the MCP server,
+/// so a vendor-free build fails the same way everywhere and never falls back
+/// to a vendor the caller did not ask for.
+pub fn provider_for(name: Option<&str>) -> Result<MercuryProvider> {
+    let requested = name.unwrap_or("mercury");
+    if !KNOWN_VENDORS.contains(&requested) {
+        return Err(anyhow!(unknown_provider_error(requested)));
+    }
+    match requested {
+        #[cfg(feature = "mercury")]
+        "mercury" => MercuryProvider::new(),
+        #[cfg(feature = "mistral")]
+        "mistral" => MercuryProvider::new_mistral(),
+        _ => Err(anyhow!(vendor_not_compiled_error(requested))),
+    }
+}
 
 /// Per-call input cap, in tokens (estimated at ~4 chars/token, the FAQ's own
 /// ratio). This is a user-set outer guard against slinging a 100MiB rollout
@@ -30,13 +103,13 @@ pub const MAX_INPUT_TOKENS_PER_CALL: usize = 1_000_000;
 pub const MAX_CONCURRENCY: usize = 4;
 
 /// 429 responses are retried at most this many times before giving up.
-const MAX_429_RETRIES: usize = 5;
+pub const MAX_429_RETRIES: usize = 5;
 
 /// 5xx responses are retried at most this many times before giving up.
-const MAX_5XX_RETRIES: usize = 3;
+pub const MAX_5XX_RETRIES: usize = 3;
 
 /// Upper bound on a single backoff sleep.
-const MAX_BACKOFF: Duration = Duration::from_secs(10);
+pub const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
 /// Spacing between 5xx retries.
 const RETRY_5XX_DELAY: Duration = Duration::from_secs(1);
@@ -106,6 +179,7 @@ pub struct MercuryProvider {
 
 impl MercuryProvider {
     /// Create from INCEPTION_API_KEY env var (or .env file).
+    #[cfg(feature = "mercury")]
     pub fn new() -> Result<Self> {
         let _ = dotenvy::dotenv();
         let api_key = std::env::var("INCEPTION_API_KEY")
@@ -117,6 +191,7 @@ impl MercuryProvider {
         })
     }
 
+    #[cfg(feature = "mercury")]
     pub fn with_model(api_key: String, model: String) -> Self {
         Self {
             api_key,
@@ -135,14 +210,15 @@ impl MercuryProvider {
     }
 
     /// Create a Mistral provider from MISTRAL_API_KEY env var.
+    #[cfg(feature = "mistral")]
     pub fn new_mistral() -> Result<Self> {
         let _ = dotenvy::dotenv();
         let api_key = std::env::var("MISTRAL_API_KEY")
             .map_err(|_| anyhow!("MISTRAL_API_KEY not set in env or .env file"))?;
         Ok(Self::with_api(
             api_key,
-            "mistral-small-latest".to_string(),
-            "https://api.mistral.ai/v1/chat/completions".to_string(),
+            MISTRAL_MODEL.to_string(),
+            MISTRAL_API_URL.to_string(),
         ))
     }
 
@@ -230,7 +306,11 @@ impl MercuryProvider {
 
         let client = reqwest::Client::new();
         // Only send reasoning_effort for Mercury API
-        let reasoning_effort = if self.api_url == MERCURY_API_URL {
+        #[cfg(feature = "mercury")]
+        let is_mercury_api = self.api_url == MERCURY_API_URL;
+        #[cfg(not(feature = "mercury"))]
+        let is_mercury_api = false;
+        let reasoning_effort = if is_mercury_api {
             Some("low".to_string())
         } else {
             None
@@ -320,8 +400,10 @@ impl MercuryProvider {
 }
 
 /// Read `Retry-After` (seconds form) from response headers; missing or
-/// unparseable → `fallback`. The value is capped at [`MAX_BACKOFF`].
-fn retry_after_or(headers: &reqwest::header::HeaderMap, fallback: Duration) -> Duration {
+/// unparseable → `fallback`. The value is capped at [`MAX_BACKOFF`]. Public
+/// because the cap and the seconds-only parsing are part of the documented
+/// ingestion contract and are asserted directly.
+pub fn retry_after_or(headers: &reqwest::header::HeaderMap, fallback: Duration) -> Duration {
     headers
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|v| v.to_str().ok())
@@ -330,6 +412,7 @@ fn retry_after_or(headers: &reqwest::header::HeaderMap, fallback: Duration) -> D
         .unwrap_or(fallback.min(MAX_BACKOFF))
 }
 
+#[cfg(feature = "mercury")]
 impl Default for MercuryProvider {
     fn default() -> Self {
         Self::new().expect("Failed to create MercuryProvider")

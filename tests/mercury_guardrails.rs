@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use total_recall::{MAX_CONCURRENCY, MAX_INPUT_TOKENS_PER_CALL, MercuryProvider, estimate_tokens};
+use total_recall::{
+    MAX_5XX_RETRIES, MAX_429_RETRIES, MAX_BACKOFF, MAX_CONCURRENCY, MAX_INPUT_TOKENS_PER_CALL,
+    MercuryProvider, estimate_tokens, retry_after_or,
+};
 
 // --- Mock server (no new deps) ---
 
@@ -176,6 +179,26 @@ fn mock_provider(url: String) -> MercuryProvider {
     MercuryProvider::with_api("test-key".to_string(), "mercury-2.5".to_string(), url)
 }
 
+fn step_with_retry_after(status: u16, retry_after: &str) -> Step {
+    Step {
+        status,
+        retry_after: Some(retry_after.to_string()),
+        delay_ms: 0,
+    }
+}
+
+/// Build a response header map carrying `Retry-After: <value>` (or none).
+fn headers_with_retry_after(value: Option<&str>) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Some(value) = value {
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            reqwest::header::HeaderValue::from_str(value).expect("valid header value"),
+        );
+    }
+    headers
+}
+
 // --- Tests ---
 
 #[tokio::test]
@@ -207,26 +230,45 @@ async fn over_cap_prompt_rejected_before_any_request() {
 }
 
 #[tokio::test]
-async fn rate_limit_with_retry_after_then_success() {
+async fn retry_after_zero_retries_without_waiting() {
     let mock = spawn_mock(vec![
-        Step {
-            status: 429,
-            retry_after: Some("0".to_string()),
-            delay_ms: 0,
-        },
-        Step {
-            status: 429,
-            retry_after: Some("0".to_string()),
-            delay_ms: 0,
-        },
+        step_with_retry_after(429, "0"),
+        step_with_retry_after(429, "0"),
         step(200),
     ])
     .await;
     let p = mock_provider(mock.url.clone());
 
+    let t0 = Instant::now();
     let out = p.compact("system", "hello").await.expect("must succeed");
+    let elapsed = t0.elapsed();
     assert_eq!(out, "RESP-unknown");
     assert_eq!(mock.request_count(), 3, "must have retried twice");
+    // Retry-After: 0 is a server instruction to come back immediately; it
+    // must override the exponential fallback (which would be 1s + 2s here).
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "Retry-After: 0 must not sleep, got {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn retry_after_header_is_waited_not_skipped() {
+    // A non-zero Retry-After must be honoured for its full value: the
+    // exponential fallback for the first retry would be 1s, so a 2s header
+    // that is honoured stretches the wait past the fallback.
+    let mock = spawn_mock(vec![step_with_retry_after(429, "2"), step(200)]).await;
+    let p = mock_provider(mock.url.clone());
+
+    let t0 = Instant::now();
+    let out = p.compact("system", "hello").await.expect("must succeed");
+    let elapsed = t0.elapsed();
+    assert_eq!(out, "RESP-unknown");
+    assert_eq!(mock.request_count(), 2);
+    assert!(
+        elapsed >= Duration::from_secs(2),
+        "Retry-After: 2 must be waited in full, got {elapsed:?}"
+    );
 }
 
 #[tokio::test]
@@ -248,19 +290,26 @@ async fn rate_limit_without_retry_after_backs_off_exponentially() {
 
 #[tokio::test]
 async fn rate_limit_forever_errs_after_bounded_retries() {
-    let mock = spawn_mock(vec![Step {
-        status: 429,
-        retry_after: Some("0".to_string()),
-        delay_ms: 0,
-    }])
-    .await;
+    let mock = spawn_mock(vec![step_with_retry_after(429, "0")]).await;
     let p = mock_provider(mock.url.clone());
 
     let err = p.compact("system", "hello").await.expect_err("must err");
-    let msg = format!("{err:#}").to_lowercase();
-    assert!(msg.contains("rate limit"), "must mention rate limit: {msg}");
-    // 1 initial + 5 retries.
-    assert_eq!(mock.request_count(), 6);
+    let msg = format!("{err:#}");
+    let lower = msg.to_lowercase();
+    assert!(
+        lower.contains("rate limit"),
+        "must mention rate limit: {msg}"
+    );
+    assert!(
+        msg.contains("429 Too Many Requests"),
+        "must name the status: {msg}"
+    );
+    assert!(
+        msg.contains(&format!("{MAX_429_RETRIES} retries")),
+        "must name the retry budget it exhausted: {msg}"
+    );
+    // 1 initial + MAX_429_RETRIES, and never one more.
+    assert_eq!(mock.request_count(), 1 + MAX_429_RETRIES);
 }
 
 #[tokio::test]
@@ -281,8 +330,109 @@ async fn server_error_forever_errs() {
     let err = p.compact("system", "hello").await.expect_err("must err");
     let msg = format!("{err:#}");
     assert!(msg.contains("500"), "must mention the status: {msg}");
-    // 1 initial + 3 retries.
-    assert_eq!(mock.request_count(), 4);
+    assert!(
+        msg.contains(&format!("{MAX_5XX_RETRIES} retries")),
+        "must name the retry budget it exhausted: {msg}"
+    );
+    // 1 initial + MAX_5XX_RETRIES.
+    assert_eq!(mock.request_count(), 1 + MAX_5XX_RETRIES);
+}
+
+#[tokio::test]
+async fn exhausted_5xx_budget_does_not_carry_over_to_429() {
+    // Three 5xx consume exactly the 5xx budget without erroring; the next
+    // request must still get a full 429 budget rather than dying on a shared
+    // counter.
+    let mock = spawn_mock(vec![
+        step(500),
+        step(500),
+        step(500),
+        step_with_retry_after(429, "0"),
+        step(200),
+    ])
+    .await;
+    let p = mock_provider(mock.url.clone());
+
+    let out = p.compact("system", "hello").await.expect("must succeed");
+    assert_eq!(out, "RESP-unknown");
+    assert_eq!(mock.request_count(), 5);
+}
+
+#[tokio::test]
+async fn exhausted_429_budget_does_not_carry_over_to_5xx() {
+    // Mirror of the above: five 429s exhaust the 429 budget (Retry-After: 0
+    // keeps it fast), and the following 5xx must be retried on a fresh budget.
+    let mock = spawn_mock(vec![
+        step_with_retry_after(429, "0"),
+        step_with_retry_after(429, "0"),
+        step_with_retry_after(429, "0"),
+        step_with_retry_after(429, "0"),
+        step_with_retry_after(429, "0"),
+        step(500),
+        step(200),
+    ])
+    .await;
+    let p = mock_provider(mock.url.clone());
+
+    let out = p.compact("system", "hello").await.expect("must succeed");
+    assert_eq!(out, "RESP-unknown");
+    assert_eq!(mock.request_count(), 7);
+}
+
+// --- Retry-After parsing contract (unit; no server, no sleeping) ---
+
+#[test]
+fn retry_after_seconds_value_is_honoured() {
+    let headers = headers_with_retry_after(Some("3"));
+    assert_eq!(
+        retry_after_or(&headers, Duration::from_secs(1)),
+        Duration::from_secs(3),
+        "the header value must win over the fallback"
+    );
+}
+
+#[test]
+fn retry_after_zero_yields_no_wait() {
+    let headers = headers_with_retry_after(Some("0"));
+    assert_eq!(
+        retry_after_or(&headers, Duration::from_secs(9)),
+        Duration::ZERO
+    );
+}
+
+#[test]
+fn retry_after_is_capped_at_max_backoff() {
+    let headers = headers_with_retry_after(Some("600"));
+    assert_eq!(
+        retry_after_or(&headers, Duration::from_secs(1)),
+        MAX_BACKOFF,
+        "an absurd Retry-After must not park the ingest loop for ten minutes"
+    );
+    // The fallback is capped by the same ceiling.
+    assert_eq!(
+        retry_after_or(&headers_with_retry_after(None), Duration::from_secs(600)),
+        MAX_BACKOFF
+    );
+}
+
+#[test]
+fn absent_or_unparseable_retry_after_falls_back() {
+    let fallback = Duration::from_secs(2);
+    for value in [
+        None,
+        // RFC 9110 also allows an HTTP-date; only the seconds form is honoured.
+        Some("Wed, 21 Oct 2026 07:28:00 GMT"),
+        Some("abc"),
+        Some("-5"),
+        Some(""),
+    ] {
+        let headers = headers_with_retry_after(value);
+        assert_eq!(
+            retry_after_or(&headers, fallback),
+            fallback,
+            "value {value:?} must fall back"
+        );
+    }
 }
 
 #[tokio::test]

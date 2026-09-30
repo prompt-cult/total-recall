@@ -5,6 +5,17 @@ edition = "2024"
 authors = ["Consensus Solutions"]
 description = "Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store"
 
+[features]
+# LLM vendors are compile-time features. A vendor-free build
+# (`--no-default-features`) keeps every log-mining tool and makes no LLM call;
+# the LLM-backed tools fail with an explicit "not compiled into this build"
+# error instead. See README "Build features".
+default = ["mercury", "mistral"]
+# Inception Mercury 2.5 (`--provider mercury`, the default).
+mercury = ["dep:dotenvy"]
+# Mistral (`--provider mistral`), an OpenAI-compatible chat completions API.
+mistral = ["dep:dotenvy"]
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -15,7 +26,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 memmap2 = "0.9"
 reqwest = { version = "0.12", features = ["json"] }
-dotenvy = "0.15"
+dotenvy = { version = "0.15", optional = true }
 rmcp = { version = "3.3", features = ["server", "transport-io"] }
 schemars = "0.8"
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }

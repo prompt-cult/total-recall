@@ -229,11 +229,13 @@ regenerating.)
 
 Mercury calls are guarded by measured, documented limits (probed against a
 Pay-As-You-Go key on 2026-09-15 with real rollout payloads, 5k/10k/20k
-tokens, concurrency ramped 1→64):
+tokens, concurrency ramped 1→64). The free tier carries the same caps —
+1,000 requests/min, 1M input tokens/min, 100k output tokens/min — and
+exceeding any of them returns HTTP 429:
 
-- **The binding limit is ~1M input tokens/minute** (the documented PAYG
-  input cap). Requests/min (1,000) and output tokens/min (100,000) never
-  bind for compaction workloads.
+- **The binding limit is ~1M input tokens/minute** (the documented input
+  cap). Requests/min (1,000) and output tokens/min (100,000) never bind for
+  compaction workloads.
 - **Per-call input cap: 1M tokens** (~4 chars/token). A 100MiB rollout is
   never slung in one call. Note Mercury 2.5's documented context window is
   260K tokens, so practical calls stay well below the cap — tool results
@@ -242,8 +244,18 @@ tokens, concurrency ramped 1→64):
   sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
   (latency is flat across payload sizes and concurrency). Beyond
   concurrency 8 the 429 wall arrives with no throughput gain.
-- **429 + `Retry-After` exponential backoff, 5xx retry**: the documented
-  correct behaviour; the server recovers immediately after backoff.
+- **429 handling**: at most 5 retries, then a descriptive error naming the
+  status and the exhausted budget — never a silent drop. `Retry-After`
+  (seconds form) is honoured in full and capped at 10s per attempt, so
+  `Retry-After: 0` comes back immediately; with no parseable header the wait
+  doubles from 1s (1s, 2s, 4s, 8s, capped at 10s). Every 429 is logged via
+  `tracing`.
+- **5xx handling**: 3 retries at ~1s spacing, then an error naming the
+  status. The two budgets are independent: 429s never consume 5xx retries
+  or vice versa.
+
+These contracts are asserted against a local mock server in
+`tests/mercury_guardrails.rs`; no test ever calls the real API.
 
 ### `recall` — total recall
 
@@ -272,6 +284,53 @@ Key findings from that research:
 - Amp uses manual "handoff" instead of auto-compaction
 
 This tool takes the best of each: it preserves recent messages, prunes large tool outputs, and uses Mercury 2.5 for fast summarization.
+
+## Build features
+
+The LLM vendor is a **compile-time cargo feature**. A vendor is a third-party
+service that can be acquired, renamed or disappear entirely, so no build of
+this tool requires one: the default build has both vendors, and a vendor-free
+build is a first-class artifact.
+
+```toml
+[features]
+default = ["mercury", "mistral"]
+mercury = ["dep:dotenvy"]   # Inception Mercury 2.5 (the default provider)
+mistral = ["dep:dotenvy"]   # Mistral, selected with --provider mistral
+```
+
+```bash
+cargo build --release                        # both vendors (default)
+cargo build --release --no-default-features   # vendor-free
+```
+
+A **vendor-free build makes no LLM calls and needs no API key** — it never
+reads `INCEPTION_API_KEY` or `MISTRAL_API_KEY`, and does not even load a `.env`
+file.
+
+| Tool | Vendor-free build | Default build |
+|------|-------------------|---------------|
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep` | works | works |
+| `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
+| `total_recall` (MCP), `recall` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
+
+The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients
+bind by name — and the call itself returns the error:
+
+```
+LLM provider `mercury` is not compiled into this build: it was built without the
+`mercury` cargo feature. Rebuild with `cargo build --release --features mercury`,
+or use the vendor-free build (`--no-default-features`) — it makes no LLM calls and
+needs no API key, and every log-mining tool still works. Vendors compiled into
+this build: none.
+```
+
+`--provider` selects between the vendors compiled into the build
+(`mercury`, `mistral`); a vendor that is not compiled in fails the same way, and
+an unrecognised name is refused rather than silently falling back to Mercury.
+Vendor identity (endpoint, model, key variable) is the gated part; the
+OpenAI-compatible chat transport itself compiles in every build but is
+unreachable without a vendor constructor.
 
 ## Usage
 
@@ -320,7 +379,8 @@ $B --harness vibe --session 4836855e --provider mistral recall
 ```
 
 Requires `INCEPTION_API_KEY` in `.env` (see `.env.template`).
-For `--provider mistral`, set `MISTRAL_API_KEY` instead.
+For `--provider mistral`, set `MISTRAL_API_KEY` instead. A vendor-free build
+(`--no-default-features`) needs neither — see [Build features](#build-features).
 
 ## Environment: storage-root overrides and the sandbox guard
 
@@ -411,6 +471,11 @@ launches the client; the server inherits it.
 
 ## Troubleshooting
 
+- **"LLM provider `mercury` is not compiled into this build"** — the binary
+  was built with `--no-default-features` (or without that vendor's feature).
+  Rebuild with `cargo build --release --features mercury`, or keep the
+  vendor-free build and use the log-mining tools, which need no key.
+
 - **401 "Incorrect API key" from `compact`/`total_recall`** — the MCP
   server's environment block is missing `INCEPTION_API_KEY`. List/profile
   work without it (no LLM call); Mercury calls fail. Add the key to the
@@ -423,10 +488,14 @@ launches the client; the server inherits it.
 2. Copy `.env.template` to `.env` and fill in your key (build-from-source CLI path; MCP servers get the key from their registration snippet's environment instead)
 3. `cargo build --release` and use the CLI above
 
+Steps 1–2 are only needed for the LLM-backed tools (`compact`, `recall`,
+`total_recall`, `compact_session`). Every log-mining tool works from a
+vendor-free build with no key at all.
+
 ## Requirements
 
 - Rust toolchain (stable)
-- `INCEPTION_API_KEY` in environment or `.env`
+- `INCEPTION_API_KEY` in environment or `.env` (default build only)
 - Optional: `MISTRAL_API_KEY` for `--provider mistral`
 
 ## Mercury 2.5 pricing
