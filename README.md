@@ -355,36 +355,53 @@ parameter; the `harness` tool reports the bound value. If the harness is
 unset or unknown the server refuses to start: it prints the reason to stdout
 and stderr and exits 2.
 
+Keep the server key/name as `total-recall`: the MCP tool names derive from
+it (`total-recall_total_recall`, …), so a renamed server shows up in the
+agent's tool surface under the wrong identity.
+
 Register it in Mistral Vibe (`~/.vibe/config.toml`):
 
 ```toml
 [[mcp_servers]]
-name = "compaction"
+name = "total-recall"
 transport = "stdio"
 command = "/path/to/total-recall"
 args = ["mcp"]
 
 [mcp_servers.env]
 HARNESS = "vibe"
+INCEPTION_API_KEY = "sk_..."
 ```
 
 Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
 
 ```json
 "mcp": {
-  "compaction": {
+  "total-recall": {
     "type": "local",
     "command": ["/path/to/total-recall", "mcp"],
-    "environment": {"HARNESS": "opencode"}
+    "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
   }
 }
 ```
 
+The snippets carry `INCEPTION_API_KEY` because the spawned server only finds
+a `.env` file relative to its working directory — which the MCP client
+controls, not you. Alternatively export `INCEPTION_API_KEY` in the shell that
+launches the client; the server inherits it.
+
+## Troubleshooting
+
+- **401 "Incorrect API key" from `compact`/`total_recall`** — the MCP
+  server's environment block is missing `INCEPTION_API_KEY`. List/profile
+  work without it (no LLM call); Mercury calls fail. Add the key to the
+  snippet's environment (see MCP server above) or export it in the launching
+  shell.
 
 ## Setup
 
 1. Get an Inception API key from [https://platform.inceptionlabs.ai](https://platform.inceptionlabs.ai)
-2. Copy `.env.template` to `.env` and fill in your key
+2. Copy `.env.template` to `.env` and fill in your key (build-from-source CLI path; MCP servers get the key from their registration snippet's environment instead)
 3. `cargo build --release` and use the CLI above
 
 ## Requirements

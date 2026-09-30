@@ -16,11 +16,11 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 
 | MCP tool | CLI | What it does |
 |---|---|---|
-| `compaction_compact_session` | `compact` | Mercury 2.5 structured summary |
-| `compaction_total_recall` | `recall` | state summary + user goals + recent rollouts + plan files |
-| `compaction_profile_session` | `profile` | file size, line count, role counts, interesting events |
-| `compaction_extract_user_messages` | `user-messages` | verbatim user messages |
-| `compaction_extract_messages` | `extract` | all messages as JSON |
+| `total-recall_compact_session` | `compact` | Mercury 2.5 structured summary |
+| `total-recall_total_recall` | `recall` | state summary + user goals + recent rollouts + plan files |
+| `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events |
+| `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
+| `total-recall_extract_messages` | `extract` | all messages as JSON |
 | `she_said_he_said_action` | `he-said-she-said` | exact-term dialogue/tool mining |
 | `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — ranked, phrase-capable, covers assistant thinking |
 | `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes |
