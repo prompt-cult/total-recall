@@ -390,6 +390,16 @@ a `.env` file relative to its working directory — which the MCP client
 controls, not you. Alternatively export `INCEPTION_API_KEY` in the shell that
 launches the client; the server inherits it.
 
+## Operations
+
+- [opencode store vacuum](docs/opencode-store-vacuum.md) — measured breakdown
+  of the opencode SQLite session store and the safe prune/vacuum/swap
+  procedure.
+- [`scripts/opencode-db-vacuum.sh`](scripts/opencode-db-vacuum.sh) — the
+  helper script implementing that procedure (`check`, `counts`, `backup`,
+  `vacuum-into`, `prune-events`, `swap`, `verify`). The store path comes from
+  the `OPENCODE_DB` env var.
+
 ## Troubleshooting
 
 - **401 "Incorrect API key" from `compact`/`total_recall`** — the MCP

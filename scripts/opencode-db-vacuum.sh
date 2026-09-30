@@ -14,11 +14,10 @@
 #   swap <newdb>              move the live store aside, move <newdb> in its place
 #   verify                    integrity_check + orphan check on the live store
 #
-# Store path override: OPENDOC_DB env var (default $HOME/.local/share/opencode/opencode.db).
-# Set OPENDOC_SKIP_PROCESS_CHECK=1 only for scratch-database testing.
+# Store path override: OPENCODE_DB env var (default $HOME/.local/share/opencode/opencode.db).
 set -euo pipefail
 
-DB="${OPENDOC_DB:-$HOME/.local/share/opencode/opencode.db}"
+DB="${OPENCODE_DB:-$HOME/.local/share/opencode/opencode.db}"
 
 die() { echo "error: $*" >&2; exit 1; }
 need_db() { [ -f "$DB" ] || die "no database at $DB"; }

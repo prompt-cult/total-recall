@@ -12,11 +12,11 @@ a 36 GiB file while real session data (messages + parts) was only ~4.4 GB.
 Plain `VACUUM` reclaims nothing there (`freelist_count` = 0) — the win is
 pruning `event` first, then vacuuming.
 
-Full measurements and the written procedure: `vacuum.md` in the total-recall
-repository.
+Full measurements and the written procedure: `docs/opencode-store-vacuum.md`
+in the total-recall repository.
 
 The helper script: `scripts/opencode-db-vacuum.sh` in the total-recall repo.
-All commands take the store path from `OPENDOC_DB` (default
+All commands take the store path from `OPENCODE_DB` (default
 `~/.local/share/opencode/opencode.db`).
 
 ## The one rule

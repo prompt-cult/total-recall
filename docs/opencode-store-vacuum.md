@@ -1,5 +1,10 @@
 # opencode store: vacuum rehearsal and procedure
 
+This document is the write-up for [`scripts/opencode-db-vacuum.sh`](../scripts/opencode-db-vacuum.sh),
+which implements the procedure below as subcommands (`check`, `counts`,
+`backup`, `vacuum-into`, `prune-events`, `swap`, `verify`). Read this for the
+measurements and the reasoning; run the script for the mechanics.
+
 The opencode session store (`~/.local/share/opencode/opencode.db`) was 31 GiB
 and looked bloated: message+part payloads sum to only ~4.4 GB. This document
 records a dress rehearsal of a vacuum/swap, what it disproved, what the real
@@ -146,9 +151,3 @@ mv opencode.db.pre-vacuum-<stamp> opencode.db
 
 opencode recreates `opencode.db-wal` and `opencode.db-shm` on next launch;
 never copy stale `-wal`/`-shm` files onto a swapped-in database.
-
-## Rehearsal artifacts
-
-Rehearsal copy: `.tmp/opencode-vacuumed.db` (36.3 GiB, integrity ok, snapshot
-of 01:07 local). Delete it after the real run; it is not needed for anything
-the cold procedure will rebuild.
