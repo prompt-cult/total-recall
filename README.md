@@ -492,6 +492,77 @@ Steps 1–2 are only needed for the LLM-backed tools (`compact`, `recall`,
 `total_recall`, `compact_session`). Every log-mining tool works from a
 vendor-free build with no key at all.
 
+<!-- BEGIN: distribution (ticket 452) -->
+## Install a release binary
+
+Prebuilt archives ship on every tagged release. Asset names are
+`total-recall_<version>_<target-triple>.tar.gz` — for example
+`total-recall_0.7.0_x86_64-unknown-linux-gnu.tar.gz` — and each archive holds
+one executable, `total-recall`, at its root.
+
+### mise
+
+```bash
+mise use github:prompt-cult/total-recall
+```
+
+mise selects the archive for your OS and CPU by reading the triple out of the
+asset name, so the same line installs the right binary on macOS arm64, macOS
+x86_64, Linux x86_64 and Linux arm64. It also fetches the release's
+`SHA256SUMS` and verifies the download against it.
+
+> The older `mise use ubi:prompt-cult/total-recall` spelling still resolves,
+> but mise has deprecated the ubi backend in favour of the `github:` backend.
+
+### aqua
+
+aqua resolves assets through a registry entry rather than by inspecting release
+names, so it needs a `registry.yaml` mapping this project's assets. The asset
+layout above is what such an entry targets:
+
+```yaml
+packages:
+  - type: github_release
+    repo_owner: prompt-cult
+    repo_name: total-recall
+    asset: 'total-recall_{{trimV .Version}}_{{.Arch}}-{{.OS}}.tar.gz'
+    format: tar.gz
+    replacements:
+      amd64: x86_64
+      arm64: aarch64
+      darwin: apple-darwin
+      linux: unknown-linux-gnu
+```
+
+`aqua g -i prompt-cult/total-recall` works once that entry is in a registry
+aqua is configured to read.
+
+### Plain download
+
+```bash
+VERSION=0.7.0
+curl -fsSLO "https://github.com/prompt-cult/total-recall/releases/download/v${VERSION}/total-recall_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
+curl -fsSLO "https://github.com/prompt-cult/total-recall/releases/download/v${VERSION}/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+tar -xzf "total-recall_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
+install -m 0755 total-recall /usr/local/bin/
+```
+
+Substitute the triple for your platform: `aarch64-apple-darwin`,
+`x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, or
+`aarch64-unknown-linux-gnu`.
+
+### Verifying a download
+
+Every release carries a `SHA256SUMS` over all four archives, one line each,
+`<64 hex digits>` then two spaces then the bare asset filename. `sha256sum
+--check SHA256SUMS` verifies them all; `--ignore-missing` verifies only the
+archives you downloaded. mise reads the same file automatically. The archives
+are built reproducibly, so a given source tree always yields the same digest.
+
+Building from source instead: `cargo build --release`.
+<!-- END: distribution (ticket 452) -->
+
 ## Requirements
 
 - Rust toolchain (stable)
