@@ -8,8 +8,12 @@ fn test_data_path() -> String {
 #[test]
 fn test_mock_read_from_compaction() {
     let adapter = MockAdapter::new(test_data_path());
-    let all_messages = adapter.read_session_mmap("test");
-    let from_compaction = adapter.read_session_from_compaction("test");
+    let all_messages = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
+    let from_compaction = adapter
+        .read_session_from_compaction("test")
+        .expect("healthy fixture compaction read");
 
     // The mock data has a compaction marker on line 5 (0-indexed: 4)
     // "You are continuing a trajectory after a context compaction"
@@ -37,7 +41,9 @@ fn test_mock_read_from_compaction_no_marker() {
 {"role":"assistant","content":"hi","tool_calls_summary":[],"timestamp":null,"injected":false}"#,
     );
     let adapter = MockAdapter::new(&temp);
-    let messages = adapter.read_session_from_compaction("test");
+    let messages = adapter
+        .read_session_from_compaction("test")
+        .expect("healthy fixture compaction read");
     // No compaction marker -> return all messages
     assert_eq!(messages.len(), 2);
     let _ = std::fs::remove_file(&temp);
@@ -46,8 +52,12 @@ fn test_mock_read_from_compaction_no_marker() {
 #[test]
 fn test_mock_compaction_vs_full() {
     let adapter = MockAdapter::new(test_data_path());
-    let full = adapter.read_session_mmap("test");
-    let from_compaction = adapter.read_session_from_compaction("test");
+    let full = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
+    let from_compaction = adapter
+        .read_session_from_compaction("test")
+        .expect("healthy fixture compaction read");
 
     assert!(
         full.len() > from_compaction.len(),

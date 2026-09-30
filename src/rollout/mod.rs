@@ -5,7 +5,32 @@ pub mod opencode;
 pub mod vibe;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// The single error vocabulary for every adapter read path. A read that cannot
+/// prove a session is empty returns one of these instead of an empty message
+/// list, so "unreadable" can never be mistaken for "nothing found".
+pub type ReadResult<T> = Result<T, String>;
+
+/// Render a rollout-payload I/O failure, naming the path: the user has to be
+/// able to see which file the tool could not read.
+pub fn read_error(path: &Path, err: &std::io::Error) -> String {
+    format!("cannot read rollout payload {}: {}", path.display(), err)
+}
+
+/// Render a failure to memory-map a rollout payload, naming the path.
+pub fn mmap_error(path: &Path, err: &std::io::Error) -> String {
+    format!("cannot mmap rollout payload {}: {}", path.display(), err)
+}
+
+/// Render an unresolvable session id against a store root, naming both.
+pub fn no_session_error(root: &Path, session_id: &str) -> String {
+    format!(
+        "no session matching '{}' under {}",
+        session_id,
+        root.display()
+    )
+}
 
 /// A single message from a rollout, normalized across harness formats.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -81,18 +106,20 @@ pub trait RolloutAdapter: Send + Sync {
     /// Find all rollout sessions, return summary info
     fn list_sessions(&self) -> Vec<SessionSummary>;
 
-    /// Stream messages from a specific session
-    fn read_session(&self, session_id: &str) -> Vec<RolloutMessage>;
+    /// Stream messages from a specific session. Errors when the session cannot
+    /// be resolved or its payload cannot be read — never an empty list.
+    fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>>;
 
-    /// Read session using mmap for maximum throughput
-    fn read_session_mmap(&self, session_id: &str) -> Vec<RolloutMessage>;
+    /// Read session using mmap for maximum throughput. Errors when the session
+    /// cannot be resolved or its payload cannot be opened or mapped.
+    fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>>;
 
     /// Read messages from the last compaction point onward.
     /// If no compaction marker exists, returns all messages.
-    fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage>;
+    fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>>;
 
     /// Profile a session: file size, line count, role counts, interesting events
-    fn profile_session(&self, session_id: &str) -> SessionProfile {
+    fn profile_session(&self, session_id: &str) -> ReadResult<SessionProfile> {
         self.profile_session_opts(session_id, false)
     }
 
@@ -109,11 +136,12 @@ pub trait RolloutAdapter: Send + Sync {
     /// serves the profile from `<shadow_root>/tr_<session-id>_meta.json` when
     /// it is fresh (staleness checked against this adapter's cheap
     /// time-updated source, 15 s tolerance); otherwise the profile is computed
-    /// as today and the cache is rewritten.
-    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile;
+    /// as today and the cache is rewritten. Errors when the session cannot be
+    /// resolved or its payload cannot be read — never an all-zero profile.
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile>;
 
     /// Extract only user messages (verbatim)
-    fn extract_user_messages(&self, session_id: &str) -> Vec<String>;
+    fn extract_user_messages(&self, session_id: &str) -> ReadResult<Vec<String>>;
 
     /// Raw typed entries for `extract_by_type`: one record per user message,
     /// assistant message, tool call/result, or thinking entry, preserving the
@@ -127,17 +155,17 @@ pub trait RolloutAdapter: Send + Sync {
         session_id: &str,
         full: bool,
         include_injected: bool,
-    ) -> Vec<RolloutEntry> {
+    ) -> ReadResult<Vec<RolloutEntry>> {
         let messages = if full {
             self.read_session_mmap(session_id)
         } else {
             self.read_session_from_compaction(session_id)
-        };
+        }?;
         let selected: Vec<&RolloutMessage> = messages
             .iter()
             .filter(|m| include_injected || !m.injected)
             .collect();
-        entries_from_messages(selected.iter().copied())
+        Ok(entries_from_messages(selected.iter().copied()))
     }
 
     /// Case-insensitive term-matched dialogue and tool actions, as a markdown
@@ -355,7 +383,13 @@ pub fn truncate_chars(s: &str, max_bytes: usize) -> &str {
 /// Resolve a partial session ID to a full session directory path.
 /// Returns the most recent matching session if multiple match.
 pub fn resolve_session_dir(root: &PathBuf, partial_id: &str) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(root).ok()?;
+    let entries = match std::fs::read_dir(root) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!("store {}: cannot be listed: {e}", root.display());
+            return None;
+        }
+    };
     let mut matches: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
 
     for entry in entries.flatten() {

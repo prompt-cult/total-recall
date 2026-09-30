@@ -107,7 +107,9 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
             .unwrap_or_else(|| session_id.to_string())
     };
 
-    let messages = adapter.read_session_mmap(&resolved);
+    let messages = adapter
+        .read_session_mmap(&resolved)
+        .map_err(|e| format!("cannot index session: {e}"))?;
     let dir = session_index_dir(adapter, &resolved);
     if dir.exists() {
         std::fs::remove_dir_all(&dir)

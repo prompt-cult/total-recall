@@ -37,6 +37,15 @@ still listed — with counts from whatever could be read — and carries a
 `read_error` message so damage is visible in the index instead of the
 payload silently appearing empty.
 
+Every read path carries the same contract: a payload that cannot be resolved
+or read returns a descriptive error naming the path, and the tool surfaces it
+as a tool error (or exits 2 on the CLI). "Unreadable" is never reported as
+"found nothing". A payload that exists and is genuinely empty is not damage
+and still reads as an empty session. `index_sessions` propagates the same
+error rather than building an empty index. A JSONL line that fails to parse
+is skipped with a `WARN` carrying its line number, so a short read is
+diagnosable.
+
 ### Bounded extraction — `extract_messages` / `extract_user_messages`
 
 Both return a JSON envelope, never a bare array, so a large session can never

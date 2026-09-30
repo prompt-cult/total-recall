@@ -10,7 +10,9 @@ fn test_read_speed_vs_format() {
     let adapter = MockAdapter::new(&path);
 
     let t0 = Instant::now();
-    let messages = adapter.read_session_mmap("test");
+    let messages = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
     let read_time = t0.elapsed();
 
     let t1 = Instant::now();
@@ -37,11 +39,13 @@ fn test_mmap_vs_regular_read() {
     let adapter = MockAdapter::new(&path);
 
     let t0 = Instant::now();
-    let messages1 = adapter.read_session("test");
+    let messages1 = adapter.read_session("test").expect("healthy fixture read");
     let regular_time = t0.elapsed();
 
     let t1 = Instant::now();
-    let messages2 = adapter.read_session_mmap("test");
+    let messages2 = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
     let mmap_time = t1.elapsed();
 
     assert_eq!(messages1.len(), messages2.len());
@@ -60,7 +64,9 @@ fn test_vibe_read_speed_large() {
     let adapter = VibeAdapter::with_root(root);
 
     let t0 = Instant::now();
-    let messages = adapter.read_session_mmap("2a421f21");
+    let messages = adapter
+        .read_session_mmap("2a421f21")
+        .expect("healthy fixture mmap read");
     let read_time = t0.elapsed();
 
     let t1 = Instant::now();

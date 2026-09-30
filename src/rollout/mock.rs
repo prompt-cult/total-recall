@@ -2,9 +2,28 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    EventType, InterestingEvent, RolloutAdapter, RolloutMessage, SessionProfile, SessionSummary,
-    slice_from_compaction,
+    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionProfile,
+    SessionSummary, mmap_error, read_error, slice_from_compaction,
 };
+
+/// Parse a pre-extracted JSONL of RolloutMessage objects. A line that is not
+/// valid JSON, or is not a message object, is skipped with a warning carrying
+/// its line number: a malformed line must be diagnosable, never silently lost.
+fn parse_jsonl(data: &[u8]) -> Vec<RolloutMessage> {
+    let text = String::from_utf8_lossy(data);
+    let mut messages = Vec::new();
+
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<RolloutMessage>(line) {
+            Ok(msg) => messages.push(msg),
+            Err(e) => tracing::warn!("mock rollout: skipping unparseable line {}: {e}", i + 1),
+        }
+    }
+    messages
+}
 
 /// Mocked flat-file adapter for tests. Reads a pre-extracted JSONL of RolloutMessage objects.
 pub struct MockAdapter {
@@ -18,42 +37,17 @@ impl MockAdapter {
         }
     }
 
-    fn read_jsonl(&self) -> Vec<RolloutMessage> {
-        let data = std::fs::read(&self.data_path).unwrap_or_default();
-        let text = String::from_utf8_lossy(&data);
-        let mut messages = Vec::new();
-
-        for line in text.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if let Ok(msg) = serde_json::from_str::<RolloutMessage>(line) {
-                messages.push(msg);
-            }
-        }
-        messages
+    fn read_jsonl(&self) -> ReadResult<Vec<RolloutMessage>> {
+        let data = std::fs::read(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
+        Ok(parse_jsonl(&data))
     }
 
-    fn read_jsonl_mmap(&self) -> Vec<RolloutMessage> {
-        let file = std::fs::File::open(&self.data_path)
-            .unwrap_or_else(|_| std::fs::File::create("/dev/null").unwrap());
-        let mmap = unsafe { memmap2::Mmap::map(&file).ok() };
-        let data = match &mmap {
-            Some(m) => &m[..],
-            None => &[],
-        };
-        let text = String::from_utf8_lossy(data);
-        let mut messages = Vec::new();
-
-        for line in text.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            if let Ok(msg) = serde_json::from_str::<RolloutMessage>(line) {
-                messages.push(msg);
-            }
-        }
-        messages
+    fn read_jsonl_mmap(&self) -> ReadResult<Vec<RolloutMessage>> {
+        let file =
+            std::fs::File::open(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
+        let mmap =
+            unsafe { memmap2::Mmap::map(&file) }.map_err(|e| mmap_error(&self.data_path, &e))?;
+        Ok(parse_jsonl(&mmap[..]))
     }
 }
 
@@ -70,7 +64,13 @@ impl RolloutAdapter for MockAdapter {
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
-        let messages = self.read_jsonl();
+        // Distinguish read damage (permissions, I/O error) from a payload that
+        // does not exist yet: damage is surfaced on the entry.
+        let (messages, read_error) = match std::fs::read(&self.data_path) {
+            Ok(data) => (parse_jsonl(&data), None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+            Err(e) => (Vec::new(), Some(read_error(&self.data_path, &e))),
+        };
         let file_size = std::fs::metadata(&self.data_path)
             .map(|m| m.len())
             .unwrap_or(0);
@@ -111,23 +111,23 @@ impl RolloutAdapter for MockAdapter {
             child_sessions: Vec::new(),
             has_tantivy_index: false,
             aliases: Vec::new(),
-            read_error: None,
+            read_error,
         }]
     }
 
-    fn read_session(&self, _session_id: &str) -> Vec<RolloutMessage> {
+    fn read_session(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
         self.read_jsonl()
     }
 
-    fn read_session_mmap(&self, _session_id: &str) -> Vec<RolloutMessage> {
+    fn read_session_mmap(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
         self.read_jsonl_mmap()
     }
 
-    fn read_session_from_compaction(&self, _session_id: &str) -> Vec<RolloutMessage> {
-        slice_from_compaction(self.read_jsonl_mmap())
+    fn read_session_from_compaction(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        Ok(slice_from_compaction(self.read_jsonl_mmap()?))
     }
 
-    fn profile_session_opts(&self, _session_id: &str, cache: bool) -> SessionProfile {
+    fn profile_session_opts(&self, _session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
         let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), "mock");
         if cache
             && let Some(cached) = crate::profile_cache::read_fresh(
@@ -135,10 +135,10 @@ impl RolloutAdapter for MockAdapter {
                 crate::profile_cache::mtime_ms(&self.data_path).unwrap_or(0),
             )
         {
-            return cached;
+            return Ok(cached);
         }
 
-        let messages = self.read_jsonl();
+        let messages = self.read_jsonl()?;
         let file_size = std::fs::metadata(&self.data_path)
             .map(|m| m.len())
             .unwrap_or(0);
@@ -225,14 +225,15 @@ impl RolloutAdapter for MockAdapter {
         if cache {
             crate::profile_cache::write(&cache_path, &profile);
         }
-        profile
+        Ok(profile)
     }
 
-    fn extract_user_messages(&self, _session_id: &str) -> Vec<String> {
-        self.read_jsonl()
+    fn extract_user_messages(&self, _session_id: &str) -> ReadResult<Vec<String>> {
+        Ok(self
+            .read_jsonl()?
             .into_iter()
             .filter(|m| m.role == "user" && !m.injected)
             .map(|m| m.content)
-            .collect()
+            .collect())
     }
 }

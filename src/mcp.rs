@@ -370,7 +370,10 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let mut profile = adapter.profile_session_opts(&session_id, params.cache);
+        let mut profile = match adapter.profile_session_opts(&session_id, params.cache) {
+            Ok(p) => p,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -399,10 +402,9 @@ impl TotalRecallServer {
         let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
         let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
-        let messages = if params.full {
-            adapter.read_session_mmap(&session_id)
-        } else {
-            adapter.read_session_from_compaction(&session_id)
+        let messages = match read_window(adapter.as_ref(), &session_id, params.full) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
 
         let json = match bounded_messages_envelope(
@@ -446,7 +448,10 @@ impl TotalRecallServer {
 
         // Derive from the bounded message stream so we bound during iteration
         // rather than materializing the full unbounded Vec first.
-        let messages = adapter.read_session_mmap(&session_id);
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let user: Vec<crate::RolloutMessage> = messages
             .into_iter()
             .filter(|m| m.role == "user" && !m.injected)
@@ -508,7 +513,10 @@ impl TotalRecallServer {
         let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
         let entries =
-            adapter.read_session_entries(&session_id, params.full, params.include_injected);
+            match adapter.read_session_entries(&session_id, params.full, params.include_injected) {
+                Ok(e) => e,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+            };
         let selected: Vec<String> = if want_all {
             VALID.iter().map(|s| s.to_string()).collect()
         } else {
@@ -551,10 +559,9 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let messages = if params.full {
-            adapter.read_session_mmap(&session_id)
-        } else {
-            adapter.read_session_from_compaction(&session_id)
+        let messages = match read_window(adapter.as_ref(), &session_id, params.full) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
 
         if messages.is_empty() {
@@ -595,7 +602,10 @@ impl TotalRecallServer {
         }
 
         // Read messages from last compaction point
-        let messages = adapter.read_session_from_compaction(&session_id);
+        let messages = match adapter.read_session_from_compaction(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         if messages.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No messages found in session".to_string(),
@@ -603,7 +613,10 @@ impl TotalRecallServer {
         }
 
         // Extract user messages from the full session
-        let user_messages = adapter.extract_user_messages(&session_id);
+        let user_messages = match adapter.extract_user_messages(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
 
         // Build prompts
         let state_prompt = build_state_prompt(&messages);
@@ -663,6 +676,20 @@ impl TotalRecallServer {
 impl ServerHandler for TotalRecallServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    }
+}
+
+/// Read a session window respecting `full`, propagating read damage as a tool
+/// error. A payload that cannot be read is never reported as an empty session.
+fn read_window(
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+    full: bool,
+) -> Result<Vec<crate::RolloutMessage>, String> {
+    if full {
+        adapter.read_session_mmap(session_id)
+    } else {
+        adapter.read_session_from_compaction(session_id)
     }
 }
 

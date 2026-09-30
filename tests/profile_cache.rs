@@ -66,14 +66,18 @@ fn now_epoch_secs() -> i64 {
 #[test]
 fn test_first_call_writes_cache_second_call_serves_it() {
     let (_dir, adapter, cache_path) = write_fixture("hit", &fixture_lines());
-    let first = adapter.profile_session_opts("mock", true);
+    let first = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert!(cache_path.is_file(), "cache file must be written");
 
     // Push the source file's mtime into the past: still inside the 15 s
     // tolerance relative to the younger cache file, so the second call must
     // be served from the cache and return the identical profile.
     set_mtime_epoch_secs(&_dir.join("data.jsonl"), now_epoch_secs() - 3_600);
-    let second = adapter.profile_session_opts("mock", true);
+    let second = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert_eq!(
         serde_json::to_value(&first).unwrap(),
         serde_json::to_value(&second).unwrap(),
@@ -85,7 +89,9 @@ fn test_first_call_writes_cache_second_call_serves_it() {
 #[test]
 fn test_stale_cache_recomputes_and_rewrites() {
     let (dir, adapter, cache_path) = write_fixture("stale", &fixture_lines());
-    let first = adapter.profile_session_opts("mock", true);
+    let first = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert!(cache_path.is_file());
 
     // Change the payload AND push its mtime beyond the staleness tolerance:
@@ -96,7 +102,9 @@ fn test_stale_cache_recomputes_and_rewrites() {
     std::fs::write(dir.join("data.jsonl"), grown.join("\n") + "\n").unwrap();
     set_mtime_epoch_secs(&dir.join("data.jsonl"), now_epoch_secs() + 120);
 
-    let second = adapter.profile_session_opts("mock", true);
+    let second = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert_eq!(
         second.line_count,
         first.line_count + 1,
@@ -108,7 +116,12 @@ fn test_stale_cache_recomputes_and_rewrites() {
     );
     assert_eq!(
         serde_json::to_value(&second).unwrap(),
-        serde_json::to_value(adapter.profile_session_opts("mock", false)).unwrap(),
+        serde_json::to_value(
+            adapter
+                .profile_session_opts("mock", false)
+                .expect("healthy fixture profile")
+        )
+        .unwrap(),
         "rewritten cache must match the fresh compute"
     );
 }
@@ -116,11 +129,15 @@ fn test_stale_cache_recomputes_and_rewrites() {
 #[test]
 fn test_corrupt_cache_is_repaired() {
     let (_dir, adapter, cache_path) = write_fixture("corrupt", &fixture_lines());
-    adapter.profile_session_opts("mock", true);
+    adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert!(cache_path.is_file());
     std::fs::write(&cache_path, b"\x00not json {{{").unwrap();
 
-    let profile = adapter.profile_session_opts("mock", true);
+    let profile = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert_eq!(profile.session_id, "mock");
     assert_eq!(profile.line_count, 3);
 
@@ -134,14 +151,18 @@ fn test_corrupt_cache_is_repaired() {
 #[test]
 fn test_structurally_wrong_cache_fails_jtd_gate_and_recomputes() {
     let (_dir, adapter, cache_path) = write_fixture("jtd_gate", &fixture_lines());
-    adapter.profile_session_opts("mock", true);
+    adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
 
     let data = std::fs::read(&cache_path).unwrap();
     let mut value: serde_json::Value = serde_json::from_slice(&data).unwrap();
     value["profile"]["role_counts"] = serde_json::json!([]);
     std::fs::write(&cache_path, serde_json::to_vec(&value).unwrap()).unwrap();
 
-    let profile = adapter.profile_session_opts("mock", true);
+    let profile = adapter
+        .profile_session_opts("mock", true)
+        .expect("healthy fixture profile");
     assert_eq!(profile.line_count, 3, "wrong-shape cache must recompute");
 
     let repaired: serde_json::Value =
@@ -155,12 +176,16 @@ fn test_structurally_wrong_cache_fails_jtd_gate_and_recomputes() {
 #[test]
 fn test_flag_off_writes_no_cache() {
     let (_dir, adapter, cache_path) = write_fixture("flag_off", &fixture_lines());
-    let _ = adapter.profile_session_opts("mock", false);
+    let _ = adapter
+        .profile_session_opts("mock", false)
+        .expect("healthy fixture profile");
     assert!(
         !cache_path.exists(),
         "cache=false must not create a cache file"
     );
-    let _ = adapter.profile_session("mock");
+    let _ = adapter
+        .profile_session("mock")
+        .expect("healthy fixture profile");
     assert!(!cache_path.exists(), "trait default must not cache either");
 }
 

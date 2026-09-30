@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, resolve_root, resolve_session_dir, slice_from_compaction,
-    summarize_tool_call,
+    CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
+    SessionProfile, SessionSummary, mmap_error, no_session_error, read_error, resolve_root,
+    resolve_session_dir, slice_from_compaction, summarize_tool_call,
 };
 
 /// Codex adapter. Reads flat JSONL files from ~/.codex/sessions/
@@ -36,19 +36,31 @@ impl CodexAdapter {
         }
     }
 
+    /// A line that is not valid JSON is skipped with a warning carrying its
+    /// line number, so a damaged payload is diagnosable rather than silently
+    /// short.
     fn parse_jsonl(data: &[u8]) -> Vec<RolloutMessage> {
         let text = String::from_utf8_lossy(data);
         let mut messages = Vec::new();
 
-        for line in text.lines() {
+        for (i, line) in text.lines().enumerate() {
             if line.trim().is_empty() {
                 continue;
             }
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                messages.push(json_to_rollout_message(&v));
+            match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(v) => messages.push(json_to_rollout_message(&v)),
+                Err(e) => tracing::warn!("codex rollout: skipping unparseable line {}: {e}", i + 1),
             }
         }
         messages
+    }
+
+    /// Read the raw payload bytes for a session, naming the path on failure.
+    fn read_payload(&self, session_id: &str) -> ReadResult<Vec<u8>> {
+        let path = self
+            .session_path(session_id)
+            .ok_or_else(|| no_session_error(&self.root, session_id))?;
+        std::fs::read(&path).map_err(|e| read_error(&path, &e))
     }
 }
 
@@ -125,7 +137,10 @@ impl RolloutAdapter for CodexAdapter {
     fn list_sessions(&self) -> Vec<SessionSummary> {
         let entries = match std::fs::read_dir(&self.root) {
             Ok(e) => e,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!("codex store {}: cannot be listed: {e}", self.root.display());
+                return Vec::new();
+            }
         };
 
         let mut summaries = Vec::new();
@@ -138,8 +153,14 @@ impl RolloutAdapter for CodexAdapter {
             let name = entry.file_name();
             let name_str = name.to_string_lossy().to_string();
 
+            // Distinguish read damage (permissions, I/O error) from a payload
+            // that does not exist yet: damage is surfaced on the entry.
+            let (data, read_error) = match std::fs::read(&path) {
+                Ok(data) => (data, None),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+                Err(e) => (Vec::new(), Some(read_error(&path, &e))),
+            };
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            let data = std::fs::read(&path).unwrap_or_default();
             let line_count = String::from_utf8_lossy(&data)
                 .lines()
                 .filter(|l| !l.trim().is_empty())
@@ -187,7 +208,7 @@ impl RolloutAdapter for CodexAdapter {
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
-                read_error: None,
+                read_error,
             });
         }
 
@@ -195,51 +216,27 @@ impl RolloutAdapter for CodexAdapter {
         summaries
     }
 
-    fn read_session(&self, session_id: &str) -> Vec<RolloutMessage> {
-        let path = match self.session_path(session_id) {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
-        let data = std::fs::read(&path).unwrap_or_default();
-        Self::parse_jsonl(&data)
+    fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        Ok(Self::parse_jsonl(&self.read_payload(session_id)?))
     }
 
-    fn read_session_mmap(&self, session_id: &str) -> Vec<RolloutMessage> {
-        let path = match self.session_path(session_id) {
-            Some(p) => p,
-            None => return Vec::new(),
-        };
-        let file = match std::fs::File::open(&path) {
-            Ok(f) => f,
-            Err(_) => return Vec::new(),
-        };
-        let mmap = match unsafe { memmap2::Mmap::map(&file) } {
-            Ok(m) => m,
-            Err(_) => return Vec::new(),
-        };
-        Self::parse_jsonl(&mmap[..])
+    fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        let path = self
+            .session_path(session_id)
+            .ok_or_else(|| no_session_error(&self.root, session_id))?;
+        let file = std::fs::File::open(&path).map_err(|e| read_error(&path, &e))?;
+        let mmap = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| mmap_error(&path, &e))?;
+        Ok(Self::parse_jsonl(&mmap[..]))
     }
 
-    fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage> {
-        slice_from_compaction(self.read_session_mmap(session_id))
+    fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        Ok(slice_from_compaction(self.read_session_mmap(session_id)?))
     }
 
-    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile {
-        let path = match self.session_path(session_id) {
-            Some(p) => p,
-            None => {
-                return SessionProfile {
-                    session_id: session_id.to_string(),
-                    file_size: 0,
-                    line_count: 0,
-                    first_ts: None,
-                    last_ts: None,
-                    role_counts: HashMap::new(),
-                    has_tantivy_index: false,
-                    interesting_events: Vec::new(),
-                };
-            }
-        };
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+        let path = self
+            .session_path(session_id)
+            .ok_or_else(|| no_session_error(&self.root, session_id))?;
 
         let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), session_id);
         if cache
@@ -248,10 +245,10 @@ impl RolloutAdapter for CodexAdapter {
                 crate::profile_cache::mtime_ms(&path).unwrap_or(0),
             )
         {
-            return cached;
+            return Ok(cached);
         }
 
-        let data = std::fs::read(&path).unwrap_or_default();
+        let data = std::fs::read(&path).map_err(|e| read_error(&path, &e))?;
         let file_size = data.len() as u64;
         let text = String::from_utf8_lossy(&data);
 
@@ -321,14 +318,15 @@ impl RolloutAdapter for CodexAdapter {
         if cache {
             crate::profile_cache::write(&cache_path, &profile);
         }
-        profile
+        Ok(profile)
     }
 
-    fn extract_user_messages(&self, session_id: &str) -> Vec<String> {
-        self.read_session(session_id)
+    fn extract_user_messages(&self, session_id: &str) -> ReadResult<Vec<String>> {
+        Ok(self
+            .read_session(session_id)?
             .into_iter()
             .filter(|m| m.role == "user" && !m.injected)
             .map(|m| m.content)
-            .collect()
+            .collect())
     }
 }

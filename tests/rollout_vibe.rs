@@ -8,7 +8,9 @@ fn test_data_root() -> PathBuf {
 #[test]
 fn test_read_vibe_session() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let messages = adapter.read_session("4a0051b6");
+    let messages = adapter
+        .read_session("4a0051b6")
+        .expect("healthy fixture read");
 
     assert!(
         !messages.is_empty(),
@@ -21,7 +23,9 @@ fn test_read_vibe_session() {
 #[test]
 fn test_read_vibe_session_mmap() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let messages = adapter.read_session_mmap("4a0051b6");
+    let messages = adapter
+        .read_session_mmap("4a0051b6")
+        .expect("healthy fixture mmap read");
 
     assert_eq!(messages.len(), 6, "mmap read should return same count");
 }
@@ -64,7 +68,9 @@ fn test_vibe_list_sessions_has_title() {
 #[test]
 fn test_vibe_profile_session() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let profile = adapter.profile_session("4a0051b6");
+    let profile = adapter
+        .profile_session("4a0051b6")
+        .expect("healthy fixture profile");
 
     assert_eq!(profile.line_count, 6);
     assert!(profile.file_size > 0);
@@ -75,7 +81,9 @@ fn test_vibe_profile_session() {
 #[test]
 fn test_vibe_profile_compaction_session() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let profile = adapter.profile_session("2a421f21");
+    let profile = adapter
+        .profile_session("2a421f21")
+        .expect("healthy fixture profile");
 
     assert!(
         profile.line_count > 100,
@@ -97,7 +105,9 @@ fn test_vibe_profile_compaction_session() {
 #[test]
 fn test_vibe_extract_user_messages() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let user_messages = adapter.extract_user_messages("4a0051b6");
+    let user_messages = adapter
+        .extract_user_messages("4a0051b6")
+        .expect("healthy fixture user messages");
 
     assert!(!user_messages.is_empty(), "Should extract user messages");
     // The first user message should mention README
@@ -107,7 +117,9 @@ fn test_vibe_extract_user_messages() {
 #[test]
 fn test_vibe_extract_user_messages_no_injected() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let user_messages = adapter.extract_user_messages("2a421f21");
+    let user_messages = adapter
+        .extract_user_messages("2a421f21")
+        .expect("healthy fixture user messages");
 
     // None of the extracted messages should be injected
     for msg in &user_messages {
@@ -122,7 +134,9 @@ fn test_vibe_extract_user_messages_no_injected() {
 fn test_vibe_read_speed() {
     let adapter = VibeAdapter::with_root(test_data_root());
     let t0 = std::time::Instant::now();
-    let messages = adapter.read_session_mmap("2a421f21");
+    let messages = adapter
+        .read_session_mmap("2a421f21")
+        .expect("healthy fixture mmap read");
     let read_time = t0.elapsed();
 
     assert!(!messages.is_empty());
@@ -139,7 +153,9 @@ fn test_vibe_format_speed() {
     use total_recall::build_structured_prompt;
 
     let adapter = VibeAdapter::with_root(test_data_root());
-    let messages = adapter.read_session_mmap("2a421f21");
+    let messages = adapter
+        .read_session_mmap("2a421f21")
+        .expect("healthy fixture mmap read");
 
     let t0 = std::time::Instant::now();
     let _prompt = build_structured_prompt(&messages);
@@ -155,8 +171,12 @@ fn test_vibe_format_speed() {
 #[test]
 fn test_vibe_read_from_compaction() {
     let adapter = VibeAdapter::with_root(test_data_root());
-    let full = adapter.read_session_mmap("2a421f21");
-    let from_compaction = adapter.read_session_from_compaction("2a421f21");
+    let full = adapter
+        .read_session_mmap("2a421f21")
+        .expect("healthy fixture mmap read");
+    let from_compaction = adapter
+        .read_session_from_compaction("2a421f21")
+        .expect("healthy fixture compaction read");
 
     // Session 2a421f21 has compaction markers, so from_compaction should return fewer messages
     assert!(
@@ -175,8 +195,12 @@ fn test_vibe_read_from_compaction() {
 fn test_vibe_read_from_compaction_no_marker() {
     let adapter = VibeAdapter::with_root(test_data_root());
     // Session 4a0051b6 has no compaction markers
-    let full = adapter.read_session_mmap("4a0051b6");
-    let from_compaction = adapter.read_session_from_compaction("4a0051b6");
+    let full = adapter
+        .read_session_mmap("4a0051b6")
+        .expect("healthy fixture mmap read");
+    let from_compaction = adapter
+        .read_session_from_compaction("4a0051b6")
+        .expect("healthy fixture compaction read");
 
     // No compaction marker -> return all messages
     assert_eq!(
@@ -320,8 +344,12 @@ fn canonical_and_alias_read_the_same_rollout() {
     );
 
     let adapter = VibeAdapter::with_root(&root);
-    let via_canonical = adapter.read_session("51a9645a");
-    let via_alias = adapter.read_session("c20a924e");
+    let via_canonical = adapter
+        .read_session("51a9645a")
+        .expect("healthy fixture read");
+    let via_alias = adapter
+        .read_session("c20a924e")
+        .expect("healthy fixture read");
     assert_eq!(via_canonical.len(), via_alias.len());
     assert_eq!(via_canonical.len(), 1);
     assert_eq!(via_canonical[0].content, via_alias[0].content);

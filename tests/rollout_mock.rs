@@ -8,7 +8,7 @@ fn test_data_path() -> String {
 #[test]
 fn test_read_mock_session() {
     let adapter = MockAdapter::new(test_data_path());
-    let messages = adapter.read_session("test");
+    let messages = adapter.read_session("test").expect("healthy fixture read");
 
     assert!(!messages.is_empty(), "Should read messages from mock data");
     assert_eq!(messages.len(), 8, "Should read exactly 8 messages");
@@ -17,7 +17,9 @@ fn test_read_mock_session() {
 #[test]
 fn test_read_mock_session_mmap() {
     let adapter = MockAdapter::new(test_data_path());
-    let messages = adapter.read_session_mmap("test");
+    let messages = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
 
     assert_eq!(messages.len(), 8, "mmap read should return same count");
 }
@@ -47,7 +49,9 @@ fn test_mock_list_sessions() {
 #[test]
 fn test_mock_profile_session() {
     let adapter = MockAdapter::new(test_data_path());
-    let profile = adapter.profile_session("test");
+    let profile = adapter
+        .profile_session("test")
+        .expect("healthy fixture profile");
 
     assert_eq!(profile.line_count, 8);
     assert!(profile.file_size > 0);
@@ -86,7 +90,9 @@ fn test_mock_profile_session() {
 #[test]
 fn test_mock_extract_user_messages() {
     let adapter = MockAdapter::new(test_data_path());
-    let user_messages = adapter.extract_user_messages("test");
+    let user_messages = adapter
+        .extract_user_messages("test")
+        .expect("healthy fixture user messages");
 
     // 3 user messages total, but one is injected
     assert_eq!(
@@ -101,7 +107,9 @@ fn test_mock_extract_user_messages() {
 #[test]
 fn test_mock_first_and_last_timestamp() {
     let adapter = MockAdapter::new(test_data_path());
-    let profile = adapter.profile_session("test");
+    let profile = adapter
+        .profile_session("test")
+        .expect("healthy fixture profile");
 
     assert!(profile.first_ts.is_some());
     assert!(profile.last_ts.is_some());
@@ -113,7 +121,9 @@ fn test_mock_first_and_last_timestamp() {
 fn test_mock_read_speed() {
     let adapter = MockAdapter::new(test_data_path());
     let t0 = std::time::Instant::now();
-    let messages = adapter.read_session_mmap("test");
+    let messages = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
     let read_time = t0.elapsed();
 
     assert!(!messages.is_empty());
@@ -130,7 +140,9 @@ fn test_mock_format_speed() {
     use total_recall::build_structured_prompt;
 
     let adapter = MockAdapter::new(test_data_path());
-    let messages = adapter.read_session_mmap("test");
+    let messages = adapter
+        .read_session_mmap("test")
+        .expect("healthy fixture mmap read");
 
     let t0 = std::time::Instant::now();
     let _prompt = build_structured_prompt(&messages);
@@ -149,7 +161,7 @@ fn test_mock_empty_file() {
     let mut f = std::fs::File::create(&temp).unwrap();
     let _ = f.write_all(b"");
     let adapter = MockAdapter::new(&temp);
-    let messages = adapter.read_session("test");
+    let messages = adapter.read_session("test").expect("healthy fixture read");
     assert!(messages.is_empty());
     let _ = std::fs::remove_file(&temp);
 }

@@ -127,7 +127,9 @@ fn test_opencode_adapter_name() {
 #[test]
 fn test_opencode_read_session() {
     let adapter = fixture_adapter("read");
-    let messages = adapter.read_session("ses_fixture");
+    let messages = adapter
+        .read_session("ses_fixture")
+        .expect("healthy fixture read");
 
     assert!(!messages.is_empty(), "Should read messages from fixture");
     let user = messages
@@ -157,8 +159,12 @@ fn test_opencode_read_session() {
 #[test]
 fn test_opencode_read_session_mmap() {
     let adapter = fixture_adapter("mmap");
-    let mmap = adapter.read_session_mmap("ses_fixture");
-    let plain = adapter.read_session("ses_fixture");
+    let mmap = adapter
+        .read_session_mmap("ses_fixture")
+        .expect("healthy fixture mmap read");
+    let plain = adapter
+        .read_session("ses_fixture")
+        .expect("healthy fixture read");
     assert!(!mmap.is_empty());
     assert_eq!(mmap.len(), plain.len());
     for (a, b) in mmap.iter().zip(plain.iter()) {
@@ -195,7 +201,9 @@ fn test_opencode_list_sessions() {
 #[test]
 fn test_opencode_profile_session() {
     let adapter = fixture_adapter("profile");
-    let profile = adapter.profile_session("ses_fixture");
+    let profile = adapter
+        .profile_session("ses_fixture")
+        .expect("healthy fixture profile");
 
     assert!(profile.line_count > 0);
     assert!(profile.file_size > 0);
@@ -214,7 +222,9 @@ fn test_opencode_profile_session() {
 #[test]
 fn test_opencode_extract_user_messages() {
     let adapter = fixture_adapter("extract");
-    let messages = adapter.extract_user_messages("ses_fixture");
+    let messages = adapter
+        .extract_user_messages("ses_fixture")
+        .expect("healthy fixture user messages");
 
     assert!(
         messages.iter().any(|m| m == "hello fixture world"),
@@ -236,7 +246,9 @@ fn test_opencode_extract_user_messages() {
 #[test]
 fn test_opencode_read_session_from_compaction() {
     let adapter = fixture_adapter("slice");
-    let messages = adapter.read_session_from_compaction("ses_fixture");
+    let messages = adapter
+        .read_session_from_compaction("ses_fixture")
+        .expect("healthy fixture compaction read");
 
     assert!(
         !messages.iter().any(|m| m.content == "hello fixture world"),
@@ -258,9 +270,15 @@ fn test_opencode_read_session_from_compaction() {
 }
 
 #[test]
-fn test_opencode_unknown_session_returns_empty() {
+fn test_opencode_unknown_session_is_an_error_not_an_empty_session() {
     let adapter = fixture_adapter("unknown");
-    assert!(adapter.read_session("ses_nope").is_empty());
+    let err = adapter
+        .read_session("ses_nope")
+        .expect_err("an unresolvable session id must not read as an empty session");
+    assert!(
+        err.contains("ses_nope"),
+        "error must name the session: {err}"
+    );
 }
 
 #[test]
@@ -288,7 +306,9 @@ fn test_opencode_reasoning_part_becomes_thinking_message() {
     .unwrap();
 
     let adapter = OpenCodeAdapter::with_root(&path);
-    let messages = adapter.read_session("ses_fixture");
+    let messages = adapter
+        .read_session("ses_fixture")
+        .expect("healthy fixture read");
     let reasoning = messages
         .iter()
         .find(|m| {

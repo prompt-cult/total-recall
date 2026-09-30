@@ -11,19 +11,25 @@ fn bench_read_rollout(c: &mut Criterion) {
 
     c.bench_function("read_session_mmap", |b| {
         b.iter(|| {
-            let messages = adapter.read_session_mmap(black_box(&session_id));
+            let messages = adapter
+                .read_session_mmap(black_box(&session_id))
+                .expect("healthy fixture mmap read");
             black_box(messages);
         })
     });
 
     c.bench_function("read_session", |b| {
         b.iter(|| {
-            let messages = adapter.read_session(black_box(&session_id));
+            let messages = adapter
+                .read_session(black_box(&session_id))
+                .expect("healthy fixture read");
             black_box(messages);
         })
     });
 
-    let messages = adapter.read_session_mmap(&session_id);
+    let messages = adapter
+        .read_session_mmap(&session_id)
+        .expect("healthy fixture mmap read");
     c.bench_function("build_structured_prompt", |b| {
         b.iter(|| {
             let prompt = build_structured_prompt(black_box(&messages));

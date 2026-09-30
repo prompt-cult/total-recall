@@ -8,9 +8,9 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    EventType, InterestingEvent, OPENCODE_ROOT_ENV_VAR, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, resolve_root, slice_from_compaction, summarize_tool_call,
-    truncate_chars,
+    EventType, InterestingEvent, OPENCODE_ROOT_ENV_VAR, ReadResult, RolloutAdapter, RolloutMessage,
+    SessionProfile, SessionSummary, no_session_error, resolve_root, slice_from_compaction,
+    summarize_tool_call, truncate_chars,
 };
 
 /// OpenCode adapter. Reads session history from the local SQLite database at
@@ -43,8 +43,14 @@ impl OpenCodeAdapter {
         }
     }
 
-    fn connect(&self) -> Option<Connection> {
-        Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+    fn connect(&self) -> ReadResult<Connection> {
+        Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
+            format!(
+                "cannot open opencode database at {}: {}",
+                self.db_path.display(),
+                e
+            )
+        })
     }
 
     /// Resolve a (possibly partial) session id to the full id, most recent match wins.
@@ -58,36 +64,39 @@ impl OpenCodeAdapter {
         .ok()
     }
 
-    fn load_messages(conn: &Connection, full_id: &str) -> Vec<RolloutMessage> {
-        let mut stmt = match conn.prepare(
-            "SELECT m.data, p.data
+    fn load_messages(conn: &Connection, full_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT m.data, p.data
              FROM message m
              JOIN part p ON m.id = p.message_id
              WHERE m.session_id = ?1
              ORDER BY m.time_created ASC, p.time_created ASC",
-        ) {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
+            )
+            .map_err(|e| format!("cannot query opencode messages for {full_id}: {e}"))?;
 
-        let rows = stmt.query_map([&full_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        });
-        let rows = match rows {
-            Ok(r) => r,
-            Err(_) => return Vec::new(),
-        };
+        let rows = stmt
+            .query_map([&full_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("cannot read opencode messages for {full_id}: {e}"))?;
 
         let mut messages = Vec::new();
         for row in rows.flatten() {
             let (msg_json, part_json) = row;
             let msg: Value = match serde_json::from_str(&msg_json) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(e) => {
+                    tracing::warn!("opencode session {full_id}: skipping unparseable message: {e}");
+                    continue;
+                }
             };
             let part: Value = match serde_json::from_str(&part_json) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(e) => {
+                    tracing::warn!("opencode session {full_id}: skipping unparseable part: {e}");
+                    continue;
+                }
             };
             let role = msg
                 .get("role")
@@ -102,7 +111,7 @@ impl OpenCodeAdapter {
             let timestamp = ms_to_iso8601(ts_ms);
             append_part(&mut messages, &role, &timestamp, &part);
         }
-        messages
+        Ok(messages)
     }
 }
 
@@ -262,7 +271,13 @@ impl RolloutAdapter for OpenCodeAdapter {
     }
 
     fn most_recent_session_id(&self) -> Option<String> {
-        let conn = self.connect()?;
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("{e}");
+                return None;
+            }
+        };
         self.resolve_session_id(&conn, "")
     }
 
@@ -275,8 +290,11 @@ impl RolloutAdapter for OpenCodeAdapter {
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
         let conn = match self.connect() {
-            Some(c) => c,
-            None => return Vec::new(),
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("{e}");
+                return Vec::new();
+            }
         };
 
         let mut children: HashMap<String, Vec<String>> = HashMap::new();
@@ -323,7 +341,10 @@ impl RolloutAdapter for OpenCodeAdapter {
 
         let mut stmt = match conn.prepare(sql) {
             Ok(s) => s,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!("opencode session listing query failed: {e}");
+                return Vec::new();
+            }
         };
         let rows = stmt.query_map([], |row| {
             Ok((
@@ -344,7 +365,10 @@ impl RolloutAdapter for OpenCodeAdapter {
         });
         let rows = match rows {
             Ok(r) => r,
-            Err(_) => return Vec::new(),
+            Err(e) => {
+                tracing::warn!("opencode session listing failed: {e}");
+                return Vec::new();
+            }
         };
 
         let mut summaries = Vec::new();
@@ -386,66 +410,52 @@ impl RolloutAdapter for OpenCodeAdapter {
         summaries
     }
 
-    fn read_session(&self, session_id: &str) -> Vec<RolloutMessage> {
-        let conn = match self.connect() {
-            Some(c) => c,
-            None => return Vec::new(),
-        };
-        let Some(full_id) = self.resolve_session_id(&conn, session_id) else {
-            return Vec::new();
-        };
+    fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        let conn = self.connect()?;
+        let full_id = self
+            .resolve_session_id(&conn, session_id)
+            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
         Self::load_messages(&conn, &full_id)
     }
 
     /// mmap applies to file-based rollout formats; SQLite is read through the
     /// message_session_time_created_id_idx index instead (no N+1, no full scan).
-    fn read_session_mmap(&self, session_id: &str) -> Vec<RolloutMessage> {
+    fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
         self.read_session(session_id)
     }
 
-    fn read_session_from_compaction(&self, session_id: &str) -> Vec<RolloutMessage> {
-        slice_from_compaction(self.read_session_mmap(session_id))
+    fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        Ok(slice_from_compaction(self.read_session_mmap(session_id)?))
     }
 
-    fn profile_session_opts(&self, session_id: &str, cache: bool) -> SessionProfile {
-        let empty = || SessionProfile {
-            session_id: session_id.to_string(),
-            file_size: 0,
-            line_count: 0,
-            first_ts: None,
-            last_ts: None,
-            role_counts: HashMap::new(),
-            has_tantivy_index: false,
-            interesting_events: Vec::new(),
-        };
-        let Some(conn) = self.connect() else {
-            return empty();
-        };
-        let Some(full_id) = self.resolve_session_id(&conn, session_id) else {
-            return empty();
-        };
+    fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+        let conn = self.connect()?;
+        let full_id = self
+            .resolve_session_id(&conn, session_id)
+            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
 
         let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), &full_id);
         if cache
             && let Some(time_updated) = session_time_updated(&conn, &full_id)
             && let Some(cached) = crate::profile_cache::read_fresh(&cache_path, time_updated)
         {
-            return cached;
+            return Ok(cached);
         }
 
-        let profile = profile_session_sqlite(&conn, &full_id);
+        let profile = profile_session_sqlite(&conn, &full_id)?;
         if cache {
             crate::profile_cache::write(&cache_path, &profile);
         }
-        profile
+        Ok(profile)
     }
 
-    fn extract_user_messages(&self, session_id: &str) -> Vec<String> {
-        self.read_session(session_id)
+    fn extract_user_messages(&self, session_id: &str) -> ReadResult<Vec<String>> {
+        Ok(self
+            .read_session(session_id)?
             .into_iter()
             .filter(|m| m.role == "user" && !m.injected)
             .map(|m| m.content)
-            .collect()
+            .collect())
     }
 
     fn she_said_he_said_action(
@@ -471,7 +481,7 @@ fn session_time_updated(conn: &Connection, full_id: &str) -> Option<i64> {
 }
 
 /// Compute the profile from SQLite for an already-resolved session id.
-fn profile_session_sqlite(conn: &Connection, full_id: &str) -> SessionProfile {
+fn profile_session_sqlite(conn: &Connection, full_id: &str) -> ReadResult<SessionProfile> {
     let file_size: i64 = conn
         .query_row(
             "SELECT (SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?1)
@@ -488,7 +498,7 @@ fn profile_session_sqlite(conn: &Connection, full_id: &str) -> SessionProfile {
         )
         .unwrap_or(0);
 
-    let messages = OpenCodeAdapter::load_messages(conn, full_id);
+    let messages = OpenCodeAdapter::load_messages(conn, full_id)?;
 
     let mut role_counts: HashMap<String, u64> = HashMap::new();
     let mut interesting_events = Vec::new();
@@ -528,7 +538,7 @@ fn profile_session_sqlite(conn: &Connection, full_id: &str) -> SessionProfile {
         }
     }
 
-    SessionProfile {
+    Ok(SessionProfile {
         session_id: full_id.to_string(),
         file_size: file_size.max(0) as u64,
         line_count: line_count.max(0) as u64,
@@ -537,7 +547,7 @@ fn profile_session_sqlite(conn: &Connection, full_id: &str) -> SessionProfile {
         role_counts,
         has_tantivy_index: false,
         interesting_events,
-    }
+    })
 }
 
 pub(crate) fn now_ms() -> i64 {

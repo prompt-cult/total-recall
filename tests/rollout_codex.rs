@@ -15,7 +15,9 @@ fn test_codex_adapter_name() {
 #[test]
 fn test_codex_read_session() {
     let adapter = CodexAdapter::with_root(test_data_root());
-    let messages = adapter.read_session("codex_small");
+    let messages = adapter
+        .read_session("codex_small")
+        .expect("healthy fixture read");
 
     assert!(
         !messages.is_empty(),
@@ -30,7 +32,9 @@ fn test_codex_read_session() {
 #[test]
 fn test_codex_read_session_mmap() {
     let adapter = CodexAdapter::with_root(test_data_root());
-    let messages = adapter.read_session_mmap("codex_small");
+    let messages = adapter
+        .read_session_mmap("codex_small")
+        .expect("healthy fixture mmap read");
 
     assert!(!messages.is_empty());
 }
@@ -54,7 +58,9 @@ fn test_codex_list_sessions() {
 #[test]
 fn test_codex_profile_session() {
     let adapter = CodexAdapter::with_root(test_data_root());
-    let profile = adapter.profile_session("codex_small");
+    let profile = adapter
+        .profile_session("codex_small")
+        .expect("healthy fixture profile");
 
     assert!(profile.line_count > 0);
     assert!(profile.file_size > 0);
@@ -66,7 +72,9 @@ fn test_codex_profile_session() {
 #[test]
 fn test_codex_extract_user_messages() {
     let adapter = CodexAdapter::with_root(test_data_root());
-    let messages = adapter.extract_user_messages("codex_small");
+    let messages = adapter
+        .extract_user_messages("codex_small")
+        .expect("healthy fixture user messages");
 
     assert!(!messages.is_empty(), "Should extract user messages");
 }

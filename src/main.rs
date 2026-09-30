@@ -151,15 +151,28 @@ pub enum Command {
 /// Read messages respecting --full vs --from-compaction flags.
 /// Default (neither flag): from compaction point.
 /// --full: entire session.
+/// A payload that cannot be read exits 2 with the path named on stderr: an
+/// unreadable rollout must never print as an empty session.
 fn read_messages(
     adapter: &dyn RolloutAdapter,
     session_id: &str,
     full: bool,
 ) -> Vec<RolloutMessage> {
-    if full {
+    let result = if full {
         adapter.read_session_mmap(session_id)
     } else {
         adapter.read_session_from_compaction(session_id)
+    };
+    unwrap_read(result)
+}
+
+fn unwrap_read<T>(result: Result<T, String>) -> T {
+    match result {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(2);
+        }
     }
 }
 
@@ -353,7 +366,13 @@ async fn main() -> Result<()> {
         }
 
         Command::Profile => {
-            let mut profile = adapter.profile_session_opts(&session_id, cli.cache);
+            let mut profile = match adapter.profile_session_opts(&session_id, cli.cache) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(2);
+                }
+            };
             profile.has_tantivy_index = index::index_exists(adapter.as_ref(), &session_id);
             if cli.json {
                 let json = serde_json::to_string_pretty(&profile)?;
@@ -411,7 +430,7 @@ async fn main() -> Result<()> {
         }
 
         Command::UserMessages => {
-            let messages = adapter.extract_user_messages(&session_id);
+            let messages = unwrap_read(adapter.extract_user_messages(&session_id));
             let messages = bound_cli_strings(
                 messages,
                 cli.limit,
@@ -445,7 +464,14 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            let entries = adapter.read_session_entries(&session_id, cli.full, cli.include_injected);
+            let entries =
+                match adapter.read_session_entries(&session_id, cli.full, cli.include_injected) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        eprintln!("error: {}", e);
+                        std::process::exit(2);
+                    }
+                };
             let filtered: Vec<&total_recall::rollout::RolloutEntry> = entries
                 .iter()
                 .filter(|e| want_all || types.contains(&e.entry_type))
@@ -537,7 +563,7 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
 
-            let user_messages = adapter.extract_user_messages(&session_id);
+            let user_messages = unwrap_read(adapter.extract_user_messages(&session_id));
             tracing::info!("Extracted {} user messages", user_messages.len());
 
             let state_prompt = build_state_prompt(&messages);

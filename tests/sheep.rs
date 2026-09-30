@@ -139,7 +139,9 @@ fn test_has_tantivy_index_flips_after_indexing() {
     let (_dir, adapter) = write_fixture("flag_flip", &fixture_lines());
     let mut sessions = adapter.list_sessions();
     assert!(!sessions[0].has_tantivy_index);
-    let mut profile = adapter.profile_session("mock");
+    let mut profile = adapter
+        .profile_session("mock")
+        .expect("healthy fixture profile");
     assert!(!profile.has_tantivy_index);
 
     index::index_session(&adapter, "").unwrap();

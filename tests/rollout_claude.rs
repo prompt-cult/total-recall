@@ -15,7 +15,9 @@ fn test_claude_adapter_name() {
 #[test]
 fn test_claude_read_session() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
-    let messages = adapter.read_session("claude_small");
+    let messages = adapter
+        .read_session("claude_small")
+        .expect("healthy fixture read");
 
     assert!(
         !messages.is_empty(),
@@ -29,7 +31,9 @@ fn test_claude_read_session() {
 #[test]
 fn test_claude_read_session_mmap() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
-    let messages = adapter.read_session_mmap("claude_small");
+    let messages = adapter
+        .read_session_mmap("claude_small")
+        .expect("healthy fixture mmap read");
 
     assert!(!messages.is_empty());
 }
@@ -53,7 +57,9 @@ fn test_claude_list_sessions() {
 #[test]
 fn test_claude_profile_session() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
-    let profile = adapter.profile_session("claude_small");
+    let profile = adapter
+        .profile_session("claude_small")
+        .expect("healthy fixture profile");
 
     assert!(profile.line_count > 0);
     assert!(profile.file_size > 0);
@@ -66,7 +72,9 @@ fn test_claude_profile_session() {
 #[test]
 fn test_claude_extract_user_messages() {
     let adapter = ClaudeAdapter::with_root(test_data_root());
-    let messages = adapter.extract_user_messages("claude_small");
+    let messages = adapter
+        .extract_user_messages("claude_small")
+        .expect("healthy fixture user messages");
 
     assert!(!messages.is_empty(), "Should extract user messages");
 }
@@ -118,7 +126,7 @@ fn test_claude_real_project_layout() {
     assert_eq!(s.user_count, 2, "user message + tool_result line");
     assert_eq!(s.assistant_count, 1);
 
-    let messages = adapter.read_session(sid);
+    let messages = adapter.read_session(sid).expect("healthy fixture read");
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].content, "what breaks without the capacitor");
     let asst = &messages[1];
@@ -141,7 +149,9 @@ fn test_claude_real_project_layout() {
         messages[2].content
     );
 
-    let profile = adapter.profile_session(sid);
+    let profile = adapter
+        .profile_session(sid)
+        .expect("healthy fixture profile");
     assert_eq!(profile.session_id, sid);
     assert!(profile.line_count >= 5);
     assert_eq!(
