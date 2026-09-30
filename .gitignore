@@ -3,3 +3,4 @@
 .tmp/
 target/
 .tantivy/
+_book/

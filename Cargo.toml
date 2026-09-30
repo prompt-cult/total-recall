@@ -18,12 +18,14 @@ categories = [
 ]
 # Repo-only material that has no business in the published crate. `docs/`
 # holds the opencode store-vacuum runbook (docs/opencode-store-vacuum.md) and
-# `rollouts/` holds sanitised sample sessions used by the tests. `.tmp/`,
-# `target/` and `.tantivy/` are gitignored and therefore already absent, and
-# the `test_borrow*` scratch was removed from the tree.
+# the mdBook sources for the documentation site (docs/src); `book.toml` is that
+# site's build config; `rollouts/` holds sanitised sample sessions used by the
+# tests. `.tmp/`, `target/` and `.tantivy/` are gitignored and therefore already
+# absent, and the `test_borrow*` scratch was removed from the tree.
 exclude = [
     ".github/",
     "docs/",
+    "book.toml",
     "rollouts/",
 ]
 

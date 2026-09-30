@@ -1,0 +1,92 @@
+name: pages
+
+# Documentation site only: the mdBook is built from `book.toml` + `docs/src/`
+# and deployed to GitHub Pages. No binary is built in this job — that is the
+# release workflow's job.
+#
+# The official Pages deployment path is used (upload-pages-artifact /
+# deploy-pages), so the site is served from an artifact rather than a
+# `gh-pages` branch, and Jekyll never touches the output. mdBook is left
+# without a `site-url`, which is what keeps every generated link relative and
+# makes the site work from the `https://prompt-cult.github.io/total-recall/`
+# subpath.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One deployment at a time; the last push to main is the one that ships.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # mdBook is not a project dependency, so it is not in Cargo.lock and is
+      # not installed by the crate build: it is installed here, `--locked`, so
+      # the book is built by the same reproducible install every time.
+      - name: Install mdBook
+        run: cargo install mdbook --locked
+      # `create-missing = false` in book.toml makes a SUMMARY entry naming a
+      # file that does not exist a build failure rather than a generated stub.
+      - name: Build the book
+        run: mdbook build
+      # mdBook resolves links between its own pages at build time but does not
+      # verify that a link target exists. This does: every relative href in the
+      # built HTML must resolve to a file in the build directory, and every
+      # fragment must name a heading that page actually carries.
+      - name: Check internal links
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path("_book")
+          href = re.compile(r'href="([^"]+)"')
+          anchors = {
+              page: set(re.findall(r'id="([^"]+)"', page.read_text(encoding="utf-8")))
+              for page in root.rglob("*.html")
+          }
+          broken = []
+          for page in sorted(root.rglob("*.html")):
+              for link in href.findall(page.read_text(encoding="utf-8")):
+                  if link.startswith(("http://", "https://", "mailto:", "#")):
+                      continue
+                  path, sep, fragment = link.partition("#")
+                  target = (root / path.lstrip("/")) if path.startswith("/") else (page.parent / path)
+                  target = target.resolve()
+                  if not target.exists():
+                      broken.append(f"{page.relative_to(root)} -> {link}")
+                  elif sep and fragment and target in anchors and fragment not in anchors[target]:
+                      broken.append(f"{page.relative_to(root)} -> {link} (no such heading)")
+          for line in broken:
+              print(f"broken link: {line}")
+          sys.exit(1 if broken else 0)
+          PY
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name == 'push'
+        with:
+          path: _book
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Least privilege: the build job only ever reads the repository, and only
+    # the deployment needs the Pages token and the OIDC exchange.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

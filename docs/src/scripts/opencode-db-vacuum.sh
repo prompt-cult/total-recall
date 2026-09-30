@@ -1,0 +1,1 @@
+../../../scripts/opencode-db-vacuum.sh

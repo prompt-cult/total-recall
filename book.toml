@@ -1,0 +1,23 @@
+[book]
+title = "total-recall"
+description = "Fast compaction and log mining of agent session rollouts, as an MCP server and a CLI."
+authors = ["Consensus Solutions"]
+language = "en"
+src = "docs/src"
+
+[build]
+build-dir = "_book"
+create-missing = false
+
+[output.html]
+# The site is served from https://prompt-cult.github.io/total-recall/, a
+# subpath of the Pages host. mdBook emits root-relative asset URLs only when
+# `site-url` is set; leaving it unset keeps every generated link relative, which
+# is what a subpath deployment needs.
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/prompt-cult/total-recall"
+edit-url-template = "https://github.com/prompt-cult/total-recall/edit/main/docs/src/{path}"
+
+[output.html.search]
+enable = true

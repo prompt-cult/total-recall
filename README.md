@@ -582,8 +582,13 @@ Building from source instead: `cargo build --release`.
 
 ## Documentation
 
+The documentation site is at <https://prompt-cult.github.io/total-recall/>,
+built from [`book.toml`](book.toml) and [`docs/src/`](docs/src) by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml).
+
 | Document | What it covers |
 |----------|----------------|
+| [docs site](https://prompt-cult.github.io/total-recall/) | installation, MCP registration, per-tool parameters, configuration, troubleshooting |
 | [README](README.md) | this file — tools, build features, usage |
 | [SECURITY.md](SECURITY.md) | key handling, what leaves your machine, read-only store access, reporting a vulnerability |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | the working contract is [`AGENTS.md`](AGENTS.md); the test suite is the review |
