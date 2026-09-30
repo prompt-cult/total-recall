@@ -508,3 +508,15 @@ vendor-free build with no key at all.
 | Context | 260K tokens | same |
 
 100M free tokens for new accounts.
+
+## Documentation
+
+| Document | What it covers |
+|----------|----------------|
+| [README](README.md) | this file — tools, build features, usage |
+| [SECURITY.md](SECURITY.md) | key handling, what leaves your machine, read-only store access, reporting a vulnerability |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | the working contract is [`AGENTS.md`](AGENTS.md); the test suite is the review |
+| [CHANGELOG.md](CHANGELOG.md) | every release, derived from the tag history |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
+| [LICENSE-MIT](LICENSE-MIT) · [LICENSE-APACHE](LICENSE-APACHE) | dual licensed `MIT OR Apache-2.0` |
+| [docs/opencode-store-vacuum.md](docs/opencode-store-vacuum.md) | store-vacuum runbook (see [Operations](#operations)) |
