@@ -548,6 +548,41 @@ fn llm_tool_names_are_registered_in_every_build() {
     }
 }
 
+/// The server is built with a harness only: no provider argument can reach it,
+/// so a tool description that advertises `--provider` is promising a selector
+/// the agent does not have. The CLI flag is honest where it is documented.
+#[test]
+fn no_mcp_tool_description_advertises_the_provider_flag() {
+    let root = tmp_root("tools_list_provider");
+    make_session(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+
+    send(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+    );
+    let tools = read_id(&mut reader, 2);
+    reap_mcp(&mut child, &cwd);
+
+    let tools = tools
+        .pointer("/result/tools")
+        .and_then(|t| t.as_array())
+        .expect("tools/list response must contain result.tools");
+    assert!(!tools.is_empty(), "tools/list returned no tools");
+    for tool in tools {
+        let name = tool.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        let desc = tool
+            .get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("");
+        assert!(
+            !desc.contains("--provider"),
+            "tool {name} advertises --provider, which the MCP server cannot read: {desc}"
+        );
+    }
+}
+
 #[cfg(not(feature = "mercury"))]
 #[test]
 fn vendor_free_mcp_call_reports_the_build() {

@@ -546,7 +546,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: fast compaction of a session using the compiled-in LLM provider (mercury by default, --provider selects) — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
+        description = "Total-recall MCP tool: fast compaction of a session using the LLM vendor compiled in as the default (Mercury) — the server has no provider selector — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
     )]
     async fn compact_session(
         &self,
