@@ -1,7 +1,7 @@
 [book]
 title = "total-recall"
 description = "Fast compaction and log mining of agent session rollouts, as an MCP server and a CLI."
-authors = ["Consensus Solutions"]
+authors = ["Simon Massey"]
 language = "en"
 src = "docs/src"
 
