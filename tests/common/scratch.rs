@@ -19,6 +19,9 @@
 //!   directories, so a child started inside `target/` would find the real
 //!   `<repo>/.env` and make live API calls. Tests must never do that, and this
 //!   path has no `.env` above it.
+//!
+//! `tests/scratch_hygiene.rs` holds the one rule that keeps this file the only
+//! implementation: no other file under `tests/` may name a temporary path.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

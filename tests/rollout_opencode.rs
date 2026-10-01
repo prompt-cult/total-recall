@@ -1,16 +1,13 @@
+mod common;
+
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::Path;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::opencode::OpenCodeAdapter;
 
-fn tmp_db(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    let path = dir.join(format!("opencode_{}.db", name));
-    let _ = std::fs::remove_file(&path);
-    path
-}
+use common::scratch::{ScratchRoot, scratch};
 
-fn create_fixture(path: &PathBuf) {
+fn create_fixture(path: &Path) {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(
         "CREATE TABLE session (
@@ -112,21 +109,23 @@ fn create_fixture(path: &PathBuf) {
     }
 }
 
-fn fixture_adapter(name: &str) -> OpenCodeAdapter {
-    let path = tmp_db(name);
+fn fixture_adapter(name: &str) -> (ScratchRoot, OpenCodeAdapter) {
+    let dir = scratch(&format!("opencode_{name}"));
+    let path = dir.join("fixture.db");
     create_fixture(&path);
-    OpenCodeAdapter::with_root(&path)
+    let adapter = OpenCodeAdapter::with_root(&path);
+    (dir, adapter)
 }
 
 #[test]
 fn test_opencode_adapter_name() {
-    let adapter = fixture_adapter("name");
+    let (_fixture, adapter) = fixture_adapter("name");
     assert_eq!(adapter.name(), "opencode");
 }
 
 #[test]
 fn test_opencode_read_session() {
-    let adapter = fixture_adapter("read");
+    let (_fixture, adapter) = fixture_adapter("read");
     let messages = adapter
         .read_session("ses_fixture")
         .expect("healthy fixture read");
@@ -158,7 +157,7 @@ fn test_opencode_read_session() {
 
 #[test]
 fn test_opencode_read_session_mmap() {
-    let adapter = fixture_adapter("mmap");
+    let (_fixture, adapter) = fixture_adapter("mmap");
     let mmap = adapter
         .read_session_mmap("ses_fixture")
         .expect("healthy fixture mmap read");
@@ -175,7 +174,7 @@ fn test_opencode_read_session_mmap() {
 
 #[test]
 fn test_opencode_list_sessions() {
-    let adapter = fixture_adapter("list");
+    let (_fixture, adapter) = fixture_adapter("list");
     let sessions = adapter.list_sessions();
 
     assert!(!sessions.is_empty(), "Should find at least one session");
@@ -200,7 +199,7 @@ fn test_opencode_list_sessions() {
 
 #[test]
 fn test_opencode_profile_session() {
-    let adapter = fixture_adapter("profile");
+    let (_fixture, adapter) = fixture_adapter("profile");
     let profile = adapter
         .profile_session("ses_fixture")
         .expect("healthy fixture profile");
@@ -221,7 +220,7 @@ fn test_opencode_profile_session() {
 
 #[test]
 fn test_opencode_extract_user_messages() {
-    let adapter = fixture_adapter("extract");
+    let (_fixture, adapter) = fixture_adapter("extract");
     let messages = adapter
         .extract_user_messages("ses_fixture")
         .expect("healthy fixture user messages");
@@ -245,7 +244,7 @@ fn test_opencode_extract_user_messages() {
 
 #[test]
 fn test_opencode_read_session_from_compaction() {
-    let adapter = fixture_adapter("slice");
+    let (_fixture, adapter) = fixture_adapter("slice");
     let messages = adapter
         .read_session_from_compaction("ses_fixture")
         .expect("healthy fixture compaction read");
@@ -271,7 +270,7 @@ fn test_opencode_read_session_from_compaction() {
 
 #[test]
 fn test_opencode_unknown_session_is_an_error_not_an_empty_session() {
-    let adapter = fixture_adapter("unknown");
+    let (_fixture, adapter) = fixture_adapter("unknown");
     let err = adapter
         .read_session("ses_nope")
         .expect_err("an unresolvable session id must not read as an empty session");
@@ -283,7 +282,8 @@ fn test_opencode_unknown_session_is_an_error_not_an_empty_session() {
 
 #[test]
 fn test_opencode_reasoning_part_becomes_thinking_message() {
-    let path = tmp_db("reasoning");
+    let dir = scratch("opencode_reasoning");
+    let path = dir.join("fixture.db");
     create_fixture(&path);
     let conn = Connection::open(&path).unwrap();
     conn.execute(
@@ -333,7 +333,8 @@ fn test_opencode_reasoning_part_becomes_thinking_message() {
 fn test_opencode_reasoning_e2e_indexed_and_searchable_as_thinking() {
     use total_recall::index;
 
-    let path = tmp_db("reasoning_search");
+    let dir = scratch("opencode_reasoning_search");
+    let path = dir.join("fixture.db");
     create_fixture(&path);
     let conn = Connection::open(&path).unwrap();
     conn.execute(

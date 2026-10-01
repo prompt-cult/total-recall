@@ -2,18 +2,11 @@
 //! never exceed the byte ceiling, with an explicit truncation notice and
 //! next_offset paging — asserted through the real MCP stdio server.
 
-use std::io::{BufRead, Write};
-use std::path::PathBuf;
+mod common;
 
-fn tmp_root(tag: &str) -> PathBuf {
-    let dir = std::env::var("CARGO_TARGET_TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("tr_mcp_extract_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
+use std::io::{BufRead, Write};
+
+use common::scratch::scratch;
 
 /// Build a vibe session dir with `n` user messages of ~`msg_len` chars each.
 fn make_big_session(root: &std::path::Path, name: &str, n: usize, msg_len: usize) {
@@ -120,7 +113,7 @@ fn result_text(resp: &serde_json::Value) -> String {
 
 #[test]
 fn extract_messages_is_bounded_with_truncation_notice() {
-    let root = tmp_root("big");
+    let root = scratch("big");
     // ~3000 messages * ~2KB = ~6MB raw; forces record_limit truncation at 100.
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
@@ -170,12 +163,11 @@ fn extract_messages_is_bounded_with_truncation_notice() {
         "messages array present"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_messages_next_offset_pages_through_session() {
-    let root = tmp_root("paging");
+    let root = scratch("paging");
     make_big_session(&root, "session_20260915_095955_51a9645a", 250, 100);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -234,12 +226,11 @@ fn extract_messages_next_offset_pages_through_session() {
         .collect();
     assert!(m1.is_disjoint(&m2), "pages must not overlap");
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_user_messages_is_bounded() {
-    let root = tmp_root("user");
+    let root = scratch("user");
     make_big_session(&root, "session_20260915_095955_51a9645a", 2000, 1500);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -267,12 +258,11 @@ fn extract_user_messages_is_bounded() {
         "user_messages key present"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_messages_rejects_excessive_limit() {
-    let root = tmp_root("limit");
+    let root = scratch("limit");
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 10);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -291,12 +281,11 @@ fn extract_messages_rejects_excessive_limit() {
         "over-max limit is a tool error"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_messages_small_max_bytes_drives_byte_cap() {
-    let root = tmp_root("bytecap");
+    let root = scratch("bytecap");
     // 3000 * ~2KB = 6MB; window default 100 records ~200KB; budget 50KB-8KB
     // forces byte_cap truncation well inside the window.
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
@@ -340,12 +329,11 @@ fn extract_messages_small_max_bytes_drives_byte_cap() {
         text.len()
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_messages_offset_past_end_is_not_truncated() {
-    let root = tmp_root("pastend");
+    let root = scratch("pastend");
     make_big_session(&root, "session_20260915_095955_51a9645a", 50, 100);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -373,14 +361,13 @@ fn extract_messages_offset_past_end_is_not_truncated() {
         "notice empty"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_messages_tiny_max_bytes_is_a_tool_error() {
     // Even one record cannot fit under the budget: a descriptive tool error
     // instead of silently breaking the cap.
-    let root = tmp_root("tinycap");
+    let root = scratch("tinycap");
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 500);
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -407,5 +394,4 @@ fn extract_messages_tiny_max_bytes_is_a_tool_error() {
         "error names the clamp: {text}"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }

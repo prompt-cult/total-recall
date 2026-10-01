@@ -1,18 +1,11 @@
 //! #7: extract_by_type emits one `type,timestamp,json` record per line, bounded,
 //! with a `#` header carrying bounds — asserted through the MCP stdio server.
 
-use std::io::{BufRead, Write};
-use std::path::PathBuf;
+mod common;
 
-fn tmp_root(tag: &str) -> PathBuf {
-    let dir = std::env::var("CARGO_TARGET_TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("tr_xbytype_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
+use std::io::{BufRead, Write};
+
+use common::scratch::scratch;
 
 fn make_session(root: &std::path::Path, name: &str, lines: &[String]) {
     let dir = root.join(name);
@@ -111,7 +104,7 @@ fn data_lines(text: &str) -> Vec<&str> {
 
 #[test]
 fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
-    let root = tmp_root("all");
+    let root = scratch("all");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -143,12 +136,11 @@ fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
         "embedded newline escaped: {assistant}"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_single_type_filter() {
-    let root = tmp_root("filter");
+    let root = scratch("filter");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -162,12 +154,11 @@ fn extract_by_type_single_type_filter() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].starts_with("user,"));
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_unknown_type_errors() {
-    let root = tmp_root("unknown");
+    let root = scratch("unknown");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -182,12 +173,11 @@ fn extract_by_type_unknown_type_errors() {
     );
     assert!(text_of(&resp).contains("bogus"));
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_is_bounded_with_notice() {
-    let root = tmp_root("bounded");
+    let root = scratch("bounded");
     let big = "y".repeat(2000);
     let lines: Vec<String> = (0..500).map(|i| format!("{{\"role\":\"user\",\"content\":\"m{i} {big}\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}}")).collect();
     make_session(&root, "session_20260915_095955_51a9645a", &lines);
@@ -211,12 +201,11 @@ fn extract_by_type_is_bounded_with_notice() {
         "truncation notice line present"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_omitted_types_defaults_to_all() {
-    let root = tmp_root("omitted");
+    let root = scratch("omitted");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -235,12 +224,11 @@ fn extract_by_type_omitted_types_defaults_to_all() {
         "header echoes all four types"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_include_toggle_at_mcp_level() {
-    let root = tmp_root("toggle");
+    let root = scratch("toggle");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -262,12 +250,11 @@ fn extract_by_type_include_toggle_at_mcp_level() {
         "record carries the injected flag"
     );
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
-    let root = tmp_root("tinycap");
+    let root = scratch("tinycap");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -282,5 +269,4 @@ fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
     );
     assert!(text_of(&resp).contains("even one record"));
     let _ = child.kill();
-    let _ = std::fs::remove_dir_all(&root);
 }

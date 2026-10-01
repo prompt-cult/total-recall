@@ -1,5 +1,9 @@
+mod common;
+
 use std::path::PathBuf;
 use total_recall::{EventType, RolloutAdapter, VibeAdapter};
+
+use common::scratch::scratch;
 
 fn test_data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts/vibe_sessions")
@@ -225,21 +229,11 @@ fn make_session_dir(root: &std::path::Path, name: &str, start: &str, end: &str, 
     .unwrap();
 }
 
-fn tmp_root(tag: &str) -> std::path::PathBuf {
-    let dir = std::env::var("CARGO_TARGET_TMPDIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("tr_vibe_dedupe_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 const DUP_MSGS: &str = "{\"role\":\"user\",\"content\":\"same body\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}\n";
 
 #[test]
 fn duplicate_rollout_dirs_dedupe_to_one_canonical_entry() {
-    let root = tmp_root("dup");
+    let root = scratch("dup");
     // The canonical id's date prefix agrees with meta.start_time; the alias's
     // date prefix disagrees (the reported #9 shape).
     make_session_dir(
@@ -257,7 +251,7 @@ fn duplicate_rollout_dirs_dedupe_to_one_canonical_entry() {
         DUP_MSGS,
     );
 
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     let sessions = adapter.list_sessions();
     assert_eq!(
         sessions.len(),
@@ -273,12 +267,11 @@ fn duplicate_rollout_dirs_dedupe_to_one_canonical_entry() {
         s.aliases,
         vec!["session_20260921_135113_c20a924e".to_string()]
     );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn distinct_rollouts_are_not_deduped() {
-    let root = tmp_root("distinct");
+    let root = scratch("distinct");
     make_session_dir(
         &root,
         "session_20260915_095955_51a9645a",
@@ -294,16 +287,15 @@ fn distinct_rollouts_are_not_deduped() {
         "{\"role\":\"user\",\"content\":\"different body\"}\n",
     );
 
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     let sessions = adapter.list_sessions();
     assert_eq!(sessions.len(), 2, "distinct content must stay two entries");
     assert!(sessions.iter().all(|s| s.aliases.is_empty()));
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn empty_sessions_are_never_deduped_together() {
-    let root = tmp_root("empty");
+    let root = scratch("empty");
     make_session_dir(
         &root,
         "session_20260915_095955_51a9645a",
@@ -319,15 +311,14 @@ fn empty_sessions_are_never_deduped_together() {
         "",
     );
 
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     let sessions = adapter.list_sessions();
     assert_eq!(sessions.len(), 2, "empty stores must not merge");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn canonical_and_alias_read_the_same_rollout() {
-    let root = tmp_root("read_same");
+    let root = scratch("read_same");
     make_session_dir(
         &root,
         "session_20260915_095955_51a9645a",
@@ -343,7 +334,7 @@ fn canonical_and_alias_read_the_same_rollout() {
         DUP_MSGS,
     );
 
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     let via_canonical = adapter
         .read_session("51a9645a")
         .expect("healthy fixture read");
@@ -353,5 +344,4 @@ fn canonical_and_alias_read_the_same_rollout() {
     assert_eq!(via_canonical.len(), via_alias.len());
     assert_eq!(via_canonical.len(), 1);
     assert_eq!(via_canonical[0].content, via_alias[0].content);
-    let _ = std::fs::remove_dir_all(&root);
 }

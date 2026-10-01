@@ -1,15 +1,12 @@
+mod common;
+
 use rusqlite::Connection;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::opencode::OpenCodeAdapter;
 use total_recall::rollout::vibe::VibeAdapter;
 
-fn tmp_db(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    let path = dir.join(format!("she_said_{}.db", name));
-    let _ = std::fs::remove_file(&path);
-    path
-}
+use common::scratch::{ScratchRoot, scratch};
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -157,10 +154,12 @@ fn create_fixture(path: &Path) {
     }
 }
 
-fn fixture_adapter(name: &str) -> OpenCodeAdapter {
-    let path = tmp_db(name);
+fn fixture_adapter(name: &str) -> (ScratchRoot, OpenCodeAdapter) {
+    let dir = scratch(&format!("she_said_{name}"));
+    let path = dir.join("fixture.db");
     create_fixture(&path);
-    OpenCodeAdapter::with_root(&path)
+    let adapter = OpenCodeAdapter::with_root(&path);
+    (dir, adapter)
 }
 
 fn w(list: &[&str]) -> Vec<String> {
@@ -169,7 +168,7 @@ fn w(list: &[&str]) -> Vec<String> {
 
 #[test]
 fn test_he_said_matches_user_text_case_insensitive() {
-    let adapter = fixture_adapter("he_said");
+    let (_fixture, adapter) = fixture_adapter("he_said");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -183,7 +182,7 @@ fn test_he_said_matches_user_text_case_insensitive() {
 
 #[test]
 fn test_she_said_matches_assistant_text() {
-    let adapter = fixture_adapter("she_said");
+    let (_fixture, adapter) = fixture_adapter("she_said");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["branch"]), 48, None)
         .unwrap();
@@ -193,7 +192,7 @@ fn test_she_said_matches_assistant_text() {
 
 #[test]
 fn test_case_insensitivity_both_directions() {
-    let adapter = fixture_adapter("both_dirs");
+    let (_fixture, adapter) = fixture_adapter("both_dirs");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["GIT", "BRANCH"]), 48, None)
         .unwrap();
@@ -207,7 +206,7 @@ fn test_case_insensitivity_both_directions() {
 
 #[test]
 fn test_they_did_tool_input_matches_and_output_does_not() {
-    let adapter = fixture_adapter("they_did");
+    let (_fixture, adapter) = fixture_adapter("they_did");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -231,7 +230,7 @@ fn test_they_did_tool_input_matches_and_output_does_not() {
 
 #[test]
 fn test_they_did_tool_name_only_match() {
-    let adapter = fixture_adapter("tool_name_only");
+    let (_fixture, adapter) = fixture_adapter("tool_name_only");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["branchtool"]), 48, None)
         .unwrap();
@@ -240,7 +239,7 @@ fn test_they_did_tool_name_only_match() {
 
 #[test]
 fn test_synthetic_text_parts_are_skipped() {
-    let adapter = fixture_adapter("synthetic");
+    let (_fixture, adapter) = fixture_adapter("synthetic");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -253,7 +252,7 @@ fn test_synthetic_text_parts_are_skipped() {
 
 #[test]
 fn test_empty_session_list_hours_bound_excludes_old_session() {
-    let adapter = fixture_adapter("hours_bound");
+    let (_fixture, adapter) = fixture_adapter("hours_bound");
     let report = adapter
         .she_said_he_said_action(&[], &w(&["git"]), 48, None)
         .unwrap();
@@ -268,7 +267,7 @@ fn test_empty_session_list_hours_bound_excludes_old_session() {
 
 #[test]
 fn test_empty_session_list_hours_zero_means_no_bound() {
-    let adapter = fixture_adapter("no_bound");
+    let (_fixture, adapter) = fixture_adapter("no_bound");
     let report = adapter
         .she_said_he_said_action(&[], &w(&["git"]), 0, None)
         .unwrap();
@@ -277,7 +276,7 @@ fn test_empty_session_list_hours_zero_means_no_bound() {
 
 #[test]
 fn test_directory_filter_excludes_other_directory() {
-    let adapter = fixture_adapter("dir_filter");
+    let (_fixture, adapter) = fixture_adapter("dir_filter");
     let report = adapter
         .she_said_he_said_action(&[], &w(&["git"]), 48, Some("/Users/dev/alpha"))
         .unwrap();
@@ -291,7 +290,7 @@ fn test_directory_filter_excludes_other_directory() {
 
 #[test]
 fn test_explicit_partial_ids_resolve_most_recent_first() {
-    let adapter = fixture_adapter("explicit_order");
+    let (_fixture, adapter) = fixture_adapter("explicit_order");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_gamma", "ses_beta"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -306,7 +305,7 @@ fn test_explicit_partial_ids_resolve_most_recent_first() {
 
 #[test]
 fn test_unmatched_partial_id_reported_in_header_not_fatal() {
-    let adapter = fixture_adapter("unmatched");
+    let (_fixture, adapter) = fixture_adapter("unmatched");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha", "ses_nope"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -325,7 +324,7 @@ fn test_unmatched_partial_id_reported_in_header_not_fatal() {
 
 #[test]
 fn test_consecutive_identical_they_did_lines_deduped() {
-    let adapter = fixture_adapter("dedup");
+    let (_fixture, adapter) = fixture_adapter("dedup");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -339,7 +338,7 @@ fn test_consecutive_identical_they_did_lines_deduped() {
 
 #[test]
 fn test_truncation_at_1500_bytes_lands_on_utf8_boundary() {
-    let adapter = fixture_adapter("truncation");
+    let (_fixture, adapter) = fixture_adapter("truncation");
     let report = adapter
         .she_said_he_said_action(&w(&["ses_alpha"]), &w(&["git"]), 48, None)
         .unwrap();
@@ -364,7 +363,7 @@ fn test_default_trait_impl_not_implemented_error() {
 
 #[test]
 fn test_empty_words_is_an_error() {
-    let adapter = fixture_adapter("empty_words");
+    let (_fixture, adapter) = fixture_adapter("empty_words");
     let err = adapter
         .she_said_he_said_action(&[], &[], 48, None)
         .unwrap_err();
@@ -378,7 +377,7 @@ fn test_empty_words_is_an_error() {
 
 #[test]
 fn test_list_sessions_directory_populated() {
-    let adapter = fixture_adapter("list_dir");
+    let (_fixture, adapter) = fixture_adapter("list_dir");
     let sessions = adapter.list_sessions();
     let alpha = sessions
         .iter()

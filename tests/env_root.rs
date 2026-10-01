@@ -3,23 +3,14 @@
 
 mod common;
 
+use common::scratch::scratch;
 use common::{EnvGuard, lock_env};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use total_recall::harness::make_adapter;
 use total_recall::rollout::{
     CLAUDE_ROOT_ENV_VAR, CODEX_ROOT_ENV_VAR, OPENCODE_ROOT_ENV_VAR, SANDBOX_ENV_VAR,
     VIBE_ROOT_ENV_VAR,
 };
-
-fn tmp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::var("CARGO_TARGET_TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("tr_env_root_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("create temp root");
-    dir
-}
 
 /// Build a minimal vibe session dir so list_sessions finds exactly one entry.
 fn make_vibe_session(root: &Path, name: &str) {
@@ -40,7 +31,7 @@ fn make_vibe_session(root: &Path, name: &str) {
 #[test]
 fn vibe_env_override_points_make_adapter_at_fixture() {
     let _l = lock_env();
-    let root = tmp_dir("vibe");
+    let root = scratch("vibe");
     make_vibe_session(&root, "session_20260523_203111_aaaa1111");
     let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
     let adapter = make_adapter("vibe").expect("vibe adapter");
@@ -62,7 +53,7 @@ fn empty_override_counts_as_unset() {
 #[test]
 fn sandbox_refuses_when_root_not_from_env() {
     let _l = lock_env();
-    let _root = tmp_dir("sandbox");
+    let _root = scratch("sandbox");
     let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
     let _u = EnvGuard::unset(VIBE_ROOT_ENV_VAR);
     let err = match make_adapter("vibe") {
@@ -82,7 +73,7 @@ fn sandbox_refuses_when_root_not_from_env() {
 #[test]
 fn sandbox_allows_when_root_from_env() {
     let _l = lock_env();
-    let root = tmp_dir("sandbox_ok");
+    let root = scratch("sandbox_ok");
     make_vibe_session(&root, "session_20260523_203111_bbbb2222");
     let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
     let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
@@ -93,9 +84,9 @@ fn sandbox_allows_when_root_from_env() {
 #[test]
 fn claude_codex_opencode_overrides_are_wired() {
     let _l = lock_env();
-    let croot = tmp_dir("claude");
-    let xroot = tmp_dir("codex");
-    let oroot = tmp_dir("opencode");
+    let croot = scratch("claude");
+    let xroot = scratch("codex");
+    let oroot = scratch("opencode");
     let _c = EnvGuard::set(CLAUDE_ROOT_ENV_VAR, croot.to_str().unwrap());
     let _x = EnvGuard::set(CODEX_ROOT_ENV_VAR, xroot.to_str().unwrap());
     let _o = EnvGuard::set(OPENCODE_ROOT_ENV_VAR, oroot.to_str().unwrap());

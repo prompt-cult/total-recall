@@ -5,20 +5,15 @@
 //! already uses. A payload that exists and is empty is not damage and reads as
 //! an empty session.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
+use common::scratch::scratch;
 use total_recall::{
     MockAdapter, OpenCodeAdapter, RolloutAdapter, VibeAdapter,
     rollout::{claude::ClaudeAdapter, codex::CodexAdapter},
 };
-
-fn tmp_root(tag: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("tr_read_errors_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 /// A directory where a JSONL payload should be: `read` fails with EISDIR and
 /// `Mmap::map` fails, on any uid and without touching file modes.
@@ -50,7 +45,7 @@ fn mock_missing_payload_is_an_error_on_every_read_path() {
 
 #[test]
 fn mock_empty_payload_is_not_an_error() {
-    let root = tmp_root("mock_empty");
+    let root = scratch("mock_empty");
     let path = root.join("empty.jsonl");
     std::fs::write(&path, "").unwrap();
     let adapter = MockAdapter::new(&path);
@@ -66,12 +61,11 @@ fn mock_empty_payload_is_not_an_error() {
             .expect("empty payload mmaps")
             .is_empty()
     );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn mock_list_sessions_surfaces_read_damage() {
-    let root = tmp_root("mock_damage");
+    let root = scratch("mock_damage");
     unreadable(&root, "broken.jsonl");
     let adapter = MockAdapter::new(root.join("broken.jsonl"));
     let sessions = adapter.list_sessions();
@@ -80,18 +74,17 @@ fn mock_list_sessions_surfaces_read_damage() {
         sessions[0].read_error.is_some(),
         "damage must be visible on the index entry"
     );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // --- vibe adapter -----------------------------------------------------------
 
 #[test]
 fn vibe_unreadable_payload_is_an_error_on_every_read_path() {
-    let root = tmp_root("vibe");
+    let root = scratch("vibe");
     let dir = root.join("session_20260623_114518_2a421f21");
     std::fs::create_dir_all(&dir).unwrap();
     unreadable(&dir, "messages.jsonl");
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     for e in [
         adapter.read_session("2a421f21").map(|_| ()),
         adapter.read_session_mmap("2a421f21").map(|_| ()),
@@ -109,19 +102,16 @@ fn vibe_unreadable_payload_is_an_error_on_every_read_path() {
             "error must name the payload path, got: {err}"
         );
     }
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn vibe_unknown_session_id_is_an_error() {
-    let root = tmp_root("vibe_unknown");
-    std::fs::create_dir_all(&root).unwrap();
-    let adapter = VibeAdapter::with_root(&root);
+    let root = scratch("vibe_unknown");
+    let adapter = VibeAdapter::with_root(&*root);
     let err = adapter
         .read_session("nosuchsession")
         .expect_err("unresolvable session id must not read as empty");
     assert!(err.contains("nosuchsession"), "got: {err}");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -153,27 +143,26 @@ fn vibe_reads_a_healthy_payload_unchanged() {
 
 #[test]
 fn vibe_empty_payload_is_not_an_error() {
-    let root = tmp_root("vibe_empty");
+    let root = scratch("vibe_empty");
     let dir = root.join("session_20260623_114518_2a421f21");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("messages.jsonl"), "").unwrap();
-    let adapter = VibeAdapter::with_root(&root);
+    let adapter = VibeAdapter::with_root(&*root);
     assert!(
         adapter
             .read_session("2a421f21")
             .expect("empty payload is readable")
             .is_empty()
     );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // --- codex adapter ----------------------------------------------------------
 
 #[test]
 fn codex_unreadable_payload_is_an_error_on_every_read_path() {
-    let root = tmp_root("codex");
+    let root = scratch("codex");
     unreadable(&root, "codex_small.jsonl");
-    let adapter = CodexAdapter::with_root(&root);
+    let adapter = CodexAdapter::with_root(&*root);
     for e in [
         adapter.read_session("codex_small").map(|_| ()),
         adapter.read_session_mmap("codex_small").map(|_| ()),
@@ -195,12 +184,11 @@ fn codex_unreadable_payload_is_an_error_on_every_read_path() {
             "error must name the payload path, got: {err}"
         );
     }
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn codex_list_sessions_surfaces_read_damage() {
-    let root = tmp_root("codex_damage");
+    let root = scratch("codex_damage");
     let payload = root.join("codex_small.jsonl");
     std::fs::write(&payload, "{}\n").unwrap();
     std::fs::set_permissions(
@@ -208,7 +196,7 @@ fn codex_list_sessions_surfaces_read_damage() {
         std::os::unix::fs::PermissionsExt::from_mode(0o000),
     )
     .unwrap();
-    let adapter = CodexAdapter::with_root(&root);
+    let adapter = CodexAdapter::with_root(&*root);
     let sessions = adapter.list_sessions();
     assert_eq!(sessions.len(), 1, "the session stays listed");
     let err = sessions[0]
@@ -221,12 +209,11 @@ fn codex_list_sessions_surfaces_read_damage() {
         std::os::unix::fs::PermissionsExt::from_mode(0o600),
     )
     .unwrap();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn claude_list_sessions_surfaces_read_damage() {
-    let root = tmp_root("claude_damage");
+    let root = scratch("claude_damage");
     let payload = root.join("claude_small.jsonl");
     std::fs::write(&payload, "{}\n").unwrap();
     std::fs::set_permissions(
@@ -234,7 +221,7 @@ fn claude_list_sessions_surfaces_read_damage() {
         std::os::unix::fs::PermissionsExt::from_mode(0o000),
     )
     .unwrap();
-    let adapter = ClaudeAdapter::with_root(&root);
+    let adapter = ClaudeAdapter::with_root(&*root);
     let sessions = adapter.list_sessions();
     assert_eq!(sessions.len(), 1, "the session stays listed");
     let err = sessions[0]
@@ -247,31 +234,28 @@ fn claude_list_sessions_surfaces_read_damage() {
         std::os::unix::fs::PermissionsExt::from_mode(0o600),
     )
     .unwrap();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn codex_unknown_session_id_is_an_error() {
-    let root = tmp_root("codex_unknown");
-    std::fs::create_dir_all(&root).unwrap();
-    let adapter = CodexAdapter::with_root(&root);
+    let root = scratch("codex_unknown");
+    let adapter = CodexAdapter::with_root(&*root);
     let err = adapter
         .read_session("nosuchsession")
         .expect_err("unresolvable session id must not read as empty");
     assert!(err.contains("nosuchsession"), "got: {err}");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // --- claude adapter ---------------------------------------------------------
 
 #[test]
 fn claude_unreadable_payload_is_an_error_on_every_read_path() {
-    let root = tmp_root("claude");
+    let root = scratch("claude");
     // claude discovers sessions as regular `*.jsonl` files, so a directory in
     // that place is not a session at all: the read must still fail loudly
     // rather than come back empty.
     unreadable(&root, "claude_small.jsonl");
-    let adapter = ClaudeAdapter::with_root(&root);
+    let adapter = ClaudeAdapter::with_root(&*root);
     for e in [
         adapter.read_session("claude_small").map(|_| ()),
         adapter.read_session_mmap("claude_small").map(|_| ()),
@@ -293,7 +277,6 @@ fn claude_unreadable_payload_is_an_error_on_every_read_path() {
             "error must name the session, got: {err}"
         );
     }
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 /// The permission-denied branch of the payload read. Needs a non-root uid;
@@ -301,7 +284,7 @@ fn claude_unreadable_payload_is_an_error_on_every_read_path() {
 /// passing vacuously.
 #[test]
 fn claude_permission_denied_payload_names_the_path() {
-    let root = tmp_root("claude_chmod");
+    let root = scratch("claude_chmod");
     let payload = root.join("claude_small.jsonl");
     std::fs::write(&payload, "{}\n").unwrap();
     std::fs::set_permissions(
@@ -309,7 +292,7 @@ fn claude_permission_denied_payload_names_the_path() {
         std::os::unix::fs::PermissionsExt::from_mode(0o000),
     )
     .unwrap();
-    let adapter = ClaudeAdapter::with_root(&root);
+    let adapter = ClaudeAdapter::with_root(&*root);
     for e in [
         adapter.read_session("claude_small"),
         adapter.read_session_mmap("claude_small"),
@@ -325,19 +308,16 @@ fn claude_permission_denied_payload_names_the_path() {
         std::os::unix::fs::PermissionsExt::from_mode(0o600),
     )
     .unwrap();
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn claude_unknown_session_id_is_an_error() {
-    let root = tmp_root("claude_unknown");
-    std::fs::create_dir_all(&root).unwrap();
-    let adapter = ClaudeAdapter::with_root(&root);
+    let root = scratch("claude_unknown");
+    let adapter = ClaudeAdapter::with_root(&*root);
     let err = adapter
         .read_session("nosuchsession")
         .expect_err("unresolvable session id must not read as empty");
     assert!(err.contains("nosuchsession"), "got: {err}");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // --- opencode adapter -------------------------------------------------------
@@ -385,7 +365,7 @@ fn opencode_fixture(path: &PathBuf, with_session: bool) {
 
 #[test]
 fn opencode_missing_database_is_an_error() {
-    let root = tmp_root("opencode_missing");
+    let root = scratch("opencode_missing");
     let db = root.join("nope.db");
     let adapter = OpenCodeAdapter::with_root(&db);
     for e in [
@@ -405,12 +385,11 @@ fn opencode_missing_database_is_an_error() {
             "error must name the db, got: {err}"
         );
     }
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn opencode_unknown_session_id_is_an_error() {
-    let root = tmp_root("opencode_unknown");
+    let root = scratch("opencode_unknown");
     let db = root.join("opencode.db");
     opencode_fixture(&db, true);
     let adapter = OpenCodeAdapter::with_root(&db);
@@ -418,12 +397,11 @@ fn opencode_unknown_session_id_is_an_error() {
         .read_session("ses_nope")
         .expect_err("unresolvable session id must not read as empty");
     assert!(err.contains("ses_nope"), "got: {err}");
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
 fn opencode_reads_a_healthy_database_unchanged() {
-    let root = tmp_root("opencode_healthy");
+    let root = scratch("opencode_healthy");
     let db = root.join("opencode.db");
     opencode_fixture(&db, true);
     let adapter = OpenCodeAdapter::with_root(&db);
@@ -434,7 +412,6 @@ fn opencode_reads_a_healthy_database_unchanged() {
             .len(),
         1
     );
-    let _ = std::fs::remove_dir_all(&root);
 }
 
 // --- MCP surface ------------------------------------------------------------
@@ -445,14 +422,14 @@ fn opencode_reads_a_healthy_database_unchanged() {
 fn mcp_extract_messages_reports_unreadable_payload_as_a_tool_error() {
     use std::io::{BufRead, Write};
 
-    let root = tmp_root("mcp");
+    let root = scratch("mcp");
     let dir = root.join("session_20260623_114518_2a421f21");
     std::fs::create_dir_all(&dir).unwrap();
     unreadable(&dir, "messages.jsonl");
 
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "vibe", "mcp"])
-        .env("TOTAL_RECALL_VIBE_ROOT", &root)
+        .env("TOTAL_RECALL_VIBE_ROOT", &*root)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -516,5 +493,4 @@ fn mcp_extract_messages_reports_unreadable_payload_as_a_tool_error() {
 
     let _ = child.kill();
     let _ = child.wait();
-    let _ = std::fs::remove_dir_all(&root);
 }
