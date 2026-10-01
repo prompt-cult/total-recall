@@ -1,3 +1,4 @@
+use crate::redact::redact_secrets;
 use crate::rollout::{RolloutMessage, SessionSummary, messages_to_text};
 
 /// System prompt for the current-state summary (same as compaction).
@@ -60,17 +61,26 @@ Be concise but preserve the material facts of what the user asked for.
 {messages}"#;
 
 /// Build the prompt for the current-state LLM call.
+///
+/// The session text is redacted upstream in [`messages_to_text`], which is the
+/// only path that reaches this prompt.
 pub fn build_state_prompt(messages: &[RolloutMessage]) -> String {
     let conversation = messages_to_text(messages);
     STATE_PROMPT.replace("{conversation}", &conversation)
 }
 
 /// Build the prompt for the user-goals LLM call.
+///
+/// This is the second of the two prompts the recall path sends, and it does
+/// *not* go through [`messages_to_text`]: it takes the extracted user strings
+/// directly, so it redacts them itself. Skipping this is how a key a user
+/// pasted into a prompt would reach the vendor through the back door while the
+/// state prompt looked clean.
 pub fn build_goals_prompt(user_messages: &[String]) -> String {
     let messages_text = user_messages
         .iter()
         .enumerate()
-        .map(|(i, msg)| format!("{}. {}", i + 1, msg))
+        .map(|(i, msg)| format!("{}. {}", i + 1, redact_secrets(msg)))
         .collect::<Vec<_>>()
         .join("\n\n");
     GOALS_PROMPT.replace("{messages}", &messages_text)

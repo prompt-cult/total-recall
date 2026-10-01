@@ -7,6 +7,8 @@ pub mod vibe;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::redact::redact_secrets;
+
 /// The single error vocabulary for every adapter read path. A read that cannot
 /// prove a session is empty returns one of these instead of an empty message
 /// list, so "unreadable" can never be mistaken for "nothing found".
@@ -330,27 +332,35 @@ pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
 
 /// Convert messages to a compact text representation for the LLM.
 /// Tool calls and results are summarized, not dumped verbatim.
+///
+/// Every string that enters the output is redacted first
+/// ([`crate::redact::redact_secrets`]) and truncated second. That order is
+/// load-bearing: a snip can cut a key in half, and a half key is a prefix that
+/// no redactor will recognise on the way out. This is the single funnel for
+/// every LLM prompt built from a session, so the redaction cannot be bypassed
+/// by reaching for a different prompt builder.
 pub fn messages_to_text(messages: &[RolloutMessage]) -> String {
     let mut lines = Vec::new();
     for msg in messages {
         let role = msg.role.to_uppercase();
 
         for tc_summary in &msg.tool_calls_summary {
-            lines.push(format!("  {} -> {}", role, tc_summary));
+            lines.push(format!("  {} -> {}", role, redact_secrets(tc_summary)));
         }
 
         if !msg.content.is_empty() {
+            let content = redact_secrets(&msg.content);
             if role == "TOOL" {
-                let truncated = truncate_chars(&msg.content, 500);
+                let truncated = truncate_chars(&content, 500);
                 lines.push(format!("  TOOL RESULT: {}", truncated));
-                if msg.content.len() > 500 {
+                if content.len() > 500 {
                     lines.push("  ... (truncated)".to_string());
                 }
             } else {
-                let truncated = truncate_chars(&msg.content, 1500);
+                let truncated = truncate_chars(&content, 1500);
                 lines.push(format!("[{}]", role));
                 lines.push(truncated.to_string());
-                if msg.content.len() > 1500 {
+                if content.len() > 1500 {
                     lines.push("... (truncated)".to_string());
                 }
             }

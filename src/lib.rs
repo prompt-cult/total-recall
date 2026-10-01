@@ -7,6 +7,7 @@ pub mod profile_cache;
 pub mod profile_cache_types;
 pub mod prompt;
 pub mod recall;
+pub mod redact;
 pub mod rollout;
 
 pub use mercury::{
@@ -19,6 +20,7 @@ pub use recall::{
     GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
     build_recall_output, build_recent_rollouts_table, build_state_prompt, filter_recent_sessions,
 };
+pub use redact::redact_secrets;
 pub use rollout::mock::MockAdapter;
 pub use rollout::opencode::OpenCodeAdapter;
 pub use rollout::vibe::VibeAdapter;

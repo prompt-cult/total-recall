@@ -52,26 +52,54 @@ two LLM chat-completion endpoints, and only when an LLM-backed tool is called:
 Everything else is local. If you never call `compact` or `recall`, nothing is
 sent anywhere.
 
-### Session content is sent to the vendor, unmodified
+### Session content is redacted before it is sent
 
-This is the sharp edge, and it is worth stating plainly. When you call an
-LLM-backed tool, the session's messages — your prompts, the assistant's
-replies, and tool calls — are sent to the vendor's API to be summarized. The
-prompts are built with two mitigations, both documented in
+When you call an LLM-backed tool, the session's messages — your prompts, the
+assistant's replies, and tool calls — are sent to the vendor's API to be
+summarized. Before they go, every credential shape in them is replaced with a
+`[REDACTED:<kind>]` marker. This is unconditional: there is no switch, no
+environment variable, and no vendor-by-vendor opt-out, on the CLI or over MCP.
+
+The classes that are redacted:
+
+| Class | What it covers | Marker |
+|-------|----------------|--------|
+| Vendor keys | `sk_` (Inception), `sk-` (OpenAI), `sk-ant-` (Anthropic), `tvly-` (Tavily), `ctx7sk-` (Context7), plus Slack, GitLab and Google shapes | `[REDACTED:vendor-key]` |
+| GitHub tokens | `ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_` | `[REDACTED:github-token]` |
+| Authorization | the value of a `Bearer`/`Basic`/`Digest` header | `[REDACTED:bearer]` |
+| Assignments | `api_key`, `apikey`, `token`, `secret`, `password`, `passwd`, `passphrase`, `private_key`, `credentials`, `authorization` in `key = value`, `key: value`, `"key":"value"` and query-string forms | `[REDACTED:secret]` |
+| Private keys | `-----BEGIN … PRIVATE KEY-----` blocks, including one whose `END` was cut off | `[REDACTED:pem]` |
+| JWTs | three-segment `eyJ…` tokens | `[REDACTED:jwt]` |
+
+A shape is treated as a secret on sight. Nothing asks whether a match is real
+or live, because that judgement is the one that fails open. Redaction therefore
+errs towards over-redacting: a hyphenated identifier or a word that reads like
+a credential name can be replaced when it is not one. That costs a little
+summary fidelity and is the correct trade against shipping a key.
+
+Two further guardrails apply to the prompt itself, both documented in
 [README](README.md#ingestion-guardrails):
 
 - Tool results are snipped to 500 characters during prompt assembly.
 - A per-call input cap rejects an over-large prompt with an error instead of
   truncating it.
 
-**The current implementation does not redact secrets from session content
-before it is sent.** If a key, token, or password was ever pasted into a
-session, it can reach the vendor's API in the compaction payload. The
-log-mining tools (`list_sessions`, `profile_session`, `extract_messages`,
+The key name and the surrounding structure survive, so a summary still shows
+*which* field was removed. Redaction runs before the 500-character tool-result
+snip rather than after, so a key cannot be cut in half and have its surviving
+prefix shipped; the log-mining tools
+(`list_sessions`, `profile_session`, `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `she_said_he_said_action`,
 `index_sessions`, `do_android_dream_of_electric_sheep`) make no outbound call
-at all and never transmit content. If you need compaction, scrub the session
-first, or use the vendor-free build.
+at all and never transmit content.
+
+Two limits worth stating plainly. A credential in prose with no separator —
+"the password is hunter-two" — is not an assignment and is not matched; a
+shape matcher cannot tell it from an ordinary sentence. And a credential in a
+format none of the classes above describes will pass through. If you are
+pasting something you would not want a third party to read, the log-mining
+tools and the vendor-free build (`--no-default-features`) make no outbound call
+whatsoever.
 
 ## Reading your session stores
 

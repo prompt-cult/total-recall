@@ -1,5 +1,7 @@
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
+
+use crate::redact::redact_secrets;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -297,11 +299,21 @@ impl MercuryProvider {
         Ok(())
     }
 
-    /// Shared guarded request path: input-cap check, then retry loop over
-    /// 429 (Retry-After honoured, exponential backoff capped at 10s,
+    /// Shared guarded request path: redaction, input-cap check, then a retry
+    /// loop over 429 (Retry-After honoured, exponential backoff capped at 10s,
     /// [`MAX_429_RETRIES`] retries) and 5xx ([`MAX_5XX_RETRIES`] retries,
     /// ~1s spacing). Each attempt keeps the 120s per-request timeout.
+    ///
+    /// Redaction runs here, first, on both prompts. The prompt builders
+    /// already redact — see [`crate::redact`] — and this is the backstop that
+    /// makes the guarantee a property of the process rather than of every
+    /// caller's diligence: a future prompt builder that forgets will leak into
+    /// a prompt object but not onto the wire. [`crate::redact::redact_secrets`]
+    /// is idempotent, so a double pass costs a scan and mangles nothing.
     async fn send_guarded(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        let system_prompt = redact_secrets(system_prompt);
+        let user_prompt = redact_secrets(user_prompt);
+        let (system_prompt, user_prompt) = (system_prompt.as_str(), user_prompt.as_str());
         self.check_input_cap(user_prompt)?;
 
         let client = reqwest::Client::new();

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Secret redaction in the prompt path. `redact_secrets()` replaces every
+  recognised credential shape with a `[REDACTED:<kind>]` marker before session
+  content is sent to a vendor: vendor key shapes (`sk_`, `sk-`, `sk-ant-`,
+  `tvly-`, `ctx7sk-`, Slack, GitLab, Google), GitHub tokens, `Bearer` header
+  values, `key = value` assignments for credential-named keys, PEM private-key
+  blocks, and JWTs. Unconditional — no flag, no environment variable, no
+  vendor-by-vendor opt-out. It runs in prompt assembly (before the 500-char
+  tool-result snip, so a key cannot be cut in half and have its prefix
+  shipped) and again in `mercury::send_guarded`, so a future prompt builder
+  that forgets the call still cannot put a key on the wire. SECURITY.md now
+  documents what is redacted and the two limits of shape matching. This
+  restores to the Rust implementation the redaction that 0.2.1 shipped in
+  `compact.py` and that was lost when that file was deleted as dead code.
 - LLM vendors are compile-time cargo features. `default = ["mercury", "mistral"]`;
   a `--no-default-features` build makes no LLM call, needs no API key, and does
   not even load a `.env` (`dotenvy` is behind the vendor features). Vendor URLs,
