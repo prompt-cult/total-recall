@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-10-01
 
 ### Added
 
@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TOTAL_RECALL_{VIBE,CLAUDE,CODEX,OPENCODE}_ROOT` storage-root overrides and
   the `TOTAL_RECALL_SANDBOX=1` guard that fails closed rather than reading a
   live store.
+- A documentation site at https://prompt-cult.github.io/total-recall/, built
+  from `book.toml` + `docs/src` with mdBook and deployed to GitHub Pages by the
+  official `upload-pages-artifact` / `deploy-pages` path. PRs build the book and
+  run a link check (mdBook resolves links but does not verify that a target
+  exists); only a push to main deploys.
 
 ### Changed
 
@@ -50,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CODE_OF_CONDUCT.md`, this changelog, and the Cargo package metadata
   (`license`, `repository`, `homepage`, `readme`, `keywords`, `categories`,
   `exclude`).
+- Release assets are laid out for the tool fetchers: each platform leg stages
+  `total-recall_<version>_<target-triple>.tar.gz` with the single executable at
+  the archive root, plus a `SHA256SUMS` covering them. Archives are
+  reproducible (ustar, zeroed mtime, uid/gid 0, `gzip -n`), so the same source
+  yields the same bytes. `mise use github:prompt-cult/total-recall` installs
+  from a release without a `matching=` hint.
 
 ### Fixed
 
@@ -70,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed committed scratch: the tracked borrow-checker (`test_borrow.rs`) and
   its compiled binary from the repository root, plus the `test_borrow`
   artefacts the tree carried since 0.6.1.
+- Test scratch directories are unique per call rather than per process. The
+  vendor-feature tests keyed a child process's working directory on the pid,
+  which every test in one binary shares, so a helper deleted the directory out
+  from under a sibling thread's running child — an intermittent failure that
+  only bit right after a recompile.
 
 ## [0.7.0] - 2026-09-24
 
@@ -222,7 +238,8 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/prompt-cult/total-recall/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/prompt-cult/total-recall/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/prompt-cult/total-recall/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/prompt-cult/total-recall/compare/v0.5.0...v0.6.1
