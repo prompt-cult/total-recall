@@ -1,6 +1,15 @@
 //! Shared helpers for integration tests that mutate process environment.
 //! Env mutation is process-global and `unsafe` under edition 2024, so every
 //! test that touches it must funnel through `lock_env()` to serialize.
+//!
+//! `scratch` holds the one scratch-directory implementation for the suite, so
+//! no test file grows its own copy of the naming scheme. A helper module is
+//! compiled into every test binary that declares it and no binary uses every
+//! helper, hence the module-wide `dead_code` allowance.
+
+#![allow(dead_code)]
+
+pub mod scratch;
 
 use std::sync::{Mutex, MutexGuard};
 

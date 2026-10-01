@@ -1,6 +1,10 @@
+mod common;
+
 use std::path::PathBuf;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::claude::ClaudeAdapter;
+
+use common::scratch::scratch;
 
 fn test_data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts")
@@ -84,8 +88,7 @@ fn test_claude_extract_user_messages() {
 /// are NOT sessions.
 #[test]
 fn test_claude_real_project_layout() {
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("claude_real_layout");
-    let _ = std::fs::remove_dir_all(&tmp);
+    let tmp = scratch("claude_real_layout");
     let proj = tmp.join("-Users-someone-code-myrepo");
     std::fs::create_dir_all(proj.join("subagents")).unwrap();
 
@@ -105,7 +108,7 @@ fn test_claude_real_project_layout() {
     )
     .unwrap();
 
-    let adapter = ClaudeAdapter::with_root(&tmp);
+    let adapter = ClaudeAdapter::with_root(tmp.to_path_buf());
 
     let sessions = adapter.list_sessions();
     assert_eq!(

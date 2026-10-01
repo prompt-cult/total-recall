@@ -1,5 +1,9 @@
+mod common;
+
 use std::io::Write;
 use total_recall::{MockAdapter, RolloutAdapter};
+
+use common::scratch::scratch;
 
 fn test_data_path() -> String {
     env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl"
@@ -34,7 +38,8 @@ fn test_mock_read_from_compaction() {
 #[test]
 fn test_mock_read_from_compaction_no_marker() {
     // Create a file with no compaction marker
-    let temp = std::env::temp_dir().join("test_no_compaction.jsonl");
+    let dir = scratch("no_marker");
+    let temp = dir.join("test_no_compaction.jsonl");
     let mut f = std::fs::File::create(&temp).unwrap();
     let _ = f.write_all(
         br#"{"role":"user","content":"hello","tool_calls_summary":[],"timestamp":null,"injected":false}
@@ -46,7 +51,6 @@ fn test_mock_read_from_compaction_no_marker() {
         .expect("healthy fixture compaction read");
     // No compaction marker -> return all messages
     assert_eq!(messages.len(), 2);
-    let _ = std::fs::remove_file(&temp);
 }
 
 #[test]

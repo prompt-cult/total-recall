@@ -1,18 +1,13 @@
-use std::path::PathBuf;
+mod common;
 
 use total_recall::RolloutAdapter;
 use total_recall::index;
 use total_recall::rollout::mock::MockAdapter;
 
-fn fixture_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("sheep_{}", name));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
+use common::scratch::{ScratchRoot, scratch};
 
-fn write_fixture(name: &str, lines: &[String]) -> (PathBuf, MockAdapter) {
-    let dir = fixture_dir(name);
+fn write_fixture(name: &str, lines: &[String]) -> (ScratchRoot, MockAdapter) {
+    let dir = scratch(&format!("sheep_{name}"));
     let data_path = dir.join("data.jsonl");
     std::fs::write(&data_path, lines.join("\n") + "\n").unwrap();
     let adapter = MockAdapter::new(&data_path);

@@ -1,5 +1,9 @@
+mod common;
+
 use std::io::Write;
 use total_recall::{EventType, MockAdapter, RolloutAdapter};
+
+use common::scratch::scratch;
 
 fn test_data_path() -> String {
     env!("CARGO_MANIFEST_DIR").to_string() + "/rollouts/mock_sample.jsonl"
@@ -157,11 +161,11 @@ fn test_mock_format_speed() {
 
 #[test]
 fn test_mock_empty_file() {
-    let temp = std::env::temp_dir().join("test_empty.jsonl");
+    let dir = scratch("empty");
+    let temp = dir.join("test_empty.jsonl");
     let mut f = std::fs::File::create(&temp).unwrap();
     let _ = f.write_all(b"");
     let adapter = MockAdapter::new(&temp);
     let messages = adapter.read_session("test").expect("healthy fixture read");
     assert!(messages.is_empty());
-    let _ = std::fs::remove_file(&temp);
 }

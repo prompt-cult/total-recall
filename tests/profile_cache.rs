@@ -1,7 +1,11 @@
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use total_recall::RolloutAdapter;
 use total_recall::rollout::mock::MockAdapter;
+
+use common::scratch::{ScratchRoot, scratch};
 
 #[allow(dead_code, unused_imports)]
 mod cli {
@@ -10,13 +14,6 @@ mod cli {
 
 use clap::Parser;
 use cli::Cli;
-
-fn fixture_dir(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("profile_cache_{}", name));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn msg(role: &str, content: &str, timestamp: &str) -> String {
     serde_json::json!({
@@ -38,8 +35,8 @@ fn fixture_lines() -> Vec<String> {
     ]
 }
 
-fn write_fixture(name: &str, lines: &[String]) -> (PathBuf, MockAdapter, PathBuf) {
-    let dir = fixture_dir(name);
+fn write_fixture(name: &str, lines: &[String]) -> (ScratchRoot, MockAdapter, PathBuf) {
+    let dir = scratch(&format!("profile_cache_{name}"));
     let data_path = dir.join("data.jsonl");
     std::fs::write(&data_path, lines.join("\n") + "\n").unwrap();
     let adapter = MockAdapter::new(&data_path);
@@ -204,7 +201,7 @@ fn test_cli_cache_flag_parses_on_profile() {
 fn test_freshness_rule_is_enforced_in_profile_cache_module() {
     use total_recall::profile_cache;
 
-    let dir = fixture_dir("module_freshness");
+    let dir = scratch("profile_cache_module_freshness");
     let cache_path = dir.join("tr_mock_meta.json");
 
     // Missing cache file → miss.
