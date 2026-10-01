@@ -10,6 +10,7 @@
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use total_recall::mercury::{
     VENDORS, provider_for, unknown_provider_error, vendor_not_compiled_error,
@@ -124,31 +125,110 @@ fn mistral_lookup_reports_the_missing_feature() {
 
 // --- Fixture + process helpers ---
 
+/// A per-call discriminator, so two tests in this binary that pass the same
+/// `tag` still get different directories.
+///
+/// This binary runs its tests concurrently in ONE process, so the pid is
+/// shared by every test in it and cannot separate them. A tag alone cannot
+/// either: `spawn_mcp` is reached from three tests, all of which pass the
+/// literal `"mcp"`. When the directory name was `tag` + pid alone, all three
+/// resolved to one path and each of them `remove_dir_all`ed the directory the
+/// other two had just spawned a child process in.
+static SCRATCH_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn scratch_seq() -> u64 {
+    SCRATCH_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
 /// A working directory for the child that is OUTSIDE the repository tree.
 ///
 /// `dotenvy::dotenv()` walks up parent directories, so a scratch dir inside
 /// the repo would find the developer's real `<repo>/.env` and make live vendor
 /// API calls. Tests must never do that: this path has no `.env` anywhere above
 /// it, and the vendor key variables are removed from the child environment on
-/// top of that.
+/// top of that. That rules out `CARGO_TARGET_TMPDIR`, which is inside the repo
+/// tree — hence the bare `temp_dir()`.
+///
+/// The directory is named for this call alone (pid + a monotonic counter), so
+/// the `remove_dir_all` below can only ever clear a leftover from an earlier
+/// process that happened to be given the same pid. The child's own directory is
+/// never removed while that child runs.
 fn child_cwd(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("tr_vendor_cwd_{tag}_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "tr_vendor_cwd_{tag}_{}_{}",
+        std::process::id(),
+        scratch_seq()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn tmp_root(tag: &str) -> PathBuf {
+/// A scratch root that outlives nothing: it removes itself when the test that
+/// owns it ends, panics included.
+///
+/// Every test in this file binds the root to a local and only reads it while
+/// the child is running (`run_cli` waits for the child, `reap_mcp` kills and
+/// waits for it), so by the time this drops, no process is still using it.
+struct ScratchRoot(PathBuf);
+
+impl std::ops::Deref for ScratchRoot {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for ScratchRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A unique scratch root for one test, holding that test's session fixture.
+fn tmp_root(tag: &str) -> ScratchRoot {
     let dir = std::env::var("CARGO_TARGET_TMPDIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir())
-        .join(format!("tr_vendor_features_{tag}_{}", std::process::id()));
+        .join(format!(
+            "tr_vendor_features_{tag}_{}_{}",
+            std::process::id(),
+            scratch_seq()
+        ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    dir
+    ScratchRoot(dir)
 }
 
 const SESSION_ID: &str = "51a9645a";
+
+/// The regression this file's scratch helpers exist to prevent: a second call
+/// carrying a tag the first call already used must not destroy the directory
+/// the first call handed to a child process.
+#[test]
+fn scratch_dirs_are_unique_per_call_for_a_shared_tag() {
+    let first = child_cwd("shared");
+    let second = child_cwd("shared");
+    let first_root = tmp_root("shared");
+
+    assert_ne!(
+        first, second,
+        "a shared tag must still yield distinct child working directories"
+    );
+    let first_root: &Path = &first_root;
+    assert_ne!(
+        first_root, second,
+        "a shared tag must still yield distinct fixture roots"
+    );
+    assert!(
+        first.is_dir() && second.is_dir() && first_root.is_dir(),
+        "every scratch directory must survive the calls that follow it: {first:?} {second:?} {first_root:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&first);
+    let _ = std::fs::remove_dir_all(&second);
+    let _ = std::fs::remove_dir_all(first_root);
+}
 
 /// A vibe session dir with two user messages and one assistant reply, so the
 /// LLM-backed paths get past session resolution and reach provider creation.
@@ -177,7 +257,11 @@ fn run_cli(tag: &str, root: &Path, args: &[&str]) -> std::process::Output {
         .env("TOTAL_RECALL_VIBE_ROOT", root)
         .env_remove(MERCURY_KEY)
         .env_remove(MISTRAL_KEY);
-    cmd.output().expect("failed to spawn total-recall binary")
+    let out = cmd.output().expect("failed to spawn total-recall binary");
+    // `output()` has joined, so this child is gone and its scratch dir is ours
+    // to clear. Unique names mean this cannot touch another test's directory.
+    let _ = std::fs::remove_dir_all(&empty_cwd);
+    out
 }
 
 // --- Log mining is unaffected by the vendor features (all configurations) ---
@@ -334,12 +418,18 @@ fn vendor_free_mistral_selection_explains_the_feature() {
 
 // --- MCP: the tool NAMES stay registered, the calls report the build ---
 
+/// An MCP child, plus the scratch working directory it was spawned in.
+///
+/// The directory is returned because the child outlives this function: it must
+/// stay on disk until the caller has killed the child. Only the caller, which
+/// owns the `Child`, can safely clear it.
 fn spawn_mcp(
     root: &Path,
 ) -> (
     std::process::Child,
     std::io::BufReader<std::process::ChildStdout>,
     std::process::ChildStdin,
+    PathBuf,
 ) {
     let empty_cwd = child_cwd("mcp");
     let mut child = Command::new(env!("CARGO_BIN_EXE_total-recall"))
@@ -355,7 +445,14 @@ fn spawn_mcp(
         .expect("spawn mcp");
     let stdout = child.stdout.take().unwrap();
     let stdin = child.stdin.take().unwrap();
-    (child, std::io::BufReader::new(stdout), stdin)
+    (child, std::io::BufReader::new(stdout), stdin, empty_cwd)
+}
+
+/// Clear a child's scratch working directory, once that child has been killed.
+fn reap_mcp(child: &mut std::process::Child, cwd: &Path) {
+    child.kill().ok();
+    child.wait().ok();
+    let _ = std::fs::remove_dir_all(cwd);
 }
 
 fn send(stdin: &mut std::process::ChildStdin, v: &serde_json::Value) {
@@ -425,7 +522,7 @@ fn tool_names(resp: &serde_json::Value) -> Vec<String> {
 fn llm_tool_names_are_registered_in_every_build() {
     let root = tmp_root("tools_list");
     make_session(&root);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     send(
@@ -433,7 +530,7 @@ fn llm_tool_names_are_registered_in_every_build() {
         &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
     );
     let names = tool_names(&read_id(&mut reader, 2));
-    child.kill().ok();
+    reap_mcp(&mut child, &cwd);
 
     // Clients bind by name: the LLM-backed tools must stay in tools/list
     // whatever the features are, so a vendor-free build degrades on call
@@ -456,11 +553,11 @@ fn llm_tool_names_are_registered_in_every_build() {
 fn vendor_free_mcp_call_reports_the_build() {
     let root = tmp_root("mcp_call");
     make_session(&root);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     let resp = call_tool(&mut reader, &mut stdin, 2, "total_recall");
-    child.kill().ok();
+    reap_mcp(&mut child, &cwd);
     let text = serde_json::to_string(&resp).unwrap();
     assert!(
         text.contains("not compiled into this build"),
@@ -477,11 +574,11 @@ fn vendor_free_mcp_call_reports_the_build() {
 fn vendor_build_mcp_call_reports_the_missing_key() {
     let root = tmp_root("mcp_key");
     make_session(&root);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     let resp = call_tool(&mut reader, &mut stdin, 2, "total_recall");
-    child.kill().ok();
+    reap_mcp(&mut child, &cwd);
     let text = serde_json::to_string(&resp).unwrap();
     assert!(
         text.contains(MERCURY_KEY),
