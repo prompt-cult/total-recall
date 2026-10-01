@@ -75,15 +75,17 @@ jobs:
           mkdir -p dist
           cp target/release/total-recall dist/total-recall
           # Reproducible archive: zeroed mtime, uid/gid 0 and a fixed ustar format
-          # so the same source tree yields the same bytes. `touch -d @0` (rather
-          # than `tar --mtime=@0`) because BSD tar, which ships on the macOS
-          # runners, has no --mtime; `gzip -n` drops the filename/timestamp the
-          # gzip wrapper would otherwise record.
+          # so the same source tree yields the same bytes. The mtime form is the
+          # portable -t one with an explicit TZ: BSD touch rejects `-d @0` on the
+          # newer macOS runner images (v0.8.0's second release run died there),
+          # GNU touch rejects nothing here, and -t with TZ=UTC is epoch 0 on
+          # both. `gzip -n` drops the filename/timestamp the gzip wrapper would
+          # otherwise record.
           # No --uname/--gname: those exist only in bsdtar, and GNU tar on the
           # Linux runners rejects them (v0.8.0's first release run died on
           # "tar: unrecognized option '--uname=root'"). --owner/--group pin the
           # uid/gid fields both implementations write.
-          touch -d @0 dist/total-recall
+          TZ=UTC touch -t 197001010000 dist/total-recall
           tar --format=ustar --owner=0 --group=0 --numeric-owner \
               -C dist -cf - total-recall | gzip -n -9 > "dist/$NAME"
           rm dist/total-recall
