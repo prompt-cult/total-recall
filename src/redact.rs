@@ -246,6 +246,13 @@ fn find_prefixed(text: &str, from: usize, prefixes: &[Prefix], marker: &str) -> 
     let bytes = text.as_bytes();
     let mut at = from;
     while at < bytes.len() {
+        // Multibyte characters: a session full of em-dashes or emoji walks the
+        // byte index into the middle of a char, and slicing there panics.
+        // Only ever test a boundary.
+        if !text.is_char_boundary(at) {
+            at += 1;
+            continue;
+        }
         // A prefix glued to the tail of a word (`flask-migrations`, `sk-` in
         // `task-…`) is not a credential. A key in prose sits after a space, a
         // quote or a bracket, which is exactly what this test admits.

@@ -8,6 +8,7 @@ pub mod profile_cache_types;
 pub mod prompt;
 pub mod recall;
 pub mod redact;
+pub mod report_cap;
 pub mod rollout;
 
 pub use mercury::{

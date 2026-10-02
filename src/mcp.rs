@@ -22,9 +22,9 @@ use crate::{
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListSessionsParams {
     #[schemars(
-        description = "Only include sessions updated within this many hours. 0 = no bound (default)."
+        description = "Only include sessions updated within this many hours. Default: 240 (10 days). 0 = no bound."
     )]
-    #[serde(default)]
+    #[serde(default = "default_list_hours")]
     pub hours_back: u64,
     #[schemars(description = "Only include sessions whose directory contains this substring.")]
     pub directory: Option<String>,
@@ -145,6 +145,11 @@ pub struct TotalRecallParams {
     #[schemars(description = "Hours back to include in the recent rollouts table. Default: 24.")]
     #[serde(default = "default_hours")]
     pub hours_back: u64,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: usize,
 }
 
 fn default_hours() -> u64 {
@@ -163,33 +168,46 @@ fn default_sheep_hours() -> u64 {
     48
 }
 
+fn default_list_hours() -> u64 {
+    240
+}
+
+fn default_max_bytes() -> usize {
+    crate::report_cap::DEFAULT_MAX_BYTES
+}
+
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SheSaidHeSaidParams {
     #[schemars(
-        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
     )]
     #[serde(default)]
-    pub sessions: Vec<String>,
+    pub session_id: String,
     #[schemars(description = "Case-insensitive search terms. At least one is required.")]
     pub words: Vec<String>,
-    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 48.")]
+    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 48.")]
     #[serde(default = "default_she_said_hours")]
     pub hours_back: u64,
-    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: usize,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct IndexSessionsParams {
     #[schemars(
-        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
     )]
     #[serde(default)]
-    pub sessions: Vec<String>,
-    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 0.")]
+    pub session_id: String,
+    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 0.")]
     #[serde(default = "default_index_hours")]
     pub hours_back: u64,
-    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
 }
 
@@ -198,15 +216,36 @@ pub struct SheepParams {
     #[schemars(description = "Tantivy query syntax. Required.")]
     pub query: String,
     #[schemars(
-        description = "Session IDs (partial match). Empty = all sessions updated within hours_back."
+        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
     )]
     #[serde(default)]
-    pub sessions: Vec<String>,
-    #[schemars(description = "Hours back when sessions is empty. 0 = no bound. Default: 48.")]
+    pub session_id: String,
+    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 48.")]
     #[serde(default = "default_sheep_hours")]
     pub hours_back: u64,
-    #[schemars(description = "Optional directory substring filter (empty-session-list mode).")]
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: usize,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct LineHistogramParams {
+    #[schemars(description = "Path of the file to profile. Required.")]
+    pub file_path: String,
+    #[schemars(
+        description = "histogram (default) or extract: line-size distribution, or the line at `line` / the inclusive range `start`..=`end`."
+    )]
+    pub mode: Option<String>,
+    #[schemars(description = "extract mode: single 1-based line number.")]
+    pub line: Option<u64>,
+    #[schemars(description = "extract mode: inclusive range start (with end).")]
+    pub start: Option<u64>,
+    #[schemars(description = "extract mode: inclusive range end (with start).")]
+    pub end: Option<u64>,
 }
 
 // --- MCP Server ---
@@ -230,6 +269,25 @@ impl TotalRecallServer {
     }
 }
 
+/// Every tool's success text that can overflow WITHOUT its own bound passes
+/// through here: flood control is generic and open-ended, so a tool added
+/// tomorrow inherits the cap by calling this like every other tool does.
+/// Under `max_bytes` the text is returned untouched; over it the whole text
+/// is written to a private temp file and the return carries an EOF marker
+/// with the line histogram.
+///
+/// The bounded-extraction tools (`extract_messages`,
+/// `extract_user_messages`, `extract_by_type`) do NOT route through here:
+/// their responses carry their own envelope — `limit`, `offset`, `max_bytes`
+/// and `max_record_bytes` per call with an 8 MiB hard ceiling, explicit
+/// truncation notices and `next_offset` paging — which is their flood
+/// control. Double-capping would strangle the documented envelope contract.
+fn capped_text(tool: &str, scope: &str, text: String, max_bytes: usize) -> CallToolResult {
+    CallToolResult::success(vec![ContentBlock::text(crate::report_cap::cap_report(
+        tool, scope, text, max_bytes,
+    ))])
+}
+
 #[tool_router]
 impl TotalRecallServer {
     #[tool(
@@ -240,11 +298,16 @@ impl TotalRecallServer {
         let json = serde_json::json!({ "harness": self.harness });
         let json = serde_json::to_string_pretty(&json)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        Ok(capped_text(
+            "harness",
+            "harness",
+            json,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(
-        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (default 0 = no bound) and a directory substring filter"
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (default 240 = 10 days; 0 = no bound) and a directory substring filter"
     )]
     async fn list_sessions(
         &self,
@@ -264,12 +327,17 @@ impl TotalRecallServer {
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
         let json = serde_json::to_string_pretty(&sessions)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        Ok(capped_text(
+            "list_sessions",
+            "list",
+            json,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(
         name = "she_said_he_said_action",
-        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Matching runs inside SQLite on a read-only connection."
+        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Matching runs inside SQLite on a read-only connection."
     )]
     async fn she_said_he_said_action(
         &self,
@@ -281,28 +349,43 @@ impl TotalRecallServer {
                 "she_said_he_said_action requires at least one term in `words`".to_string(),
             )]));
         }
+        let sessions: Vec<String> = if params.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![params.session_id.clone()]
+        };
         match adapter.she_said_he_said_action(
-            &params.sessions,
+            &sessions,
             &params.words,
             params.hours_back,
             params.directory.as_deref(),
         ) {
-            Ok(report) => Ok(CallToolResult::success(vec![ContentBlock::text(report)])),
+            Ok(report) => Ok(capped_text(
+                "she_said_he_said_action",
+                &params.session_id,
+                report,
+                params.max_bytes,
+            )),
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
     }
 
     #[tool(
-        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 0 = no bound) optionally filtered by a directory substring."
+        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 0 = no bound) optionally filtered by a directory substring."
     )]
     async fn index_sessions(
         &self,
         Parameters(params): Parameters<IndexSessionsParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
+        let sessions: Vec<String> = if params.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![params.session_id.clone()]
+        };
         let (selected, unmatched) = crate::index::select_sessions(
             adapter.as_ref(),
-            &params.sessions,
+            &sessions,
             params.hours_back,
             params.directory.as_deref(),
         );
@@ -324,14 +407,17 @@ impl TotalRecallServer {
                 }
             }
         }
-        Ok(CallToolResult::success(vec![ContentBlock::text(
+        Ok(capped_text(
+            "index_sessions",
+            &params.session_id,
             lines.join("\n"),
-        )]))
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(
         name = "do_android_dream_of_electric_sheep",
-        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. Sessions are given by partial IDs, or, when the list is empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Sessions without an index are reported as not indexed (run index_sessions first)."
+        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Sessions without an index are reported as not indexed (run index_sessions first)."
     )]
     async fn do_android_dream_of_electric_sheep(
         &self,
@@ -344,14 +430,24 @@ impl TotalRecallServer {
                     .to_string(),
             )]));
         }
+        let sessions: Vec<String> = if params.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![params.session_id.clone()]
+        };
         match crate::index::search(
             adapter.as_ref(),
-            &params.sessions,
+            &sessions,
             &params.query,
             params.hours_back,
             params.directory.as_deref(),
         ) {
-            Ok(report) => Ok(CallToolResult::success(vec![ContentBlock::text(report)])),
+            Ok(report) => Ok(capped_text(
+                "do_android_dream_of_electric_sheep",
+                &params.session_id,
+                report,
+                params.max_bytes,
+            )),
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
     }
@@ -378,7 +474,12 @@ impl TotalRecallServer {
         profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
         let json = serde_json::to_string_pretty(&profile)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        Ok(capped_text(
+            "profile_session",
+            &session_id,
+            json,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(
@@ -422,6 +523,8 @@ impl TotalRecallServer {
             Ok(json) => json,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
+        // Bounded extraction: the envelope is this tool's flood control
+        // (limit/max_bytes/max_record_bytes + truncation notices); no cap.
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -472,6 +575,7 @@ impl TotalRecallServer {
             Ok(json) => json,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
+        // Bounded extraction: the envelope is this tool's flood control.
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
@@ -542,6 +646,7 @@ impl TotalRecallServer {
             Ok(text) => text,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
+        // Bounded extraction: the envelope is this tool's flood control.
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 
@@ -589,7 +694,12 @@ impl TotalRecallServer {
             .await
             .map_err(|e| McpError::internal_error(format!("Mercury API error: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![ContentBlock::text(summary)]))
+        Ok(capped_text(
+            "compact_session",
+            &session_id,
+            summary,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(
@@ -678,10 +788,37 @@ impl TotalRecallServer {
         let timing_str = serde_json::to_string_pretty(&timing)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
-            "<!-- {} -->\n\n{}",
-            timing_str, output
-        ))]))
+        Ok(capped_text(
+            "total_recall",
+            &session_id,
+            format!("<!-- {} -->\n\n{}", timing_str, output),
+            params.max_bytes,
+        ))
+    }
+
+    #[tool(
+        name = "line_histogram",
+        description = "Total-recall MCP tool: profile a file by line-size distribution (histogram mode, ten buckets), or extract a line range (mode=extract with line, or start and end). Runs the vendored line_histogram.awk with a direct awk -f spawn. The paging companion for flood-control overflow files and any large dump on disk."
+    )]
+    async fn line_histogram(
+        &self,
+        Parameters(params): Parameters<LineHistogramParams>,
+    ) -> Result<CallToolResult, McpError> {
+        match crate::report_cap::line_histogram(
+            std::path::Path::new(&params.file_path),
+            params.mode.as_deref(),
+            params.line,
+            params.start,
+            params.end,
+        ) {
+            Ok(out) => Ok(capped_text(
+                "line_histogram",
+                &params.file_path,
+                out,
+                crate::report_cap::DEFAULT_MAX_BYTES,
+            )),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
     }
 }
 

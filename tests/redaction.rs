@@ -368,3 +368,21 @@ fn a_key_glued_to_word_characters_is_not_matched() {
     let glued = format!("xxxx{}", "sk_test0000000000000000000000000000");
     assert_eq!(redact_secrets(&glued), glued);
 }
+
+#[test]
+fn multibyte_text_never_panics_and_still_redacts() {
+    // Found the hard way: compacting a real session whose prose is full of
+    // em-dashes panicked inside find_prefixed at a non-char-boundary byte.
+    let text = "deploy — sk_test0000000000000000000000000000 — to prod 🚀 done";
+    let out = redact_secrets(text);
+    assert!(
+        !out.contains("sk_test0000000000000000000000000000"),
+        "the key after the em-dash must still redact"
+    );
+    assert!(
+        out.contains("[REDACTED:vendor-key]"),
+        "marked as a vendor key"
+    );
+    assert!(out.contains('—'), "the em-dashes survive");
+    assert!(out.contains('🚀'), "the emoji survive");
+}
