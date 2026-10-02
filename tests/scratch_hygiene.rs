@@ -9,6 +9,13 @@
 //! test processes overlap, which is exactly how nobody runs them by hand. The
 //! seven private helpers this test now covers were each one edit away from that.
 //!
+//! The second guard below holds the spawn side of the same trap: `dotenvy` walks
+//! up parent directories, so a child that runs the built binary from the
+//! inherited crate-root CWD — or from a directory under `target/`, which is
+//! inside the repo tree — reads the developer's `.env`, and an LLM-backed test
+//! then spends a real key. Every `Command` chain that executes the binary must
+//! point `.current_dir` at a `child_cwd` directory outside the repository.
+//!
 //! The check is deliberately narrow: it greps the `tests/` tree for the two ways
 //! a file can name a temporary path without the shared helper, so it cannot fail
 //! on formatting, renames or fixture layout, and it fails with the two entry
@@ -21,6 +28,14 @@ const OWNER: &str = "common/scratch.rs";
 
 /// Naming a temporary path takes one of these; the shared helper uses both.
 const NEEDLES: [&str; 2] = ["temp_dir", "CARGO_TARGET_TMPDIR"];
+
+/// The one spawn form that runs the built binary, shared by the whole suite.
+const SPAWN_NEEDLE: &str = "Command::new(env!(\"CARGO_BIN_EXE";
+
+/// The builder calls that end a `Command` chain by executing the child. A chain
+/// with none of these hands the `Command` back to a caller, so the chain that
+/// reaches a terminal is the one that must carry the working directory.
+const SPAWN_TERMINALS: [&str; 3] = [".spawn(", ".output(", ".status("];
 
 fn rust_files(dir: &Path, into: &mut Vec<PathBuf>) {
     let entries =
@@ -83,6 +98,66 @@ fn without_comments(source: &str) -> String {
         .map(|line| line.split_once("//").map_or(line, |(code, _)| code))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Every `Command` chain that executes the built binary must move the child's
+/// working directory out of the repository first, because `dotenvy::dotenv()`
+/// walks up parent directories and reads the first `.env` it finds. The chain
+/// is the text from the `Command::new` that starts it to the call that executes
+/// it, so a chain that builds the `Command` in one helper and executes it in
+/// another is covered by the text between the two. The check is textual, like
+/// the scratch guard above: it cannot prove where a `.current_dir` argument
+/// points, so it refuses the one in-repo form it can see (`scratch`, whose
+/// directories live under `target/`) and requires the call itself.
+#[test]
+fn every_spawned_child_runs_outside_the_repository() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let tests = Path::new("tests");
+    let mut files = Vec::new();
+    rust_files(&manifest.join(tests), &mut files);
+    files.sort();
+
+    let this_test = Path::new(file!());
+    let mut offenders: Vec<String> = Vec::new();
+    for path in files {
+        let rel = path.strip_prefix(manifest).unwrap_or(&path).to_path_buf();
+        if rel == this_test {
+            continue;
+        }
+        let source = without_comments(
+            &std::fs::read_to_string(manifest.join(&rel)).expect("readable test source"),
+        );
+        let mut searched = 0;
+        while let Some(found) = source[searched..].find(SPAWN_NEEDLE) {
+            let start = searched + found;
+            let after = &source[start + SPAWN_NEEDLE.len()..];
+            let chain_end = SPAWN_TERMINALS
+                .iter()
+                .filter_map(|terminal| after.find(terminal))
+                .min()
+                .map(|hit| start + SPAWN_NEEDLE.len() + hit)
+                .unwrap_or(source.len());
+            let chain = &source[start..chain_end];
+            if !chain.contains(".current_dir(") || chain.contains("scratch(") {
+                let line = source[..start].matches('\n').count() + 1;
+                let head = chain.lines().next().unwrap_or_default().trim();
+                offenders.push(format!("{}: line {line}: {head}", rel.display()));
+            }
+            searched = chain_end;
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "every spawn of the built binary must set a working directory outside the \
+         repository: dotenvy::dotenv() walks up parent directories, so a child that \
+         inherits the crate-root CWD — or is pointed at a directory under target/, \
+         which is inside the repo tree — reads the developer's .env, and an \
+         LLM-backed test spends a real key. Point `.current_dir` at \
+         `common::scratch::child_cwd` (never `scratch`, whose directories live \
+         under target/). Offenders:\n{}",
+        offenders.join("\n")
+    );
 }
 
 /// The line a needle first appears on, so the failure names a place to look.

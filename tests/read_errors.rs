@@ -9,7 +9,7 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-use common::scratch::scratch;
+use common::scratch::{child_cwd, scratch};
 use total_recall::{
     MockAdapter, OpenCodeAdapter, RolloutAdapter, VibeAdapter,
     rollout::{claude::ClaudeAdapter, codex::CodexAdapter},
@@ -427,9 +427,16 @@ fn mcp_extract_messages_reports_unreadable_payload_as_a_tool_error() {
     std::fs::create_dir_all(&dir).unwrap();
     unreadable(&dir, "messages.jsonl");
 
+    // The child works from an empty directory outside the repo tree, with the
+    // vendor keys removed: dotenvy walks up parent directories, so a child
+    // left at the crate-root CWD would read the developer's real `.env`.
+    let cwd = child_cwd("mcp");
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "vibe", "mcp"])
+        .current_dir(&cwd)
         .env("TOTAL_RECALL_VIBE_ROOT", &*root)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -493,4 +500,5 @@ fn mcp_extract_messages_reports_unreadable_payload_as_a_tool_error() {
 
     let _ = child.kill();
     let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&cwd);
 }

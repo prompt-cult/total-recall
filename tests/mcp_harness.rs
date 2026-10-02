@@ -1,6 +1,9 @@
+mod common;
+
 use std::io::{BufRead, Write};
 use std::sync::Mutex;
 
+use common::scratch::child_cwd;
 use total_recall::harness::{HARNESS_ENV_VAR, VALID_HARNESSES, make_adapter, resolve_harness};
 use total_recall::mcp::TotalRecallServer;
 
@@ -93,15 +96,25 @@ fn opencode_harness_is_accepted() {
     assert_eq!(adapter.name(), "opencode");
 }
 
+/// An MCP child, plus the scratch working directory outside the repo tree it
+/// was spawned in. The directory is returned because the child outlives this
+/// function: only the caller, which owns the `Child`, can safely clear it.
+/// `dotenvy` walks up parent directories, so the CWD must sit where no `.env`
+/// is above it, and the vendor keys are removed as well.
 fn spawn_mcp_server(
     harness: &str,
 ) -> (
     std::process::Child,
     std::io::BufReader<std::process::ChildStdout>,
     std::process::ChildStdin,
+    std::path::PathBuf,
 ) {
+    let cwd = child_cwd("mcp");
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", harness, "mcp"])
+        .current_dir(&cwd)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -109,7 +122,14 @@ fn spawn_mcp_server(
         .expect("failed to spawn total-recall mcp");
     let stdout = child.stdout.take().expect("stdout pipe missing");
     let stdin = child.stdin.take().expect("stdin pipe missing");
-    (child, std::io::BufReader::new(stdout), stdin)
+    (child, std::io::BufReader::new(stdout), stdin, cwd)
+}
+
+/// Clear a child's scratch working directory, once that child has been killed.
+fn reap_mcp(child: &mut std::process::Child, cwd: &std::path::Path) {
+    child.kill().ok();
+    child.wait().ok();
+    let _ = std::fs::remove_dir_all(cwd);
 }
 
 fn send_json(stdin: &mut std::process::ChildStdin, value: &serde_json::Value) {
@@ -146,7 +166,7 @@ fn read_response(
 
 #[test]
 fn mcp_tools_list_includes_index_and_sheep() {
-    let (mut child, mut reader, mut stdin) = spawn_mcp_server("vibe");
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe");
 
     send_json(
         &mut stdin,
@@ -234,12 +254,12 @@ fn mcp_tools_list_includes_index_and_sheep() {
         "sheep tool description must mention search, got: {sheep_desc}"
     );
 
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn mcp_sheep_errors_on_empty_query() {
-    let (mut child, mut reader, mut stdin) = spawn_mcp_server("vibe");
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe");
 
     send_json(
         &mut stdin,
@@ -311,5 +331,5 @@ fn mcp_sheep_errors_on_empty_query() {
         "error content must mention the missing query, got: {content_text}"
     );
 
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }

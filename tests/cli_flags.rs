@@ -1,3 +1,5 @@
+mod common;
+
 #[allow(dead_code, unused_imports)]
 mod cli {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.rs"));
@@ -6,12 +8,23 @@ mod cli {
 use clap::Parser;
 use clap::error::ErrorKind;
 use cli::Cli;
+use std::path::Path;
 use std::process::Command;
+
+use common::scratch::child_cwd;
 
 type FlagCheck = (Vec<&'static str>, fn(&Cli) -> bool);
 
-fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_total-recall"))
+/// The binary, pinned to an empty working directory outside the repo tree,
+/// with the vendor keys removed: `dotenvy` walks up parent directories, so a
+/// child left at the crate-root CWD would read the developer's real `.env`.
+/// The caller owns the directory and clears it once the child has run.
+fn bin(cwd: &Path) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_total-recall"));
+    cmd.current_dir(cwd)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY");
+    cmd
 }
 
 #[test]
@@ -68,7 +81,8 @@ fn each_documented_global_flag_works_after_subcommand() {
 
 #[test]
 fn sheep_without_query_exits_nonzero_with_useful_stderr() {
-    let output = bin()
+    let cwd = child_cwd("sheep_flag");
+    let output = bin(&cwd)
         .arg("do-android-dream-of-electric-sheep")
         .output()
         .expect("failed to spawn total-recall binary");
@@ -82,11 +96,13 @@ fn sheep_without_query_exits_nonzero_with_useful_stderr() {
         stderr.contains("--query") || stderr.contains("required"),
         "stderr must tell the user --query is required, got: {stderr}"
     );
+    let _ = std::fs::remove_dir_all(&cwd);
 }
 
 #[test]
 fn index_and_sheep_appear_in_help() {
-    let output = bin()
+    let cwd = child_cwd("help_flag");
+    let output = bin(&cwd)
         .arg("--help")
         .output()
         .expect("failed to spawn total-recall binary");
@@ -100,6 +116,7 @@ fn index_and_sheep_appear_in_help() {
         stdout.contains("do-android-dream-of-electric-sheep"),
         "--help must mention the do-android-dream-of-electric-sheep subcommand, got: {stdout}"
     );
+    let _ = std::fs::remove_dir_all(&cwd);
 }
 
 #[test]

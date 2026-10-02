@@ -6,7 +6,7 @@ mod common;
 
 use std::io::{BufRead, Write};
 
-use common::scratch::scratch;
+use common::scratch::{child_cwd, scratch};
 
 /// Build a vibe session dir with `n` user messages of ~`msg_len` chars each.
 fn make_big_session(root: &std::path::Path, name: &str, n: usize, msg_len: usize) {
@@ -29,16 +29,26 @@ fn make_big_session(root: &std::path::Path, name: &str, n: usize, msg_len: usize
     .unwrap();
 }
 
+/// An MCP child, plus the scratch working directory outside the repo tree it
+/// was spawned in. The directory is returned because the child outlives this
+/// function: only the caller, which owns the `Child`, can safely clear it.
+/// `dotenvy` walks up parent directories, so the CWD must sit where no `.env`
+/// is above it, and the vendor keys are removed as well.
 fn spawn_mcp(
     root: &std::path::Path,
 ) -> (
     std::process::Child,
     std::io::BufReader<std::process::ChildStdout>,
     std::process::ChildStdin,
+    std::path::PathBuf,
 ) {
+    let cwd = child_cwd("mcp");
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "vibe", "mcp"])
+        .current_dir(&cwd)
         .env("TOTAL_RECALL_VIBE_ROOT", root)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -46,7 +56,14 @@ fn spawn_mcp(
         .expect("spawn mcp");
     let stdout = child.stdout.take().unwrap();
     let stdin = child.stdin.take().unwrap();
-    (child, std::io::BufReader::new(stdout), stdin)
+    (child, std::io::BufReader::new(stdout), stdin, cwd)
+}
+
+/// Clear a child's scratch working directory, once that child has been killed.
+fn reap_mcp(child: &mut std::process::Child, cwd: &std::path::Path) {
+    child.kill().ok();
+    child.wait().ok();
+    let _ = std::fs::remove_dir_all(cwd);
 }
 
 fn send(stdin: &mut std::process::ChildStdin, v: &serde_json::Value) {
@@ -116,7 +133,7 @@ fn extract_messages_is_bounded_with_truncation_notice() {
     let root = scratch("big");
     // ~3000 messages * ~2KB = ~6MB raw; forces record_limit truncation at 100.
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     let resp = call_tool(
@@ -162,14 +179,14 @@ fn extract_messages_is_bounded_with_truncation_notice() {
         env.get("messages").and_then(|m| m.as_array()).is_some(),
         "messages array present"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_messages_next_offset_pages_through_session() {
     let root = scratch("paging");
     make_big_session(&root, "session_20260915_095955_51a9645a", 250, 100);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     // Page 1: offset 0, limit 100
@@ -225,14 +242,14 @@ fn extract_messages_next_offset_pages_through_session() {
         .map(|m| m.to_string())
         .collect();
     assert!(m1.is_disjoint(&m2), "pages must not overlap");
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_user_messages_is_bounded() {
     let root = scratch("user");
     make_big_session(&root, "session_20260915_095955_51a9645a", 2000, 1500);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
     let resp = call_tool(
@@ -257,14 +274,14 @@ fn extract_user_messages_is_bounded() {
             .is_some(),
         "user_messages key present"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_messages_rejects_excessive_limit() {
     let root = scratch("limit");
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 10);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     let resp = call_tool(
         &mut reader,
@@ -280,7 +297,7 @@ fn extract_messages_rejects_excessive_limit() {
         Some(true),
         "over-max limit is a tool error"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
@@ -289,7 +306,7 @@ fn extract_messages_small_max_bytes_drives_byte_cap() {
     // 3000 * ~2KB = 6MB; window default 100 records ~200KB; budget 50KB-8KB
     // forces byte_cap truncation well inside the window.
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     let resp = call_tool(
         &mut reader,
@@ -328,14 +345,14 @@ fn extract_messages_small_max_bytes_drives_byte_cap() {
         "envelope must respect max_bytes exactly, got {}",
         text.len()
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_messages_offset_past_end_is_not_truncated() {
     let root = scratch("pastend");
     make_big_session(&root, "session_20260915_095955_51a9645a", 50, 100);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     let resp = call_tool(
         &mut reader,
@@ -360,7 +377,7 @@ fn extract_messages_offset_past_end_is_not_truncated() {
         "",
         "notice empty"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
@@ -369,7 +386,7 @@ fn extract_messages_tiny_max_bytes_is_a_tool_error() {
     // instead of silently breaking the cap.
     let root = scratch("tinycap");
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 500);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     let resp = call_tool(
         &mut reader,
@@ -393,5 +410,5 @@ fn extract_messages_tiny_max_bytes_is_a_tool_error() {
         text.contains("max_record_bytes"),
         "error names the clamp: {text}"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }

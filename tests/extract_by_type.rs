@@ -5,7 +5,7 @@ mod common;
 
 use std::io::{BufRead, Write};
 
-use common::scratch::scratch;
+use common::scratch::{child_cwd, scratch};
 
 fn make_session(root: &std::path::Path, name: &str, lines: &[String]) {
     let dir = root.join(name);
@@ -18,16 +18,26 @@ fn make_session(root: &std::path::Path, name: &str, lines: &[String]) {
     .unwrap();
 }
 
+/// An MCP child, plus the scratch working directory outside the repo tree it
+/// was spawned in. The directory is returned because the child outlives this
+/// function: only the caller, which owns the `Child`, can safely clear it.
+/// `dotenvy` walks up parent directories, so the CWD must sit where no `.env`
+/// is above it, and the vendor keys are removed as well.
 fn spawn_mcp(
     root: &std::path::Path,
 ) -> (
     std::process::Child,
     std::io::BufReader<std::process::ChildStdout>,
     std::process::ChildStdin,
+    std::path::PathBuf,
 ) {
+    let cwd = child_cwd("mcp");
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "vibe", "mcp"])
+        .current_dir(&cwd)
         .env("TOTAL_RECALL_VIBE_ROOT", root)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -35,7 +45,14 @@ fn spawn_mcp(
         .expect("spawn mcp");
     let stdout = child.stdout.take().unwrap();
     let stdin = child.stdin.take().unwrap();
-    (child, std::io::BufReader::new(stdout), stdin)
+    (child, std::io::BufReader::new(stdout), stdin, cwd)
+}
+
+/// Clear a child's scratch working directory, once that child has been killed.
+fn reap_mcp(child: &mut std::process::Child, cwd: &std::path::Path) {
+    child.kill().ok();
+    child.wait().ok();
+    let _ = std::fs::remove_dir_all(cwd);
 }
 
 fn send(stdin: &mut std::process::ChildStdin, v: &serde_json::Value) {
@@ -106,7 +123,7 @@ fn data_lines(text: &str) -> Vec<&str> {
 fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
     let root = scratch("all");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -135,14 +152,14 @@ fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
         assistant.contains("\\n"),
         "embedded newline escaped: {assistant}"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_single_type_filter() {
     let root = scratch("filter");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -153,14 +170,14 @@ fn extract_by_type_single_type_filter() {
     let lines = data_lines(&text);
     assert_eq!(lines.len(), 1);
     assert!(lines[0].starts_with("user,"));
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_unknown_type_errors() {
     let root = scratch("unknown");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -172,7 +189,7 @@ fn extract_by_type_unknown_type_errors() {
         Some(true)
     );
     assert!(text_of(&resp).contains("bogus"));
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
@@ -181,7 +198,7 @@ fn extract_by_type_is_bounded_with_notice() {
     let big = "y".repeat(2000);
     let lines: Vec<String> = (0..500).map(|i| format!("{{\"role\":\"user\",\"content\":\"m{i} {big}\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}}")).collect();
     make_session(&root, "session_20260915_095955_51a9645a", &lines);
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -200,14 +217,14 @@ fn extract_by_type_is_bounded_with_notice() {
         text.lines().any(|l| l.starts_with("# TRUNCATED:")),
         "truncation notice line present"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_omitted_types_defaults_to_all() {
     let root = scratch("omitted");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -223,14 +240,14 @@ fn extract_by_type_omitted_types_defaults_to_all() {
         4,
         "header echoes all four types"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_include_toggle_at_mcp_level() {
     let root = scratch("toggle");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     // Default: injected skipped (3 records). With the toggle: 4.
     send(
@@ -249,14 +266,14 @@ fn extract_by_type_include_toggle_at_mcp_level() {
         injected.contains("\"injected\":true"),
         "record carries the injected flag"
     );
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
     let root = scratch("tinycap");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin) = spawn_mcp(&root);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
     send(
         &mut stdin,
@@ -268,5 +285,5 @@ fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
         Some(true)
     );
     assert!(text_of(&resp).contains("even one record"));
-    let _ = child.kill();
+    reap_mcp(&mut child, &cwd);
 }
