@@ -5,6 +5,35 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-02
+
+### Fixed
+
+- The `compact_session` MCP tool description no longer claims `--provider`
+  selects the vendor. The flag is a CLI option; the MCP server constructs the
+  compiled-in default provider and never read it, so the description
+  advertised a control that did not exist. It now states the vendor compiled
+  in as the default without naming the flag at all, and a new invariant test
+  fails if any tool description mentions `--provider` again.
+
+### Changed
+
+- The test suite's scratch directories are unique per call, from one shared
+  helper (`tests/common/scratch.rs`), with a hygiene test failing if any test
+  file reintroduces a name-keyed temporary path. Two test files were observed
+  failing under concurrent runs before the change: `sheep.rs` (four
+  concurrent runs, all four red) and `rollout_opencode.rs` (four runs, all
+  four red, on "table session already exists" and "disk I/O error").
+- Every spawned test child runs outside the repository working tree with the
+  vendor keys removed from its environment. `dotenvy` walks up parent
+  directories, so a child started from the crate root could have read the
+  developer's `.env`.
+- Timing assertions moved out of the test suite and into a criterion bench
+  (`bench_committed_fixtures`, over committed fixtures). The old 10 ms
+  formatting budget was a load detector — it failed twice at 12.04 ms and
+  21.02 ms against a ~2.5 ms median on a loaded machine, which is a bound no
+  budget can be both tight enough to guard and loose enough to survive.
+
 ## [0.8.0] - 2026-10-01
 
 ### Added
@@ -238,7 +267,8 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/prompt-cult/total-recall/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/prompt-cult/total-recall/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/prompt-cult/total-recall/compare/v0.6.1...v0.6.2
