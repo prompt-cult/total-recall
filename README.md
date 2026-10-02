@@ -188,11 +188,10 @@ $B --harness opencode do-android-dream-of-electric-sheep --query 'tantivy' --hou
 $B --harness opencode do-android-dream-of-electric-sheep --query 'shadow AND index' --sessions ses_f5a4ea5e
 ```
 
-MCP tools: `index_sessions` (`session_id`, `hours_back` default 0,
-`directory`) and `do_android_dream_of_electric_sheep` (`query`, `session_id`,
-`hours_back` default 48, `directory`, `max_bytes`). `list_sessions` and
-`profile_session` gain a `has_tantivy_index` flag, set by the server, not by
-the adapters.
+MCP tools over the same adapters; the generated surfaces are the authority
+for parameters — `tools/list` for the MCP tools, `total-recall --help` for
+the CLI. `list_sessions` and `profile_session` carry a `has_tantivy_index`
+flag, set by the server, not by the adapters.
 
 ### `profile_session` cache — opt-in, staleness-checked
 
@@ -414,22 +413,24 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `compact_session`,
 `she_said_he_said_action`, `index_sessions`,
-`do_android_dream_of_electric_sheep`, and `total_recall`:
+`do_android_dream_of_electric_sheep`, `total_recall`, and `line_histogram`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
-empty = most recent) except `list_sessions`, which is the index and takes a
-`hours_back` cutoff (default 240 = 10 days; 0 = no bound) instead.
+empty = most recent) except the listing tools, which take a `hours_back`
+cutoff instead (`list_sessions` defaults to 240 hours = 10 days; 0 = no
+bound). The generated schemas are the parameter authority: `tools/list`
+for the MCP tools, `--help` for the CLI.
 
-**Flood control.** The report tools (`she_said_he_said_action`,
-`do_android_dream_of_electric_sheep`, `total_recall`) cap their response
-text at `max_bytes` (default 16,384). When a report overflows, the full
-report is written to a private file under the user's temp directory
-(`$TMPDIR/total-recall/`, mode 600), the returned text is cut at a line
-boundary, and it ends with a line-oriented EOF marker naming the tool, the
-returned and total byte counts, the total line count, the full report's
-path, and the prune policy: temp files older than 24 hours are removed on
-every capped call. Raise the window with `max_bytes`; the full report is
-never lost.
+**Flood control.** Every response that can overflow the caller's context is
+capped at `max_bytes` (default 16,384) — the mechanism is generic, not a
+fixed tool list. An overflowing response is written whole to a private file
+under the user's temp directory (`$TMPDIR/total-recall/`, mode 600); the
+returned text is cut at a line boundary (JSON responses are never torn —
+the marker returns alone) and ends with a line-oriented EOF marker naming
+the tool, the byte and line counts, the full file's path, and the 24-hour
+prune policy. The marker carries the file's line histogram (the vendored
+`line_histogram.awk`), and the `line_histogram` tool pages any file by line
+range — so nothing is lost and nothing floods a context window.
 
 ```bash
 $B mcp

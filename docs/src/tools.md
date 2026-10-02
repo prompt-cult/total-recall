@@ -1,8 +1,17 @@
 # Tools
 
-Every MCP tool has a CLI equivalent over the same adapter. The tables below
-give the real parameter names and defaults, taken from the tool schemas in
-`src/mcp.rs` and the `clap` definitions in `src/main.rs`.
+Every MCP tool has a CLI equivalent over the same adapter. Parameter
+surfaces are not duplicated here: the generated schemas are the authority —
+`tools/list` for the MCP tools (derived from the source descriptions) and
+`total-recall --help` for the CLI (derived from the `clap` definitions).
+Two generic contracts cover every tool, including ones added later:
+
+- every tool is session-scoped through a `session_id` parameter (partial
+  match, empty = most recent), except the listing tools, which take a
+  `hours_back` cutoff instead (`list_sessions` defaults to 240 hours;
+  0 = no bound)
+- every response that can overflow the caller's context is flood-capped —
+  see [Flood control](#flood-control)
 
 ## Global CLI flags
 
@@ -42,10 +51,6 @@ takes `--harness` explicitly.
 
 ### `list_sessions`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `hours_back` | integer | 240 | only sessions updated within this many hours; 0 = no bound |
-| `directory` | string | — | only sessions whose directory contains this substring |
 
 CLI: `total-recall --harness <h> list [--json|--markdown]`.
 
@@ -70,10 +75,6 @@ subqueries, so the index over thousands of sessions reads at disk speed.
 
 ### `profile_session`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | — | partial match; empty = most recent |
-| `cache` | boolean | false | opt-in on-disk profile cache |
 
 CLI: `total-recall --harness <h> --session <id> profile [--cache]`.
 
@@ -121,12 +122,6 @@ MCP client can hold:
   "messages": [ … ] }
 ```
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `limit` | integer | 100 | max records to return; max 1000, larger values are rejected |
-| `offset` | integer | — | 0-based start index; omit for the most recent `limit` (a tail window) |
-| `max_bytes` | integer | 8 MiB | hard byte cap; larger values are clamped to the ceiling |
-| `max_record_bytes` | integer | 256 KiB | per-record clamp for `content` / `thinking` |
 
 Omit `offset` for the most recent `limit`; pass `offset` (from `0`) and follow
 `bounds.next_offset` to page the whole session in bounded chunks.
@@ -141,11 +136,6 @@ clamp.
 
 ### `extract_messages`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | — | partial match; empty = most recent |
-| `full` | boolean | false | read the whole rollout instead of from the last compaction point |
-| `limit`, `offset`, `max_bytes`, `max_record_bytes` | | as above | |
 
 CLI: `total-recall --harness <h> --session <id> extract [--full] [--limit N]
 [--offset N] [--max-bytes N] [--max-record-bytes N]`.
@@ -165,13 +155,6 @@ A pure read of the raw store, for recovering data from large, partially
 corrupt, or poisoned sessions. Emits one record per line with no summarization
 or aggregation.
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | — | partial match; empty = most recent |
-| `full` | boolean | false | whole rollout, or from the last compaction point |
-| `types` | array of string | all | `user`, `assistant`, `tool`, `thinking`, individually, in combination, or `"all"` |
-| `include_injected` | boolean | false | include injected (synthetic) user records |
-| `limit`, `offset`, `max_bytes`, `max_record_bytes` | | as above | |
 
 ```
 # {"session_id":"…","harness":"vibe","types":["user","tool"],"bounds":{…}}
@@ -205,13 +188,6 @@ CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
 
 ### `she_said_he_said_action`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `words` | array of string | required | case-insensitive terms; at least one |
-| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 48 | used when `session_id` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-id mode |
-| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 Per session it extracts:
 
@@ -234,11 +210,6 @@ CLI: `total-recall --harness opencode he-said-she-said --words git,branch,tag
 
 ### `index_sessions`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 0 | used when `session_id` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-id mode |
 
 Builds or refreshes a [tantivy](https://github.com/quickwit-oss/tantivy)
 full-text index per session, from the normalized message stream of any harness.
@@ -268,13 +239,6 @@ alongside their usual output.
 
 ### `do_android_dream_of_electric_sheep`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `query` | string | required | tantivy query syntax |
-| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 48 | used when `session_id` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-id mode |
-| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 Searches the per-session indexes with a `QueryParser` over the `content` and
 `thinking` fields, merging the top 10 hits per session into one ranking
@@ -297,10 +261,6 @@ CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 
 ### `compact_session`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | — | partial match; empty = most recent |
-| `full` | boolean | false | compact the whole rollout instead of from the last compaction point |
 
 1. Reads the session (whole, or from the last compaction point)
 2. Builds a structured prompt
@@ -311,11 +271,6 @@ CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mis
 
 ### `total_recall`
 
-| Parameter | Type | Default | Meaning |
-|-----------|------|---------|---------|
-| `session_id` | string | — | partial match; empty = most recent |
-| `hours_back` | integer | 24 | window for the recent-rollouts table |
-| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 1. Makes two parallel Mercury 2.5 calls: a current-state summary, and the
    user's goals / tasks / steers
@@ -329,21 +284,34 @@ CLI: `total-recall --harness <h> --session <id> recall [--provider mistral]`.
 
 ## Flood control
 
-The report tools — `she_said_he_said_action`,
-`do_android_dream_of_electric_sheep` and `total_recall` — cap their
-response text at `max_bytes` (default 16,384). A report that overflows the
-window is never lost and never floods the caller's context:
+Every response that can overflow the caller's context is capped at
+`max_bytes` (default 16,384) — the mechanism is generic and applies to any
+tool that can produce a large response, not to a fixed list. An overflowing
+response is never lost and never floods the caller's context:
 
-- the full report is written to a private file under the user's temp
+- the full response is written to a private file under the user's temp
   directory, `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.md`, mode 600
-- the returned text is cut at a line boundary at or under `max_bytes`
+- the returned text is cut at a line boundary at or under `max_bytes` —
+  JSON responses are never torn: an overflowing JSON response returns the
+  marker alone
 - the return ends with a line-oriented EOF marker naming the tool, the
-  returned and total byte counts, the total line count, the full report's
+  returned and total byte counts, the total line count, the full response's
   path, and the prune policy
+- the marker carries the file's line histogram (the vendored
+  `line_histogram.awk`), so the shape of what overflowed is visible without
+  reading it
 - every capped call first removes overflow files older than 24 hours from
   that directory, so the temp file needs no manual cleanup
 
-Raise the window with `max_bytes` when a bigger report is wanted inline.
+Raise the window with `max_bytes` when a bigger response is wanted inline.
+
+### `line_histogram`
+
+The companion for overflow files and any large dump on disk. Profiles a
+file by line-size distribution (histogram mode, ten buckets — a 2 MB file
+yields a 2 KB histogram) or extracts a line range (`mode: extract` with
+`line`, or `start` and `end`). Runs the vendored `line_histogram.awk` with a
+direct `awk -f` spawn — the shebang is never relied on.
 
 ## Ingestion guardrails
 
