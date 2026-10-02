@@ -5,6 +5,49 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-10-02
+
+### Added
+
+- Flood control, generic and open-ended. Every tool response that can
+  overflow without its own bound routes through one capped helper:
+  `max_bytes` (default 16,384, settable on `she_said_he_said_action`,
+  `do_android_dream_of_electric_sheep` and `total_recall`), the whole
+  response written to a private file under `$TMPDIR/total-recall/`
+  (mode 600), a line-boundary cut, and a line-oriented EOF marker naming
+  the tool, the byte counts, the line count, the file's path, the 24-hour
+  prune policy and the file's line histogram. JSON responses are never
+  torn: an overflowing JSON response returns the marker alone. The
+  bounded-extraction tools keep their own envelope as their flood control.
+- The `line_histogram` MCP tool, running the vendored
+  `scripts/line_histogram.awk` (the author's gist
+  0454936144ee8dbc55bdc96ef532555e, byte-identical, embedded at compile
+  time) with a direct `awk -f` spawn: histogram mode profiles any file in
+  ten buckets (2 MB in, ~2 KB out), extract mode pages line ranges.
+
+### Changed
+
+- `she_said_he_said_action`, `index_sessions` and
+  `do_android_dream_of_electric_sheep` take one `session_id` (partial
+  match) instead of a sessions array, matching the rest of the tool
+  surface. `list_sessions` — the one listing tool — takes a `hours_back`
+  cutoff that now defaults to 240 hours (10 days; 0 = no bound), so an
+  unbounded full-store list is no longer the default.
+- The markdown docs no longer repeat the generated parameter surfaces:
+  `tools/list` for the MCP tools and `total-recall --help` for the CLI are
+  the authority, and the prose states the generic contracts that apply to
+  tools added later.
+
+### Fixed
+
+- Redaction panicked on multibyte text: the prefix scanner walked
+  byte-wise and sliced inside an em-dash, so compacting any session whose
+  prose contains one died. Compaction of the authoring session was the
+  reproduction.
+- Overflow files collided when two capped calls landed in the same second,
+  the second silently overwriting the first's file; the name now carries
+  millis, pid and a per-process counter.
+
 ## [0.9.0] - 2026-10-02
 
 ### Fixed
@@ -267,7 +310,8 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/prompt-cult/total-recall/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/prompt-cult/total-recall/compare/v0.6.2...v0.7.0
