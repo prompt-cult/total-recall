@@ -21,7 +21,8 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 All rollouts for the bound harness with id, title, times, directory, message
 and tool counts, byte size, parent/children. Optional bounds: `hours_back`
-(default 0 = all) and `directory` substring filter. The OpenCode SQLite
+(default 240 = 10 days; 0 = no bound) and `directory` substring filter. The
+OpenCode SQLite
 implementation is a single GROUP BY query (no correlated subqueries), so the
 index over thousands of sessions reads at disk speed.
 
@@ -165,10 +166,11 @@ $B --harness opencode --session ses_f5a4ea5e profile
 Searches the per-session tantivy indexes with tantivy query syntax
 (`QueryParser` over the `content` and `thinking` fields), merging the top 10
 hits per session into one ranking ordered by score. Session selection is
-identical to `she_said_he_said_action`: explicit partial IDs resolve to the
-most recent match (unmatched IDs reported in the header, not fatal); an
-empty list means all sessions updated within `hours_back` (default 48, 0 =
-no bound), optionally filtered by `directory` substring. Sessions without an
+identical to `she_said_he_said_action`: the `session_id` parameter takes one
+partial id, resolving to the most recent match (an unmatched id is reported
+in the header, not fatal); empty means all sessions updated within
+`hours_back` (default 48, 0 = no bound), optionally filtered by `directory`
+substring. Sessions without an
 index are listed as not indexed (run index first) and skipped; a corrupt
 index is reported in the header, not fatal.
 
@@ -186,10 +188,11 @@ $B --harness opencode do-android-dream-of-electric-sheep --query 'tantivy' --hou
 $B --harness opencode do-android-dream-of-electric-sheep --query 'shadow AND index' --sessions ses_f5a4ea5e
 ```
 
-MCP tools: `index_sessions` (`sessions`, `hours_back` default 0, `directory`)
-and `do_android_dream_of_electric_sheep` (`query`, `sessions`, `hours_back`
-default 48, `directory`). `list_sessions` and `profile_session` gain a
-`has_tantivy_index` flag, set by the server, not by the adapters.
+MCP tools: `index_sessions` (`session_id`, `hours_back` default 0,
+`directory`) and `do_android_dream_of_electric_sheep` (`query`, `session_id`,
+`hours_back` default 48, `directory`, `max_bytes`). `list_sessions` and
+`profile_session` gain a `has_tantivy_index` flag, set by the server, not by
+the adapters.
 
 ### `profile_session` cache — opt-in, staleness-checked
 
@@ -412,6 +415,21 @@ flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `compact_session`,
 `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, and `total_recall`:
+
+Every tool is session-scoped through a `session_id` parameter (partial match,
+empty = most recent) except `list_sessions`, which is the index and takes a
+`hours_back` cutoff (default 240 = 10 days; 0 = no bound) instead.
+
+**Flood control.** The report tools (`she_said_he_said_action`,
+`do_android_dream_of_electric_sheep`, `total_recall`) cap their response
+text at `max_bytes` (default 16,384). When a report overflows, the full
+report is written to a private file under the user's temp directory
+(`$TMPDIR/total-recall/`, mode 600), the returned text is cut at a line
+boundary, and it ends with a line-oriented EOF marker naming the tool, the
+returned and total byte counts, the total line count, the full report's
+path, and the prune policy: temp files older than 24 hours are removed on
+every capped call. Raise the window with `max_bytes`; the full report is
+never lost.
 
 ```bash
 $B mcp

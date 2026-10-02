@@ -44,7 +44,7 @@ takes `--harness` explicitly.
 
 | Parameter | Type | Default | Meaning |
 |-----------|------|---------|---------|
-| `hours_back` | integer | 0 | only sessions updated within this many hours; 0 = no bound |
+| `hours_back` | integer | 240 | only sessions updated within this many hours; 0 = no bound |
 | `directory` | string | — | only sessions whose directory contains this substring |
 
 CLI: `total-recall --harness <h> list [--json|--markdown]`.
@@ -208,9 +208,10 @@ CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
 | Parameter | Type | Default | Meaning |
 |-----------|------|---------|---------|
 | `words` | array of string | required | case-insensitive terms; at least one |
-| `sessions` | array of string | empty | partial session ids; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 48 | used when `sessions` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-list mode |
+| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
+| `hours_back` | integer | 48 | used when `session_id` is empty; 0 = no bound |
+| `directory` | string | — | directory substring filter, empty-session-id mode |
+| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 Per session it extracts:
 
@@ -222,7 +223,7 @@ Matching is pushed down into SQLite as a custom scalar function on a
 read-only connection: the database is never written, matching runs inside the
 query engine, and matching rows stream out in one pass. Synthetic parts (skill
 injections, compaction markers) are skipped. Output is a markdown report,
-sessions ordered most-recent first. Explicit partial ids that match nothing are
+sessions ordered most-recent first. An unmatched session_id is
 reported in the header, not fatal. Currently implemented for OpenCode; other
 harnesses return a clear unsupported error.
 
@@ -235,9 +236,9 @@ CLI: `total-recall --harness opencode he-said-she-said --words git,branch,tag
 
 | Parameter | Type | Default | Meaning |
 |-----------|------|---------|---------|
-| `sessions` | array of string | empty | partial session ids; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 0 | used when `sessions` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-list mode |
+| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
+| `hours_back` | integer | 0 | used when `session_id` is empty; 0 = no bound |
+| `directory` | string | — | directory substring filter, empty-session-id mode |
 
 Builds or refreshes a [tantivy](https://github.com/quickwit-oss/tantivy)
 full-text index per session, from the normalized message stream of any harness.
@@ -270,14 +271,15 @@ alongside their usual output.
 | Parameter | Type | Default | Meaning |
 |-----------|------|---------|---------|
 | `query` | string | required | tantivy query syntax |
-| `sessions` | array of string | empty | partial session ids; empty = all rollouts within `hours_back` |
-| `hours_back` | integer | 48 | used when `sessions` is empty; 0 = no bound |
-| `directory` | string | — | directory substring filter, empty-session-list mode |
+| `session_id` | string | empty | partial session id; empty = all rollouts within `hours_back` |
+| `hours_back` | integer | 48 | used when `session_id` is empty; 0 = no bound |
+| `directory` | string | — | directory substring filter, empty-session-id mode |
+| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 Searches the per-session indexes with a `QueryParser` over the `content` and
 `thinking` fields, merging the top 10 hits per session into one ranking
-ordered by score. Explicit partial ids resolve to the most recent match;
-unmatched ids are reported in the header, not fatal. Sessions without an index
+ordered by score. The session_id resolves to the most recent match;
+an unmatched id is reported in the header, not fatal. Sessions without an index
 are listed as not indexed and skipped; a corrupt index is reported in the
 header, not fatal. Run `index_sessions` first.
 
@@ -313,6 +315,7 @@ CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mis
 |-----------|------|---------|---------|
 | `session_id` | string | — | partial match; empty = most recent |
 | `hours_back` | integer | 24 | window for the recent-rollouts table |
+| `max_bytes` | integer | 16384 | flood-control cap on the returned report; see below |
 
 1. Makes two parallel Mercury 2.5 calls: a current-state summary, and the
    user's goals / tasks / steers
@@ -323,6 +326,24 @@ CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mis
    metadata first, substance middle, instructions last
 
 CLI: `total-recall --harness <h> --session <id> recall [--provider mistral]`.
+
+## Flood control
+
+The report tools — `she_said_he_said_action`,
+`do_android_dream_of_electric_sheep` and `total_recall` — cap their
+response text at `max_bytes` (default 16,384). A report that overflows the
+window is never lost and never floods the caller's context:
+
+- the full report is written to a private file under the user's temp
+  directory, `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.md`, mode 600
+- the returned text is cut at a line boundary at or under `max_bytes`
+- the return ends with a line-oriented EOF marker naming the tool, the
+  returned and total byte counts, the total line count, the full report's
+  path, and the prune policy
+- every capped call first removes overflow files older than 24 hours from
+  that directory, so the temp file needs no manual cleanup
+
+Raise the window with `max_bytes` when a bigger report is wanted inline.
 
 ## Ingestion guardrails
 
