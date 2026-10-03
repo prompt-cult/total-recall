@@ -38,7 +38,19 @@ pub fn temp_root() -> PathBuf {
 /// [`temp_root`]. The vendored awk script is never pruned. Trivial by
 /// design: no manifest, no locks — a sweep per capped call.
 pub fn prune_older_than(cutoff: SystemTime) {
-    let Ok(entries) = fs::read_dir(temp_root()) else {
+    prune_older_than_in(&temp_root(), cutoff);
+}
+
+/// [`prune_older_than`] against an explicit root.
+///
+/// The sweep is split out so its two halves — an older-than-cutoff report goes,
+/// the vendored script never does — can be asserted against a directory the
+/// caller owns. Pruning the shared [`temp_root`] with a cutoff in the future is
+/// how a test proves the second half, and it deletes every report every other
+/// caller in the process has just written, including one that is mid-flight
+/// into its own histogram.
+pub fn prune_older_than_in(root: &Path, cutoff: SystemTime) {
+    let Ok(entries) = fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {

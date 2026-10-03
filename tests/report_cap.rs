@@ -14,7 +14,9 @@
 mod common;
 
 use common::scratch::scratch;
-use total_recall::report_cap::{DEFAULT_MAX_BYTES, cap_report, prune_older_than, temp_root};
+use total_recall::report_cap::{
+    DEFAULT_MAX_BYTES, cap_report, prune_older_than, prune_older_than_in, temp_root,
+};
 
 use std::time::{Duration, SystemTime};
 
@@ -196,18 +198,32 @@ fn overflow_file_lifecycle() {
     assert!(script.exists(), "a past cutoff keeps the vendored script");
 
     // A cutoff in the future treats fresh files as older than it: the
-    // overflow reports go, the vendored awk script never does.
-    prune_older_than(SystemTime::now() + Duration::from_secs(3600));
+    // overflow reports go, the vendored awk script never does. That half of
+    // the contract is asserted against a root this test owns. Sweeping the
+    // shared `temp_root` with a future cutoff to prove it deletes every report
+    // every other caller has just written — including a sibling test's file
+    // that is mid-flight into its own histogram, which is how CI caught this:
+    // `awk: cannot open file ... for reading` and a marker with no histogram.
+    let owned = scratch("prune_future_cutoff");
+    let owned_report = owned.join("tool_scope_1.md");
+    std::fs::write(&owned_report, "report\n").expect("the owned report is written");
+    let owned_other = owned.join("tool_scope_2.md");
+    std::fs::write(&owned_other, "report\n").expect("the second owned report is written");
+    let owned_script = owned.join("line_histogram.awk");
+    std::fs::write(&owned_script, "# staged script\n").expect("the owned script is written");
+
+    let future = SystemTime::now() + Duration::from_secs(3600);
+    prune_older_than_in(&owned, future);
     assert!(
-        !text_path.exists(),
+        !owned_report.exists(),
         "an older-than-cutoff overflow report is pruned"
     );
     assert!(
-        !json_path.exists(),
-        "the json overflow report is pruned too"
+        !owned_other.exists(),
+        "every older-than-cutoff overflow report is pruned, not just one"
     );
     assert!(
-        script.exists(),
+        owned_script.exists(),
         "prune must never remove the vendored awk script, only overflow reports"
     );
 }
