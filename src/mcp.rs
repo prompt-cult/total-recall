@@ -33,6 +33,7 @@ pub struct ListSessionsParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ProfileParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(
         description = "Opt-in on-disk profile cache: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Default false."
@@ -44,6 +45,7 @@ pub struct ProfileParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ExtractParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(
         description = "If true, read entire session. If false, read from last compaction point."
@@ -75,6 +77,7 @@ pub struct ExtractParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct UserMessagesParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
     #[serde(default)]
@@ -95,6 +98,7 @@ pub struct UserMessagesParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ExtractByTypeParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(
         description = "If true, read entire session. If false, read from last compaction point."
@@ -130,6 +134,7 @@ pub struct ExtractByTypeParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct CompactParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(
         description = "If true, compact entire session. If false, compact from last compaction point."
@@ -141,6 +146,7 @@ pub struct CompactParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct TotalRecallParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
     pub session_id: String,
     #[schemars(description = "Hours back to include in the recent rollouts table. Default: 24.")]
     #[serde(default = "default_hours")]

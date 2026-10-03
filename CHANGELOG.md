@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-10-03
+
+### Fixed
+
+- An omitted `session_id` deserialized as a hard failure instead of the
+  documented "Empty = most recent" default (issue #18). Six params structs
+  lacked `#[serde(default)]` on the field — profile, extract messages,
+  extract user messages, extract by type, compact and total_recall — so
+  `total_recall` with only `hours_back` failed with "missing field
+  `session_id`" while `{"session_id": ""}` worked. The description was
+  right; the struct was wrong.
+
 ## [0.9.1] - 2026-10-02
 
 ### Added
@@ -310,7 +322,8 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/prompt-cult/total-recall/compare/v0.7.0...v0.8.0
