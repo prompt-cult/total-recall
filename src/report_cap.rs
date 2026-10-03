@@ -76,11 +76,30 @@ fn write_private(path: &Path, content: &str) {
     }
 }
 
+/// Staging serial for [`stage_awk_script`]: the staging file names must not
+/// collide between threads or processes staging the script at the same moment.
+static STAGING_SERIAL: AtomicU64 = AtomicU64::new(0);
+
 /// Stage the embedded awk script for `awk -f` and return its path. The
 /// shebang in the script is never executed; a direct spawn of `awk` is.
+///
+/// The staged path is shared by every caller, in this process and in every
+/// other process using the same temp root, so the script is PUBLISHED
+/// ATOMICALLY: it is written to a uniquely named file beside its destination
+/// and renamed over it. A rename is atomic within a filesystem, so a
+/// concurrent `awk -f` sees either the whole previous script or the whole new
+/// one. Truncating and rewriting the destination in place instead would let
+/// one caller's `awk` read a half-written file, and the symptom is a histogram
+/// call that returns no histogram — the overflow marker silently losing the
+/// bucket distribution it exists to carry.
 fn stage_awk_script() -> PathBuf {
     let path = temp_root().join("line_histogram.awk");
     let _ = fs::create_dir_all(temp_root());
+    let staging = temp_root().join(format!(
+        ".line_histogram.awk.{}.{}",
+        std::process::id(),
+        STAGING_SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -88,9 +107,17 @@ fn stage_awk_script() -> PathBuf {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    if let Ok(mut f) = opts.open(&path) {
+    let staged = opts.open(&staging).and_then(|mut f| {
         use std::io::Write;
-        let _ = f.write_all(LINE_HISTOGRAM_AWK.as_bytes());
+        f.write_all(LINE_HISTOGRAM_AWK.as_bytes())
+    });
+    match staged {
+        // Only a completely written script is allowed to become the shared
+        // one; a failed write leaves the previous script in place.
+        Ok(()) if fs::rename(&staging, &path).is_ok() => {}
+        _ => {
+            let _ = fs::remove_file(&staging);
+        }
     }
     path
 }

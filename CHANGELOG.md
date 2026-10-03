@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prompt names the number of items and the number of bytes, and the timing
   comment at the top of the `total_recall` response carries both prompts' byte
   sizes and dropped counts.
+- The vendored `line_histogram.awk` is published to its shared staged path
+  atomically (write beside, rename over) instead of truncated and rewritten in
+  place. Concurrent capped calls — parallel tool calls, or the test binaries
+  cargo runs side by side — could previously read a half-written script, and a
+  call that lost the race returned no bucket distribution at all: the overflow
+  marker silently dropped the histogram it exists to carry. Measured on the old
+  staging, 1 to 8 of 96 concurrent histogram calls came back empty.
 
 ## [0.9.2] - 2026-10-03
 

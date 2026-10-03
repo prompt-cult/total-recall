@@ -13,6 +13,7 @@
 
 mod common;
 
+use common::scratch::scratch;
 use total_recall::report_cap::{DEFAULT_MAX_BYTES, cap_report, prune_older_than, temp_root};
 
 use std::time::{Duration, SystemTime};
@@ -208,5 +209,53 @@ fn overflow_file_lifecycle() {
     assert!(
         script.exists(),
         "prune must never remove the vendored awk script, only overflow reports"
+    );
+}
+
+/// Concurrent histograms must never see a half-written script.
+///
+/// `line_histogram` stages the vendored awk script and then executes it. The
+/// staged path is shared by every caller — in one process and across the
+/// processes cargo runs test binaries in — so publishing the script by
+/// truncating and rewriting it in place lets one caller's `awk` read the file
+/// while another caller has truncated it and not yet written it back. The
+/// symptom is a histogram call that returns no histogram at all: the response
+/// silently loses its bucket distribution, which is the whole point of the
+/// overflow marker.
+///
+/// The fixture lives in this test's own scratch directory, outside
+/// [`temp_root`], so the concurrent pruning in `overflow_file_lifecycle`
+/// cannot delete it mid-test.
+#[test]
+fn concurrent_histograms_never_see_a_partial_script() {
+    let dir = scratch("concurrent_histogram");
+    let fixture = dir.join("fixture.txt");
+    std::fs::write(&fixture, input()).expect("the histogram fixture is written");
+
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let path = fixture.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut blank = 0usize;
+            for _ in 0..12 {
+                let out = total_recall::report_cap::line_histogram(&path, None, None, None, None)
+                    .unwrap_or_default();
+                if !out.contains("Bucket Distribution") {
+                    blank += 1;
+                }
+            }
+            blank
+        }));
+    }
+
+    let blank: usize = handles
+        .into_iter()
+        .map(|h| h.join().expect("no histogram thread panicked"))
+        .sum();
+
+    assert_eq!(
+        blank, 0,
+        "{blank} of 96 concurrent histogram calls returned without a bucket distribution: \
+         the staged awk script was published non-atomically"
     );
 }
