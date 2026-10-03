@@ -241,7 +241,9 @@ exceeding any of them returns HTTP 429:
 - **Per-call input cap: 1M tokens** (~4 chars/token). A 100MiB rollout is
   never slung in one call. Note Mercury 2.5's documented context window is
   260K tokens, so practical calls stay well below the cap — tool results
-  are snipped to 500 chars in prompt assembly, keeping prompts small.
+  are snipped to 500 chars in prompt assembly, and a prompt built from a whole
+  session is held to a byte budget, so an over-cap prompt is never assembled in
+  the first place.
 - **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
   sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
   (latency is flat across payload sizes and concurrency). Beyond
@@ -431,6 +433,13 @@ the tool, the byte and line counts, the full file's path, and the 24-hour
 prune policy. The marker carries the file's line histogram (the vendored
 `line_histogram.awk`), and the `line_histogram` tool pages any file by line
 range — so nothing is lost and nothing floods a context window.
+
+**Bounded prompts.** The two LLM prompts the recall path sends are byte-bounded
+on the way in, on the same principle: the newest context is kept, the oldest
+dropped, and the drop reported — in a marker line inside the prompt and as the
+prompt byte sizes and dropped counts in the timing comment the response already
+carries. A session too large to summarize in one call therefore costs a bounded
+prompt instead of a request that cannot be ingested.
 
 ```bash
 $B mcp

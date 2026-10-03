@@ -1,5 +1,5 @@
 use crate::redact::redact_secrets;
-use crate::rollout::{RolloutMessage, SessionSummary, messages_to_text};
+use crate::rollout::{RolloutMessage, SessionSummary};
 
 /// System prompt for the current-state summary (same as compaction).
 pub const STATE_SYSTEM_PROMPT: &str =
@@ -60,35 +60,246 @@ Be concise but preserve the material facts of what the user asked for.
 --- User Messages ---
 {messages}"#;
 
-/// Build the prompt for the current-state LLM call.
+/// Byte budget for the payload of the current-state prompt.
 ///
-/// The session text is redacted upstream in [`messages_to_text`], which is the
-/// only path that reaches this prompt.
-pub fn build_state_prompt(messages: &[RolloutMessage]) -> String {
-    let conversation = messages_to_text(messages);
-    STATE_PROMPT.replace("{conversation}", &conversation)
+/// 200 KB is ~50K tokens, which at the documented free-tier ceiling of
+/// 1,000,000 input tokens per minute is ~3 seconds of ingest — inside any
+/// client deadline, with the rest of the 260K-token context left for the
+/// answer. Unbounded, a single large session reached millions of tokens: past
+/// the provider's input ceiling it is a hard error, and under it the ingest
+/// alone outlived the deadline.
+pub const MAX_STATE_BYTES: usize = 200 * 1024;
+
+/// Byte budget for the payload of the user-goals prompt. Same sizing and the
+/// same reasoning as [`MAX_STATE_BYTES`]; the two calls run in parallel, so
+/// they are held to the same ceiling rather than one being allowed to starve
+/// the other.
+pub const MAX_GOALS_BYTES: usize = 200 * 1024;
+
+/// Bytes held back from a prompt's budget for its truncation marker, so a
+/// marked prompt is still inside its budget. Sized above the longest marker
+/// [`truncation_marker`] can write (`the_boundary_marker_fits_its_reserve`
+/// holds that).
+const MARKER_RESERVE: usize = 256;
+
+/// The built prompt and what the budget cost to hold it to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedPrompt {
+    /// The prompt, ready to send. Carries the truncation marker when anything
+    /// was dropped.
+    pub text: String,
+    /// Bytes of payload in `text`, marker included.
+    pub bytes: usize,
+    /// Bytes of raw source text that are not in the prompt.
+    pub dropped_bytes: usize,
+    /// How many source items (messages, user strings) are not shown in full.
+    pub dropped_items: usize,
 }
 
-/// Build the prompt for the user-goals LLM call.
+/// The one line that says a prompt was cut, naming what was dropped. A budget
+/// without this line is a silent lie about what the model was shown.
+fn truncation_marker(
+    item: &str,
+    dropped_items: usize,
+    dropped_bytes: usize,
+    budget: usize,
+) -> String {
+    format!(
+        "[total-recall: prompt truncated — {dropped_items} oldest {item} not shown in full \
+         ({dropped_bytes} bytes dropped of raw source text); the newest context is kept and \
+         this prompt is held to {budget} bytes]"
+    )
+}
+
+/// The newest `budget` bytes of `block`, cut at a character boundary and then
+/// at a line boundary so the retained text never starts mid-word or mid-line.
+/// Returns `None` when nothing fits.
+fn tail_slice(block: &str, budget: usize) -> Option<&str> {
+    if budget == 0 || block.is_empty() {
+        return None;
+    }
+    let mut start = block.len() - budget;
+    while start < block.len() && !block.is_char_boundary(start) {
+        start += 1;
+    }
+    // Prefer the line boundary at or after the cut so the payload opens on a
+    // whole line; fall back to the character boundary when a single line is
+    // longer than the budget.
+    let line_start = block[start..]
+        .find('\n')
+        .map(|offset| start + offset + 1)
+        .unwrap_or(block.len());
+    let text = &block[line_start..];
+    if text.is_empty() { None } else { Some(text) }
+}
+
+/// What the tail walk kept and what it cost to keep it.
+struct TailKeep {
+    /// Retained blocks, oldest first, ready to join with the separator.
+    blocks: Vec<String>,
+    /// Bytes the retained blocks occupy once joined.
+    kept_bytes: usize,
+    /// Bytes of raw source text that are not in the prompt.
+    dropped_bytes: usize,
+    /// How many source items are not shown in full.
+    dropped_items: usize,
+}
+
+/// Walk `items` newest-first, rendering item `i` with `render(i, &items[i])`,
+/// and keep the newest blocks that fit `budget`. Whole blocks only: half a
+/// message is worth less to a summary than a whole earlier message, and the
+/// dropped count stays exact. The single exception is a newest block larger
+/// than the whole budget, where its newest slice is kept so the prompt is never
+/// empty.
+///
+/// Once the first item is dropped, every older item is dropped too and is
+/// accounted from its raw length without being rendered. That is what keeps the
+/// walk proportional to what is kept rather than to the size of the session:
+/// rendering is where redaction happens, and redaction of text that is about to
+/// be thrown away is the cost this budget exists to avoid.
+fn tail_keep<T>(
+    items: &[T],
+    render: impl Fn(usize, &T) -> String,
+    raw_len: impl Fn(&T) -> usize,
+    separator: &str,
+    budget: usize,
+) -> TailKeep {
+    let mut blocks: Vec<String> = Vec::new();
+    let mut kept_bytes = 0usize;
+    let mut dropped_bytes = 0usize;
+    let mut dropped_items = 0usize;
+
+    for (i, item) in items.iter().enumerate().rev() {
+        if dropped_items > 0 {
+            dropped_items += 1;
+            dropped_bytes += raw_len(item);
+            continue;
+        }
+        let block = render(i, item);
+        if block.is_empty() {
+            continue;
+        }
+        let cost = block.len()
+            + if blocks.is_empty() {
+                0
+            } else {
+                separator.len()
+            };
+        if kept_bytes + cost <= budget {
+            kept_bytes += cost;
+            blocks.push(block);
+            continue;
+        }
+        if blocks.is_empty()
+            && let Some(slice) = tail_slice(&block, budget)
+        {
+            blocks.push(slice.to_string());
+            kept_bytes += slice.len();
+        }
+        dropped_items = 1;
+        dropped_bytes = raw_len(item);
+    }
+
+    blocks.reverse();
+    TailKeep {
+        blocks,
+        kept_bytes,
+        dropped_bytes,
+        dropped_items,
+    }
+}
+
+/// Assemble a bounded payload: the marker when anything was dropped, then the
+/// retained blocks.
+fn bounded_payload(tail: &TailKeep, item: &str, budget: usize, separator: &str) -> String {
+    let mut payload = String::with_capacity(tail.kept_bytes + 256);
+    if tail.dropped_items > 0 {
+        payload.push_str(&truncation_marker(
+            item,
+            tail.dropped_items,
+            tail.dropped_bytes,
+            budget,
+        ));
+        payload.push('\n');
+    }
+    payload.push_str(&tail.blocks.join(separator));
+    payload
+}
+
+/// Build the current-state prompt under `max_bytes` of payload.
+///
+/// The session text is redacted upstream in [`crate::rollout::message_to_text`],
+/// which is the only path that reaches this prompt. The payload is filled from
+/// the newest message backwards and the oldest messages are dropped; the drop is
+/// reported in the returned [`BoundedPrompt`] and written into the prompt.
+pub fn build_state_prompt_bounded(messages: &[RolloutMessage], max_bytes: usize) -> BoundedPrompt {
+    let tail = tail_keep(
+        messages,
+        |_, m| crate::rollout::message_to_text(m).unwrap_or_default(),
+        |m: &RolloutMessage| m.content.len(),
+        "\n",
+        max_bytes.saturating_sub(MARKER_RESERVE),
+    );
+    let payload = bounded_payload(&tail, "message", max_bytes, "\n");
+    BoundedPrompt {
+        bytes: payload.len(),
+        text: STATE_PROMPT.replace("{conversation}", &payload),
+        dropped_bytes: tail.dropped_bytes,
+        dropped_items: tail.dropped_items,
+    }
+}
+
+/// Build the prompt for the current-state LLM call at [`MAX_STATE_BYTES`].
+pub fn build_state_prompt(messages: &[RolloutMessage]) -> String {
+    build_state_prompt_bounded(messages, MAX_STATE_BYTES).text
+}
+
+/// Build the user-goals prompt under `max_bytes` of payload.
 ///
 /// This is the second of the two prompts the recall path sends, and it does
-/// *not* go through [`messages_to_text`]: it takes the extracted user strings
+/// *not* go through the session renderer: it takes the extracted user strings
 /// directly, so it redacts them itself. Skipping this is how a key a user
 /// pasted into a prompt would reach the vendor through the back door while the
-/// state prompt looked clean.
-pub fn build_goals_prompt(user_messages: &[String]) -> String {
-    let messages_text = user_messages
-        .iter()
-        .enumerate()
-        .map(|(i, msg)| format!("{}. {}", i + 1, redact_secrets(msg)))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    GOALS_PROMPT.replace("{messages}", &messages_text)
+/// state prompt looked clean. The tail is kept for the same reason as the state
+/// prompt: the goals and corrections still live are the newest ones.
+pub fn build_goals_prompt_bounded(user_messages: &[String], max_bytes: usize) -> BoundedPrompt {
+    let tail = tail_keep(
+        user_messages,
+        // The ordinal is the message's real position in the session, so a
+        // dropped head does not renumber what is left.
+        |i, msg: &String| format!("{}. {}", i + 1, redact_secrets(msg)),
+        |msg: &String| msg.len(),
+        "\n\n",
+        max_bytes.saturating_sub(MARKER_RESERVE),
+    );
+    let payload = bounded_payload(&tail, "user message", max_bytes, "\n\n");
+    BoundedPrompt {
+        bytes: payload.len(),
+        text: GOALS_PROMPT.replace("{messages}", &payload),
+        dropped_bytes: tail.dropped_bytes,
+        dropped_items: tail.dropped_items,
+    }
 }
+
+/// Build the prompt for the user-goals LLM call at [`MAX_GOALS_BYTES`].
+pub fn build_goals_prompt(user_messages: &[String]) -> String {
+    build_goals_prompt_bounded(user_messages, MAX_GOALS_BYTES).text
+}
+
+/// Row cap for the recent-rollouts table.
+///
+/// The session scan behind this table is the dominant pre-LLM cost of a recall
+/// call on a large store, so the table it feeds is bounded rather than allowed
+/// to grow with the number of sessions in the window. The rows kept are the
+/// first ones in the adapter's ordering, which is most-recent-first; the
+/// overflow is stated in the table itself.
+pub const MAX_ROLLOUT_ROWS: usize = 200;
 
 /// Build the recent rollouts table as markdown.
 /// `current_session_id` is marked as "SUMMARISED" in the table.
 /// `hours_back` limits to sessions with mtime within that many hours.
+/// At most [`MAX_ROLLOUT_ROWS`] rows are rendered, taken from the front of
+/// `sessions` (most recent first), and the omitted count is stated in the table.
 pub fn build_recent_rollouts_table(
     sessions: &[SessionSummary],
     current_session_id: Option<&str>,
@@ -110,7 +321,7 @@ pub fn build_recent_rollouts_table(
         "|---------|-------|------|-------|------|------|------|------------|-------|".to_string(),
     );
 
-    for s in sessions {
+    for s in &sessions[..sessions.len().min(MAX_ROLLOUT_ROWS)] {
         let size_str = if s.file_size >= 1_000_000 {
             format!("{:.1}MB", s.file_size as f64 / 1_000_000.0)
         } else {
@@ -140,6 +351,15 @@ pub fn build_recent_rollouts_table(
             s.tool_count,
             compaction,
             notes
+        ));
+    }
+
+    let omitted = sessions.len().saturating_sub(MAX_ROLLOUT_ROWS);
+    if omitted > 0 {
+        lines.push(String::new());
+        lines.push(format!(
+            "- {omitted} older session(s) in this window are not listed: the table holds the \
+             {MAX_ROLLOUT_ROWS} most recent rows."
         ));
     }
 

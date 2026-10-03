@@ -5,6 +5,30 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-03
+
+### Changed
+
+- The two LLM prompts of the recall path are byte-bounded: the current-state
+  summary keeps the newest messages and the user-goals summary keeps the newest
+  user messages, each under a 200 KB payload budget (~50K tokens, ~3s of
+  ingest at the documented 1,000,000 input tokens/minute free-tier ceiling).
+  A session too large to send in one piece now costs a bounded prompt instead of
+  a request that cannot be ingested: past the vendor's input ceiling it was a
+  hard error, and under it the ingest alone outran the client's deadline, which
+  is why `total_recall` timed out on a multi-gigabyte store (issue #17).
+  Truncation is tail-kept at a line and character boundary, never mid-character,
+  and never silent.
+- The recent-rollouts table holds at most 200 rows, the most recent in the
+  window, and states how many older sessions in the window it did not print.
+
+### Fixed
+
+- A bounded recall prompt now says what it dropped: a marker line inside the
+  prompt names the number of items and the number of bytes, and the timing
+  comment at the top of the `total_recall` response carries both prompts' byte
+  sizes and dropped counts.
+
 ## [0.9.2] - 2026-10-03
 
 ### Fixed
@@ -322,7 +346,8 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/prompt-cult/total-recall/compare/v0.8.0...v0.9.0

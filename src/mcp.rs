@@ -11,8 +11,9 @@ use crate::{
     mercury::provider_for,
     prompt::SYSTEM_PROMPT,
     recall::{
-        GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
-        build_recall_output, build_recent_rollouts_table, build_state_prompt,
+        GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_ROLLOUT_ROWS, MAX_STATE_BYTES,
+        STATE_SYSTEM_PROMPT, build_goals_prompt_bounded, build_plan_files_section,
+        build_recall_output, build_recent_rollouts_table, build_state_prompt_bounded,
         filter_recent_sessions,
     },
 };
@@ -742,9 +743,19 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
 
-        // Build prompts
-        let state_prompt = build_state_prompt(&messages);
-        let goals_prompt = build_goals_prompt(&user_messages);
+        // Build prompts. Both are byte-bounded: the newest context is kept, the
+        // oldest dropped, and the drop reported in the timing comment below.
+        let state_prompt = build_state_prompt_bounded(&messages, MAX_STATE_BYTES);
+        let goals_prompt = build_goals_prompt_bounded(&user_messages, MAX_GOALS_BYTES);
+        let prompt_stats = serde_json::json!({
+            "state_prompt_bytes": state_prompt.bytes,
+            "state_prompt_dropped_bytes": state_prompt.dropped_bytes,
+            "state_prompt_dropped_messages": state_prompt.dropped_items,
+            "goals_prompt_bytes": goals_prompt.bytes,
+            "goals_prompt_dropped_bytes": goals_prompt.dropped_bytes,
+            "goals_prompt_dropped_messages": goals_prompt.dropped_items,
+        });
+        let prompt_stats = prompt_stats.as_object().cloned().unwrap_or_default();
 
         // Create provider
         let provider = match provider_for(None) {
@@ -760,8 +771,8 @@ impl TotalRecallServer {
         let t0 = std::time::Instant::now();
         let batch_results = provider
             .compact_batch_pairs(vec![
-                (STATE_SYSTEM_PROMPT.to_string(), state_prompt),
-                (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt),
+                (STATE_SYSTEM_PROMPT.to_string(), state_prompt.text),
+                (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt.text),
             ])
             .await;
         let total_time = t0.elapsed();
@@ -776,6 +787,7 @@ impl TotalRecallServer {
         let recent_sessions = filter_recent_sessions(&all_sessions, params.hours_back);
         let rollouts_table =
             build_recent_rollouts_table(&recent_sessions, Some(&session_id), params.hours_back);
+        let table_rows = recent_sessions.len().min(MAX_ROLLOUT_ROWS);
 
         // Build plan files section
         let plan_files = build_plan_files_section();
@@ -784,14 +796,32 @@ impl TotalRecallServer {
         let output =
             build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
 
-        // Log timing info as JSON prefix (for debugging)
-        let timing = serde_json::json!({
-            "total_time_s": total_time.as_secs_f64(),
-            "session_messages_count": messages.len(),
-            "user_messages_count": user_messages.len(),
-            "recent_sessions_count": recent_sessions.len(),
-        });
-        let timing_str = serde_json::to_string_pretty(&timing)
+        // Log timing info as JSON prefix (for debugging), carrying what the
+        // prompt byte budgets dropped so a bounded prompt is never silent.
+        let mut timing = serde_json::Map::from_iter([
+            (
+                "total_time_s".to_string(),
+                serde_json::json!(total_time.as_secs_f64()),
+            ),
+            (
+                "session_messages_count".to_string(),
+                serde_json::json!(messages.len()),
+            ),
+            (
+                "user_messages_count".to_string(),
+                serde_json::json!(user_messages.len()),
+            ),
+            (
+                "recent_sessions_count".to_string(),
+                serde_json::json!(recent_sessions.len()),
+            ),
+            (
+                "rollout_table_rows".to_string(),
+                serde_json::json!(table_rows),
+            ),
+        ]);
+        timing.extend(prompt_stats);
+        let timing_str = serde_json::to_string_pretty(&serde_json::Value::Object(timing))
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         Ok(capped_text(

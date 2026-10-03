@@ -305,6 +305,16 @@ response is never lost and never floods the caller's context:
 
 Raise the window with `max_bytes` when a bigger response is wanted inline.
 
+### Bounded prompts
+
+Flood control bounds what comes *out*. What goes *in* to an LLM is bounded the
+same way: every prompt a tool builds from a session is held to a byte budget,
+and the newest context is kept while the oldest is dropped. The drop is never
+silent — a marker line inside the prompt names how many items and how many
+bytes were dropped, and the tool's timing comment carries the prompt byte sizes
+and dropped counts. A session too large for one call costs a bounded prompt
+rather than a request the vendor cannot ingest in time.
+
 ### `line_histogram`
 
 The companion for overflow files and any large dump on disk. Profiles a
@@ -327,7 +337,9 @@ them returns HTTP 429.
   slung in one call; an over-cap prompt is rejected with an error, never
   truncated. Mercury 2.5's documented context window is 260K tokens, so
   practical calls stay well below the cap — tool results are snipped to 500
-  chars in prompt assembly, keeping prompts small.
+  chars in prompt assembly, and a prompt built from a whole session is held to
+  the byte budget above, so a session too large to ingest in one call costs a
+  bounded prompt rather than a rejected request.
 - **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
   sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s. Beyond
   concurrency 8 the 429 wall arrives with no throughput gain.

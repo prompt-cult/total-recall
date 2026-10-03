@@ -1,5 +1,8 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use total_recall::{MockAdapter, RolloutAdapter, VibeAdapter, build_structured_prompt};
+use total_recall::{
+    MAX_GOALS_BYTES, MAX_STATE_BYTES, MockAdapter, RolloutAdapter, RolloutMessage, VibeAdapter,
+    build_goals_prompt_bounded, build_state_prompt_bounded, build_structured_prompt,
+};
 
 fn bench_read_rollout(c: &mut Criterion) {
     let adapter = VibeAdapter::new();
@@ -85,5 +88,40 @@ fn bench_committed_fixtures(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_read_rollout, bench_committed_fixtures);
+/// The recall prompts, over a synthetic session several megabytes of text
+/// long. Recorded rather than asserted: what matters is the shape of the curve
+/// (flat as the session grows, because the payload is byte-bounded and only the
+/// newest messages are ever rendered), and criterion's statistics show that
+/// without a wall-clock assertion flaking on a loaded machine.
+fn bench_bounded_recall_prompts(c: &mut Criterion) {
+    let messages: Vec<RolloutMessage> = (0..20_000)
+        .map(|i| RolloutMessage {
+            role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
+            content: format!("msg{i:06} {}", "lorem ipsum dolor sit amet ".repeat(60)),
+            thinking: None,
+            tool_calls_summary: Vec::new(),
+            timestamp: None,
+            injected: false,
+        })
+        .collect();
+    let users: Vec<String> = (0..20_000)
+        .map(|i| format!("goal{i:06} {}", "lorem ipsum dolor sit amet ".repeat(60)))
+        .collect();
+    for count in [1_000usize, 20_000] {
+        c.bench_function(&format!("build_recall_prompts_{count}_messages"), |b| {
+            b.iter(|| {
+                let state = build_state_prompt_bounded(&messages[..count], MAX_STATE_BYTES);
+                let goals = build_goals_prompt_bounded(&users[..count], MAX_GOALS_BYTES);
+                black_box((state.bytes, goals.bytes))
+            })
+        });
+    }
+}
+
+criterion_group!(
+    benches,
+    bench_read_rollout,
+    bench_committed_fixtures,
+    bench_bounded_recall_prompts
+);
 criterion_main!(benches);

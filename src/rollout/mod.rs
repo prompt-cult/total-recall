@@ -340,34 +340,52 @@ pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
 /// every LLM prompt built from a session, so the redaction cannot be bypassed
 /// by reaching for a different prompt builder.
 pub fn messages_to_text(messages: &[RolloutMessage]) -> String {
+    messages
+        .iter()
+        .filter_map(message_to_text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One message's block of [`messages_to_text`].
+///
+/// Split out so a byte-bounded prompt builder can render the newest messages
+/// only, instead of formatting a whole session it is about to drop. Joining the
+/// non-empty blocks of [`message_to_text`] with a newline reproduces
+/// [`messages_to_text`] exactly; a message that contributes no lines
+/// contributes no block, and so no extra separator.
+pub fn message_to_text(msg: &RolloutMessage) -> Option<String> {
     let mut lines = Vec::new();
-    for msg in messages {
-        let role = msg.role.to_uppercase();
+    let role = msg.role.to_uppercase();
 
-        for tc_summary in &msg.tool_calls_summary {
-            lines.push(format!("  {} -> {}", role, redact_secrets(tc_summary)));
-        }
-
-        if !msg.content.is_empty() {
-            let content = redact_secrets(&msg.content);
-            if role == "TOOL" {
-                let truncated = truncate_chars(&content, 500);
-                lines.push(format!("  TOOL RESULT: {}", truncated));
-                if content.len() > 500 {
-                    lines.push("  ... (truncated)".to_string());
-                }
-            } else {
-                let truncated = truncate_chars(&content, 1500);
-                lines.push(format!("[{}]", role));
-                lines.push(truncated.to_string());
-                if content.len() > 1500 {
-                    lines.push("... (truncated)".to_string());
-                }
-            }
-            lines.push(String::new());
-        }
+    for tc_summary in &msg.tool_calls_summary {
+        lines.push(format!("  {} -> {}", role, redact_secrets(tc_summary)));
     }
-    lines.join("\n")
+
+    if !msg.content.is_empty() {
+        let content = redact_secrets(&msg.content);
+        if role == "TOOL" {
+            let truncated = truncate_chars(&content, 500);
+            lines.push(format!("  TOOL RESULT: {}", truncated));
+            if content.len() > 500 {
+                lines.push("  ... (truncated)".to_string());
+            }
+        } else {
+            let truncated = truncate_chars(&content, 1500);
+            lines.push(format!("[{}]", role));
+            lines.push(truncated.to_string());
+            if content.len() > 1500 {
+                lines.push("... (truncated)".to_string());
+            }
+        }
+        lines.push(String::new());
+    }
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
 }
 
 /// Does `s` look like an ISO8601 timestamp (so it can be compared
