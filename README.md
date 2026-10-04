@@ -227,6 +227,33 @@ jtd-codegen --target rust schemas/profile-cache.jtd > src/profile_cache_types.rs
 `TryFrom` conversion into `SessionProfile`; re-apply that adaptation after
 regenerating.)
 
+## The scope contract
+
+The natural call is the cheap call. Every tool defaults to the smallest
+useful scope, work is bounded where the data lives (a window or a directory
+is pushed into the store query, so a call costs what it asks for, not what
+the store holds), and breadth is an explicit opt-in — never a default, never
+a silent clamp.
+
+- **Session tools** (`profile_session`, `extract_messages`,
+  `extract_user_messages`, `extract_by_type`, `compact_session`,
+  `total_recall`): `session_id` partial match; empty = the most recent
+  session.
+- **Window tools** (`list_sessions`, `she_said_he_said_action`,
+  `index_sessions`, `do_android_dream_of_electric_sheep`): `session_id`
+  selects explicitly; when empty the tool works its window — `hours_back`
+  (a window in hours, `1` or more) and optionally `directory`. `0` is not a
+  window and is rejected, as is `all: true` (the explicit whole-store
+  opt-in) combined with `hours_back`, and as is a request with no scope at
+  all. Every rejection names the cheap forms — the error is the
+  documentation. The same rule already governs `limit` above 1000 and an
+  empty search query.
+- Listings render at most the 200 most recent rows and state how many rows
+  the window holds but did not print.
+- The CLI keeps its own doctrine: stdout is a stream, `0` means unbounded,
+  and the command typed is the scope asked for. The MCP tools — the ones an
+  agent calls on the caller's behalf — reject the unscoped call instead.
+
 ## Ingestion guardrails
 
 Mercury calls are guarded by measured, documented limits (probed against a
