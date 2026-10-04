@@ -2,6 +2,7 @@ mod common;
 
 use rusqlite::Connection;
 use std::path::Path;
+use total_recall::LISTING_ROW_CAP;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::opencode::OpenCodeAdapter;
 
@@ -373,5 +374,304 @@ fn test_opencode_reasoning_e2e_indexed_and_searchable_as_thinking() {
         report.contains("ASSISTANT (thinking)"),
         "reasoning hit must be marked as thinking:\n{}",
         report
+    );
+}
+
+/// An opencode fixture with explicit session times and directories: one
+/// message and two parts per session so the aggregates are non-zero and
+/// per-session distinguishable.
+fn create_timed_fixture(path: &Path, sessions: &[(&str, &str, i64)]) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    for (sid, directory, updated) in sessions {
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?4)",
+            rusqlite::params![*sid, *directory, format!("timed session {sid}"), *updated],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![
+                format!("msg-{sid}"),
+                *sid,
+                *updated,
+                format!("{{\"role\":\"user\",\"time\":{{\"created\":{updated}}}}}")
+            ],
+        )
+        .unwrap();
+        for (p, text) in [
+            (0, format!("timed body of {sid} one")),
+            (1, format!("timed body of {sid} two")),
+        ] {
+            conn.execute(
+                "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+                 VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+                rusqlite::params![
+                    format!("part-{sid}-{p}"),
+                    format!("msg-{sid}"),
+                    *sid,
+                    *updated,
+                    serde_json::json!({"type":"text","text":text}).to_string()
+                ],
+            )
+            .unwrap();
+        }
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
+}
+
+#[test]
+fn test_opencode_list_sessions_scoped_window_directory_ordering_and_counts() {
+    let now = now_ms();
+    let dir = scratch("opencode_scoped_small");
+    let path = dir.join("fixture.db");
+    create_timed_fixture(
+        &path,
+        &[
+            (
+                "ses_new_alpha00000000000000000000aa",
+                "/Users/dev/alpha",
+                now - 1_000,
+            ),
+            (
+                "ses_mid_beta000000000000000000000bb",
+                "/Users/dev/beta",
+                now - 2_000,
+            ),
+            (
+                "ses_old_gamma00000000000000000000cc",
+                "/Users/dev/gamma",
+                1_700_000_000_000,
+            ),
+        ],
+    );
+    let adapter = OpenCodeAdapter::with_root(&path);
+
+    // The 24-hour window holds the alpha and beta sessions; the epoch-old
+    // gamma session is invisible to the scoped listing — not merely unprinted.
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 2);
+    let ids: Vec<&str> = listing
+        .sessions
+        .iter()
+        .map(|s| s.session_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "ses_new_alpha00000000000000000000aa",
+            "ses_mid_beta000000000000000000000bb",
+        ],
+        "most recent first, out-of-window sessions never returned"
+    );
+
+    // Aggregates are computed for the returned rows: one user message and
+    // two parts per session.
+    for s in &listing.sessions {
+        assert_eq!(s.user_count, 1, "{}", s.session_id);
+        assert_eq!(s.assistant_count, 0, "{}", s.session_id);
+        assert_eq!(s.tool_count, 0, "{}", s.session_id);
+        assert_eq!(s.line_count, 2, "{}", s.session_id);
+        assert!(s.file_size > 0, "{}", s.session_id);
+    }
+
+    // The directory substring is pushed into the store query too.
+    let listing = adapter.list_sessions_scoped(24, Some("beta"));
+    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(
+        listing.sessions[0].session_id,
+        "ses_mid_beta000000000000000000000bb"
+    );
+    assert_eq!(
+        listing.sessions[0].directory.as_deref(),
+        Some("/Users/dev/beta")
+    );
+
+    // hours_back 0 is no bound at the mechanism layer: everything listed.
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 3);
+    assert_eq!(listing.sessions.len(), 3);
+}
+
+#[test]
+fn test_opencode_list_sessions_scoped_caps_at_200_and_reports_the_window_count() {
+    let now = now_ms();
+    let dir = scratch("opencode_scoped_cap");
+    let path = dir.join("fixture.db");
+    let sessions: Vec<(String, &str, i64)> = (0..LISTING_ROW_CAP + 50)
+        .map(|i| {
+            (
+                format!("ses_cap{i:03}0000000000000000000000aa"),
+                "/Users/dev/cap",
+                now - (i as i64) * 1_000,
+            )
+        })
+        .collect();
+    let refs: Vec<(&str, &str, i64)> = sessions
+        .iter()
+        .map(|(sid, d, t)| (sid.as_str(), *d, *t))
+        .collect();
+    create_timed_fixture(&path, &refs);
+    let adapter = OpenCodeAdapter::with_root(&path);
+
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(
+        listing.window_count,
+        LISTING_ROW_CAP + 50,
+        "the window count is the whole window, not just the returned rows"
+    );
+    assert_eq!(
+        listing.sessions.len(),
+        LISTING_ROW_CAP,
+        "at most {LISTING_ROW_CAP} rows are returned, most recent first"
+    );
+    assert_eq!(
+        listing.sessions[0].session_id, "ses_cap0000000000000000000000000aa",
+        "the first row is the most recent session of the window"
+    );
+    assert_eq!(
+        listing.sessions[LISTING_ROW_CAP - 1].session_id,
+        format!("ses_cap{:03}0000000000000000000000aa", LISTING_ROW_CAP - 1),
+        "the 200th row is the 200th most recent session"
+    );
+    let ranks: Vec<i32> = listing
+        .sessions
+        .iter()
+        .map(|s| s.session_id[7..10].parse::<i32>().unwrap())
+        .collect();
+    assert!(
+        ranks
+            .iter()
+            .all(|r| (0..LISTING_ROW_CAP as i32).contains(r)),
+        "the 50 oldest rows of the window are held back, not returned: first {} last {}",
+        ranks.first().unwrap(),
+        ranks.last().unwrap()
+    );
+}
+
+/// The #21 regression: a store of 3,000 sessions outside the window, each
+/// carrying payload aggregates, and ~50 inside. The scoped listing returns
+/// the 50 with their aggregates and reports window_count 50 — the 3,000 are
+/// invisible, not just unprinted.
+#[test]
+fn test_opencode_scoped_listing_ignores_three_thousand_out_of_window_sessions() {
+    const OUT_OF_WINDOW: usize = 3_000;
+    const IN_WINDOW: usize = 50;
+    let dir = scratch("opencode_scoped_bulk");
+    let path = dir.join("fixture.db");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode=OFF;
+         PRAGMA synchronous=OFF;
+         CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    let now = now_ms();
+    let tx = conn.unchecked_transaction().unwrap();
+    {
+        let mut ins_session = tx
+            .prepare(
+                "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+                      VALUES (?1, NULL, ?2, ?3, ?4, ?4)",
+            )
+            .unwrap();
+        let mut ins_message = tx
+            .prepare(
+                "INSERT INTO message (id, session_id, time_created, time_updated, data)
+                      VALUES (?1, ?2, ?3, ?3, ?4)",
+            )
+            .unwrap();
+        let mut ins_part = tx
+            .prepare(
+                "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+                      VALUES (?1, ?2, ?2, ?3, ?3, ?4)",
+            )
+            .unwrap();
+        for i in 0..OUT_OF_WINDOW + IN_WINDOW {
+            let in_window = i >= OUT_OF_WINDOW;
+            let sid = format!("ses_bulk{i:04}00000000000000000000aa");
+            let updated = if in_window {
+                now - 1_000
+            } else {
+                1_700_000_000_000
+            };
+            ins_session
+                .execute(rusqlite::params![
+                    &sid,
+                    "/Users/dev/bulk",
+                    &format!("bulk session {i}"),
+                    updated
+                ])
+                .unwrap();
+            ins_message
+                .execute(rusqlite::params![
+                    format!("bmsg{i:04}"),
+                    &sid,
+                    updated,
+                    "{\"role\":\"user\",\"time\":{\"created\":1}}"
+                ])
+                .unwrap();
+            ins_part
+                .execute(rusqlite::params![
+                    format!("bpart{i:04}"),
+                    &sid,
+                    updated,
+                    serde_json::json!({"type":"text","text":format!("bulk body {i} {}", "x".repeat(512))})
+                        .to_string()
+                ])
+                .unwrap();
+        }
+    }
+    tx.commit().unwrap();
+    drop(conn);
+
+    let adapter = OpenCodeAdapter::with_root(&path);
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, IN_WINDOW);
+    assert_eq!(listing.sessions.len(), IN_WINDOW);
+    for s in &listing.sessions {
+        assert!(s.session_id.starts_with("ses_bulk30"), "{}", s.session_id);
+        assert_eq!(s.user_count, 1, "{}", s.session_id);
+        assert_eq!(s.line_count, 1, "{}", s.session_id);
+        assert!(s.file_size > 0, "{}", s.session_id);
+    }
+    assert!(
+        !listing
+            .sessions
+            .iter()
+            .any(|s| s.session_id[8..12].parse::<i32>().unwrap() < OUT_OF_WINDOW as i32),
+        "none of the 3,000 out-of-window sessions may appear"
     );
 }

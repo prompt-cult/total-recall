@@ -19,12 +19,18 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 ### `list_sessions` — rollout index
 
-All rollouts for the bound harness with id, title, times, directory, message
-and tool counts, byte size, parent/children. Optional bounds: `hours_back`
-(default 240 = 10 days; 0 = no bound) and `directory` substring filter. The
-OpenCode SQLite
-implementation is a single GROUP BY query (no correlated subqueries), so the
-index over thousands of sessions reads at disk speed.
+The rollouts of the listing's window with id, title, times, directory,
+message and tool counts, byte size, parent/children. Optional bounds:
+`hours_back` (default 240 = 10 days; 0 = no bound) and `directory` substring
+filter. The listing renders at most the 200 most recent rows of the window,
+most recent first, and states how many rows the window holds but did not
+print. The bound lives where the data lives: the OpenCode SQLite
+implementation pushes the window, the directory substring and the row cap
+into SQL — aggregates are computed only for the listed rows, through the
+store's `message(session_id, …)` and `part(session_id)` indexes, and the
+window count is a bare `COUNT(*)` — and the file-based harnesses test mtime
+and directory before reading a payload. A scoped listing costs what it asks
+for, not what the store holds.
 
 Each entry also carries `aliases`: other session directory names that resolve
 to the same underlying rollout payload. The vibe store can hold two directories

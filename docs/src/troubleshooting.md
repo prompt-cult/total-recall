@@ -137,6 +137,9 @@ silently breaking the cap.
 
 ## The store is huge and `list` is slow
 
-On the OpenCode SQLite store the index is a single `GROUP BY` query, so this is
-a disk-read question, not a CPU one. A store that grew without bound is the
-subject of the [store-vacuum runbook](operations/opencode-store-vacuum.md).
+A scoped listing is bounded where the data lives: the window, the directory
+substring and the 200-row cap are pushed into the store query, so a scoped
+`list` costs what it asks for, not what the store holds. An unscoped `list`
+is the full aggregate scan over the whole store — a disk-read question, not
+a CPU one. A store that grew without bound is the subject of the
+[store-vacuum runbook](operations/opencode-store-vacuum.md).

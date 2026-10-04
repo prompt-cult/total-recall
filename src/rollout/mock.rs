@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionProfile,
-    SessionSummary, mmap_error, read_error, slice_from_compaction,
+    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionListing,
+    SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window, read_error,
+    slice_from_compaction,
 };
 
 /// Parse a pre-extracted JSONL of RolloutMessage objects. A line that is not
@@ -23,6 +24,59 @@ fn parse_jsonl(data: &[u8]) -> Vec<RolloutMessage> {
         }
     }
     messages
+}
+
+/// The mock store's single payload summarized. Damage is surfaced: an
+/// unreadable payload still lists, with counts from whatever could be read
+/// and a `read_error` message.
+fn summarize_payload(data_path: &std::path::Path) -> SessionSummary {
+    // Distinguish read damage (permissions, I/O error) from a payload that
+    // does not exist yet: damage is surfaced on the entry.
+    let (messages, read_error) = match std::fs::read(data_path) {
+        Ok(data) => (parse_jsonl(&data), None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+        Err(e) => (Vec::new(), Some(read_error(data_path, &e))),
+    };
+    let file_size = std::fs::metadata(data_path).map(|m| m.len()).unwrap_or(0);
+    let line_count = messages.len() as u64;
+
+    let mut user_count = 0u64;
+    let mut assistant_count = 0u64;
+    let mut tool_count = 0u64;
+    let mut has_compaction = false;
+
+    for msg in &messages {
+        match msg.role.as_str() {
+            "user" => {
+                user_count += 1;
+                if msg.content.contains("context compaction") {
+                    has_compaction = true;
+                }
+            }
+            "assistant" => assistant_count += 1,
+            "tool" => tool_count += 1,
+            _ => {}
+        }
+    }
+
+    SessionSummary {
+        session_id: "mock".to_string(),
+        title: "Mock session".to_string(),
+        start_time: String::new(),
+        end_time: String::new(),
+        file_size,
+        line_count,
+        user_count,
+        assistant_count,
+        tool_count,
+        has_compaction,
+        directory: None,
+        parent_session_id: None,
+        child_sessions: Vec::new(),
+        has_tantivy_index: false,
+        aliases: Vec::new(),
+        read_error,
+    }
 }
 
 /// Mocked flat-file adapter for tests. Reads a pre-extracted JSONL of RolloutMessage objects.
@@ -64,55 +118,22 @@ impl RolloutAdapter for MockAdapter {
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
-        // Distinguish read damage (permissions, I/O error) from a payload that
-        // does not exist yet: damage is surfaced on the entry.
-        let (messages, read_error) = match std::fs::read(&self.data_path) {
-            Ok(data) => (parse_jsonl(&data), None),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
-            Err(e) => (Vec::new(), Some(read_error(&self.data_path, &e))),
-        };
-        let file_size = std::fs::metadata(&self.data_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        let line_count = messages.len() as u64;
+        vec![summarize_payload(&self.data_path)]
+    }
 
-        let mut user_count = 0u64;
-        let mut assistant_count = 0u64;
-        let mut tool_count = 0u64;
-        let mut has_compaction = false;
-
-        for msg in &messages {
-            match msg.role.as_str() {
-                "user" => {
-                    user_count += 1;
-                    if msg.content.contains("context compaction") {
-                        has_compaction = true;
-                    }
-                }
-                "assistant" => assistant_count += 1,
-                "tool" => tool_count += 1,
-                _ => {}
-            }
+    fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
+        // The mock store is a single payload, so its mtime is the window key;
+        // the mock summary carries no directory (None passes every filter).
+        let mtime = std::fs::metadata(&self.data_path)
+            .and_then(|m| m.modified())
+            .ok();
+        if !mtime_in_window(mtime, hours_back) {
+            return SessionListing {
+                sessions: Vec::new(),
+                window_count: 0,
+            };
         }
-
-        vec![SessionSummary {
-            session_id: "mock".to_string(),
-            title: "Mock session".to_string(),
-            start_time: String::new(),
-            end_time: String::new(),
-            file_size,
-            line_count,
-            user_count,
-            assistant_count,
-            tool_count,
-            has_compaction,
-            directory: None,
-            parent_session_id: None,
-            child_sessions: Vec::new(),
-            has_tantivy_index: false,
-            aliases: Vec::new(),
-            read_error,
-        }]
+        listing_by_mtime(vec![(mtime, summarize_payload(&self.data_path))])
     }
 
     fn read_session(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {

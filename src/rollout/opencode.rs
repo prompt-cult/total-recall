@@ -8,9 +8,9 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    EventType, InterestingEvent, OPENCODE_ROOT_ENV_VAR, ReadResult, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, no_session_error, resolve_root, slice_from_compaction,
-    summarize_tool_call, truncate_chars,
+    EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, ReadResult,
+    RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
+    no_session_error, resolve_root, slice_from_compaction, summarize_tool_call, truncate_chars,
 };
 
 /// OpenCode adapter. Reads session history from the local SQLite database at
@@ -410,6 +410,20 @@ impl RolloutAdapter for OpenCodeAdapter {
         summaries
     }
 
+    fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing {
+        let conn = match self.connect() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("{e}");
+                return SessionListing {
+                    sessions: Vec::new(),
+                    window_count: 0,
+                };
+            }
+        };
+        scoped_listing_sqlite(&conn, hours_back, directory)
+    }
+
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
         let conn = self.connect()?;
         let full_id = self
@@ -466,6 +480,191 @@ impl RolloutAdapter for OpenCodeAdapter {
         directory: Option<&str>,
     ) -> Result<String, String> {
         she_said_he_said(&self.db_path, sessions, words, hours_back, directory)
+    }
+}
+
+/// The scoped listing for the opencode store. The window, the directory
+/// substring and the row cap are pushed into SQL, so out-of-window and
+/// out-of-cap sessions cost nothing in aggregates.
+///
+/// The bounded session set is materialized once as the `window` CTE (the
+/// cap is inside it). The message/part aggregates then only look up
+/// sessions in that set — through the store's real indexes
+/// (`message(session_id, time_created, id)` and `part(session_id)`) — and
+/// the window's total is a bare `COUNT(*)` over the same predicate, with no
+/// aggregates anywhere near it. Child links are resolved for the returned
+/// rows only.
+fn scoped_listing_sqlite(
+    conn: &Connection,
+    hours_back: u64,
+    directory: Option<&str>,
+) -> SessionListing {
+    let now = now_ms();
+    let cutoff = now - (hours_back as i64).saturating_mul(3_600_000);
+
+    let window_count: usize = match conn.query_row(
+        "SELECT COUNT(*) FROM session
+         WHERE (?1 = 0 OR time_updated >= ?2)
+           AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')",
+        rusqlite::params![hours_back as i64, cutoff, directory],
+        |r| r.get::<_, i64>(0),
+    ) {
+        Ok(n) => n.max(0) as usize,
+        Err(e) => {
+            tracing::warn!("opencode scoped listing count failed: {e}");
+            return SessionListing {
+                sessions: Vec::new(),
+                window_count: 0,
+            };
+        }
+    };
+
+    // Single GROUP BY query over the bounded set: message and part are each
+    // aggregated once in derived tables that only ever look up sessions in
+    // `window`, joined to it — no correlated subqueries per row.
+    let sql = "
+        WITH window AS (
+            SELECT id, title, parent_id, directory, time_created, time_updated
+            FROM session
+            WHERE (?1 = 0 OR time_updated >= ?2)
+              AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')
+            ORDER BY time_updated DESC
+            LIMIT ?4
+        )
+        SELECT w.id, w.title, w.parent_id, w.directory, w.time_created, w.time_updated,
+            COALESCE(m.user_count, 0),
+            COALESCE(m.assistant_count, 0),
+            COALESCE(m.bytes, 0),
+            COALESCE(p.tool_count, 0),
+            COALESCE(p.compaction_count, 0),
+            COALESCE(p.part_count, 0),
+            COALESCE(p.bytes, 0)
+        FROM window w
+        LEFT JOIN (
+            SELECT session_id,
+                SUM(CASE WHEN json_extract(data, '$.role') = 'user' THEN 1 ELSE 0 END) AS user_count,
+                SUM(CASE WHEN json_extract(data, '$.role') = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
+                SUM(length(data)) AS bytes
+            FROM message
+            WHERE session_id IN (SELECT id FROM window)
+            GROUP BY session_id
+        ) m ON m.session_id = w.id
+        LEFT JOIN (
+            SELECT session_id,
+                SUM(CASE WHEN json_extract(data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
+                SUM(CASE WHEN json_extract(data, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
+                COUNT(*) AS part_count,
+                SUM(length(data)) AS bytes
+            FROM part
+            WHERE session_id IN (SELECT id FROM window)
+            GROUP BY session_id
+        ) p ON p.session_id = w.id
+        ORDER BY w.time_updated DESC";
+
+    let mut stmt = match conn.prepare(sql) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("opencode scoped listing query failed: {e}");
+            return SessionListing {
+                sessions: Vec::new(),
+                window_count,
+            };
+        }
+    };
+    let rows = stmt.query_map(
+        rusqlite::params![hours_back as i64, cutoff, directory, LISTING_ROW_CAP as i64],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, i64>(9)?,
+                row.get::<_, i64>(10)?,
+                row.get::<_, i64>(11)?,
+                row.get::<_, i64>(12)?,
+            ))
+        },
+    );
+    let rows = match rows {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("opencode scoped listing failed: {e}");
+            return SessionListing {
+                sessions: Vec::new(),
+                window_count,
+            };
+        }
+    };
+
+    let mut summaries = Vec::new();
+    for row in rows.flatten() {
+        let (
+            id,
+            title,
+            parent_id,
+            directory,
+            created,
+            updated,
+            user_count,
+            assistant_count,
+            message_bytes,
+            tool_count,
+            compaction_count,
+            part_count,
+            part_bytes,
+        ) = row;
+        summaries.push(SessionSummary {
+            session_id: id.clone(),
+            title,
+            start_time: ms_to_iso8601(created),
+            end_time: ms_to_iso8601(updated),
+            file_size: (message_bytes + part_bytes).max(0) as u64,
+            line_count: part_count.max(0) as u64,
+            user_count: user_count.max(0) as u64,
+            assistant_count: assistant_count.max(0) as u64,
+            tool_count: tool_count.max(0) as u64,
+            has_compaction: compaction_count > 0,
+            directory,
+            parent_session_id: parent_id,
+            child_sessions: Vec::new(),
+            has_tantivy_index: false,
+            aliases: Vec::new(),
+            read_error: None,
+        });
+    }
+
+    // Child links for the returned rows only: parents in the bounded set.
+    // A session-table query, cheap next to the aggregates above it.
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+    if !summaries.is_empty() {
+        let ids: Vec<&str> = summaries.iter().map(|s| s.session_id.as_str()).collect();
+        let placeholders = std::iter::repeat_n("?", ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("SELECT parent_id, id FROM session WHERE parent_id IN ({placeholders})");
+        if let Ok(mut stmt) = conn.prepare(&sql)
+            && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+        {
+            for row in rows.flatten() {
+                children.entry(row.0).or_default().push(row.1);
+            }
+        }
+    }
+    for summary in &mut summaries {
+        summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
+    }
+
+    SessionListing {
+        sessions: summaries,
+        window_count,
     }
 }
 

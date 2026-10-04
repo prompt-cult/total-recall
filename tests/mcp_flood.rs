@@ -182,9 +182,69 @@ impl Mcp {
     }
 }
 
+/// A fixture of `count` sessions all updated inside the default 240-hour
+/// window, with strictly descending `time_updated` (session 0 is the newest)
+/// so the listing's most-recent-first ordering is deterministic, and one
+/// tiny message + part each so the aggregates are non-zero.
+fn build_listing_fixture(root: &std::path::Path, count: usize) {
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    let now = now_ms();
+    for i in 0..count {
+        let sid = format!("ses_listing{i:03}0000000000000000000000aa");
+        let updated = now - (i as i64) * 1_000;
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                &sid,
+                format!("/Users/dev/listing{i:03}"),
+                format!("listing session {i}"),
+                updated,
+                updated
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+            rusqlite::params![format!("lmsg{i:03}"), &sid, updated],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?2, ?3, ?3, ?4)",
+            rusqlite::params![
+                format!("lpart{i:03}"),
+                &sid,
+                updated,
+                serde_json::json!({"type":"text","text":format!("listing body {i}")}).to_string()
+            ],
+        )
+        .unwrap();
+    }
+}
+
 fn spawn() -> (Mcp, common::scratch::ScratchRoot) {
+    spawn_fixture(build_fixture)
+}
+
+fn spawn_fixture(build: impl FnOnce(&std::path::Path)) -> (Mcp, common::scratch::ScratchRoot) {
     let dir = scratch("mcp_flood");
-    build_fixture(&dir);
+    build(&dir);
     let cwd = child_cwd("mcp_flood");
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "opencode", "mcp"])
@@ -385,5 +445,61 @@ fn an_overflowing_json_response_is_never_torn() {
     );
     assert!(!err, "extract mode succeeds: {lines}");
     assert!(!lines.trim().is_empty(), "extract returns the lines");
+    reap(&mut mcp);
+}
+
+/// The whole listing text, whether it fit under the flood cap or overflowed
+/// into the marker's file.
+fn whole_listing(text: &str) -> String {
+    if text.contains("full_report: ") {
+        let path = marker_path(text);
+        std::fs::read_to_string(&path).expect("readable overflow file")
+    } else {
+        text.to_string()
+    }
+}
+
+/// The listing cap and its held-back statement (the scope contract): at most
+/// the 200 most recent rows of the window are rendered, and the listing
+/// states how many rows the window holds but did not print.
+#[test]
+fn list_sessions_caps_at_200_rows_and_names_the_held_back_count() {
+    let (mut mcp, _dir) = spawn_fixture(|root| build_listing_fixture(root, 250));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    let whole = whole_listing(&text);
+    let v: Value =
+        serde_json::from_str(&whole).expect("the listing response is whole, untorn JSON");
+    let sessions = v["sessions"].as_array().unwrap_or_else(|| {
+        panic!(
+            "the listing must render its rows under `sessions`: {}",
+            &whole[..whole.len().min(400)]
+        )
+    });
+    assert!(
+        sessions.len() <= 200,
+        "the listing must render at most 200 rows, got {}",
+        sessions.len()
+    );
+    assert_eq!(
+        sessions.len(),
+        200,
+        "a 250-session window must render exactly the 200 most recent rows"
+    );
+    assert_eq!(
+        v["window_count"].as_u64(),
+        Some(250),
+        "the listing must state how many rows the window holds, not just print rows"
+    );
+    assert_eq!(
+        v["held_back"].as_u64(),
+        Some(50),
+        "the listing must state the 50 rows the window holds but did not print"
+    );
+    assert_eq!(
+        sessions[0]["session_id"].as_str(),
+        Some("ses_listing0000000000000000000000000aa"),
+        "the first row must be the most recent session of the window"
+    );
     reap(&mut mcp);
 }

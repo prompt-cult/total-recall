@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionProfile,
-    SessionSummary, VIBE_ROOT_ENV_VAR, mmap_error, no_session_error, read_error, resolve_root,
-    resolve_session_dir, slice_from_compaction, summarize_tool_call,
+    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionListing,
+    SessionProfile, SessionSummary, VIBE_ROOT_ENV_VAR, listing_by_mtime, mmap_error,
+    mtime_in_window, no_session_error, read_error, resolve_root, resolve_session_dir,
+    slice_from_compaction, summarize_tool_call,
 };
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
@@ -103,6 +104,140 @@ impl VibeAdapter {
             }
         }
     }
+
+    /// The store's session directories (`session_*`), enumerated exactly as
+    /// the full listing enumerates them.
+    fn session_dirs(&self) -> Vec<(String, PathBuf)> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("vibe store {}: cannot be listed: {e}", self.root.display());
+                return Vec::new();
+            }
+        };
+        entries
+            .flatten()
+            .filter(|entry| entry.path().is_dir())
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                name.starts_with("session_").then(|| (name, entry.path()))
+            })
+            .collect()
+    }
+
+    /// One session directory summarized into ([`SessionSummary`], content
+    /// hash). Damage is surfaced on the entry; the content hash drives the
+    /// dedupe. Callers apply the mtime window before calling, so this
+    /// payload read only ever happens for in-window sessions.
+    fn summarize_dir(&self, path: &Path, name: &str) -> (SessionSummary, u64) {
+        let messages_path = path.join("messages.jsonl");
+        let file_size = std::fs::metadata(&messages_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        // Distinguish read damage (permissions, I/O error) from a payload
+        // that does not exist yet: damage is surfaced on the entry.
+        let (messages_data, read_error) = match std::fs::read(&messages_path) {
+            Ok(data) => (data, None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+            Err(e) => (Vec::new(), Some(e.to_string())),
+        };
+        let line_count = String::from_utf8_lossy(&messages_data)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count() as u64;
+
+        let meta = self.read_meta(path);
+
+        let title = meta
+            .as_ref()
+            .and_then(|m| m.get("title"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let start_time = meta
+            .as_ref()
+            .and_then(|m| m.get("start_time"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let end_time = meta
+            .as_ref()
+            .and_then(|m| m.get("end_time"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let parent_session_id = meta
+            .as_ref()
+            .and_then(|m| m.get("parent_session_id"))
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string());
+
+        let session_id = name.to_string();
+
+        // Count roles and check for compaction
+        let mut user_count = 0u64;
+        let mut assistant_count = 0u64;
+        let mut tool_count = 0u64;
+        let mut has_compaction = false;
+
+        for line in String::from_utf8_lossy(&messages_data).lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
+                match role {
+                    "user" => {
+                        user_count += 1;
+                        let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                        if content.contains("context compaction") {
+                            has_compaction = true;
+                        }
+                    }
+                    "assistant" => assistant_count += 1,
+                    "tool" => tool_count += 1,
+                    _ => {}
+                }
+            }
+        }
+
+        // Content hash over the rollout payload. 0 marks an empty store;
+        // empty sessions are never deduped together.
+        let content_hash = if file_size == 0 {
+            0
+        } else {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            messages_data.hash(&mut h);
+            h.finish()
+        };
+
+        (
+            SessionSummary {
+                session_id,
+                title,
+                start_time,
+                end_time,
+                file_size,
+                line_count,
+                user_count,
+                assistant_count,
+                tool_count,
+                has_compaction,
+                directory: None,
+                parent_session_id,
+                child_sessions: Vec::new(),
+                has_tantivy_index: false,
+                aliases: Vec::new(),
+                read_error,
+            },
+            content_hash,
+        )
+    }
 }
 
 fn json_to_rollout_message(v: &serde_json::Value) -> RolloutMessage {
@@ -177,133 +312,13 @@ impl RolloutAdapter for VibeAdapter {
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
-        let entries = match std::fs::read_dir(&self.root) {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!("vibe store {}: cannot be listed: {e}", self.root.display());
-                return Vec::new();
-            }
-        };
-
         let mut summaries = Vec::new();
         // content hash captured alongside each summary for dedupe.
         let mut identity: Vec<u64> = Vec::new();
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if !name_str.starts_with("session_") {
-                continue;
-            }
-
-            let messages_path = path.join("messages.jsonl");
-            let file_size = std::fs::metadata(&messages_path)
-                .map(|m| m.len())
-                .unwrap_or(0);
-
-            // Distinguish read damage (permissions, I/O error) from a payload
-            // that does not exist yet: damage is surfaced on the entry.
-            let (messages_data, read_error) = match std::fs::read(&messages_path) {
-                Ok(data) => (data, None),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
-                Err(e) => (Vec::new(), Some(e.to_string())),
-            };
-            let line_count = String::from_utf8_lossy(&messages_data)
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .count() as u64;
-
-            let meta = self.read_meta(&path);
-
-            let title = meta
-                .as_ref()
-                .and_then(|m| m.get("title"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let start_time = meta
-                .as_ref()
-                .and_then(|m| m.get("start_time"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let end_time = meta
-                .as_ref()
-                .and_then(|m| m.get("end_time"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let parent_session_id = meta
-                .as_ref()
-                .and_then(|m| m.get("parent_session_id"))
-                .and_then(|p| p.as_str())
-                .map(|s| s.to_string());
-
-            let session_id = name_str.to_string();
-
-            // Count roles and check for compaction
-            let mut user_count = 0u64;
-            let mut assistant_count = 0u64;
-            let mut tool_count = 0u64;
-            let mut has_compaction = false;
-
-            for line in String::from_utf8_lossy(&messages_data).lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
-                    match role {
-                        "user" => {
-                            user_count += 1;
-                            let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                            if content.contains("context compaction") {
-                                has_compaction = true;
-                            }
-                        }
-                        "assistant" => assistant_count += 1,
-                        "tool" => tool_count += 1,
-                        _ => {}
-                    }
-                }
-            }
-
-            // Content hash over the rollout payload. 0 marks an empty store;
-            // empty sessions are never deduped together.
-            let content_hash = if file_size == 0 {
-                0
-            } else {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                messages_data.hash(&mut h);
-                h.finish()
-            };
-
-            summaries.push(SessionSummary {
-                session_id,
-                title,
-                start_time,
-                end_time,
-                file_size,
-                line_count,
-                user_count,
-                assistant_count,
-                tool_count,
-                has_compaction,
-                directory: None,
-                parent_session_id,
-                child_sessions: Vec::new(),
-                has_tantivy_index: false,
-                aliases: Vec::new(),
-                read_error,
-            });
+        for (name, path) in self.session_dirs() {
+            let (summary, content_hash) = self.summarize_dir(&path, &name);
+            summaries.push(summary);
             identity.push(content_hash);
         }
 
@@ -311,11 +326,41 @@ impl RolloutAdapter for VibeAdapter {
         // the same rollout share (file_size, line_count, content hash); the
         // canonical id is the dir-name whose date prefix agrees with
         // meta.start_time, and the rest become aliases.
-        let summaries = dedupe_vibe_sessions(summaries, identity);
+        let mut summaries = dedupe_vibe_sessions(summaries, identity);
         // Sort by start_time descending (most recent first)
-        let mut summaries = summaries;
         summaries.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         summaries
+    }
+
+    fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
+        // Vibe summaries carry no directory (None passes every filter, as in
+        // the full listing), so the payload's mtime is the only cheap bound —
+        // decided before the payload is ever read.
+        let mut mtimes: HashMap<String, Option<std::time::SystemTime>> = HashMap::new();
+        let mut summaries = Vec::new();
+        let mut identity: Vec<u64> = Vec::new();
+
+        for (name, path) in self.session_dirs() {
+            let mtime = std::fs::metadata(path.join("messages.jsonl"))
+                .and_then(|m| m.modified())
+                .ok();
+            if !mtime_in_window(mtime, hours_back) {
+                continue;
+            }
+            let (summary, content_hash) = self.summarize_dir(&path, &name);
+            mtimes.insert(summary.session_id.clone(), mtime);
+            summaries.push(summary);
+            identity.push(content_hash);
+        }
+
+        let summaries = dedupe_vibe_sessions(summaries, identity);
+        // The canonical entry of each dedupe group is one of the walked
+        // directories, so its mtime is in the map; aliases are dropped.
+        let rows = summaries
+            .into_iter()
+            .map(|s| (mtimes.remove(&s.session_id).flatten(), s))
+            .collect();
+        listing_by_mtime(rows)
     }
 
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {

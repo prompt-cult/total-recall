@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use super::{
     CLAUDE_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, mmap_error, no_session_error, read_error, resolve_root,
-    slice_from_compaction, summarize_tool_call,
+    SessionListing, SessionProfile, SessionSummary, directory_matches, listing_by_mtime,
+    mmap_error, mtime_in_window, no_session_error, read_error, resolve_root, slice_from_compaction,
+    summarize_tool_call,
 };
 
 /// Claude adapter. Reads JSONL files from ~/.claude/projects/
@@ -126,6 +127,103 @@ impl ClaudeAdapter {
 
 fn is_jsonl(path: &Path) -> bool {
     path.extension().is_some_and(|e| e == "jsonl")
+}
+
+/// One session JSONL summarized into a [`SessionSummary`]. Damage is
+/// surfaced: an unreadable payload still lists, with counts from whatever
+/// could be read and a `read_error` message. Callers apply their cheap
+/// bounds (the mtime window, the directory substring) before calling, so
+/// this payload read only ever happens for in-window sessions.
+fn summarize_payload(directory: Option<String>, path: &Path) -> SessionSummary {
+    // Distinguish read damage (permissions, I/O error) from a payload
+    // that does not exist yet: damage is surfaced on the entry.
+    let (data, read_error) = match std::fs::read(path) {
+        Ok(data) => (data, None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+        Err(e) => (Vec::new(), Some(read_error(path, &e))),
+    };
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let text = String::from_utf8_lossy(&data);
+
+    let mut line_count = 0u64;
+    let mut user_count = 0u64;
+    let mut assistant_count = 0u64;
+    let mut tool_count = 0u64;
+    let mut has_compaction = false;
+    let mut title = String::new();
+    let mut start_time = String::new();
+    let mut end_time = String::new();
+
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        line_count += 1;
+        let v = match serde_json::from_str::<serde_json::Value>(line) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    "claude rollout {}: skipping unparseable line {}: {e}",
+                    path.display(),
+                    i + 1
+                );
+                continue;
+            }
+        };
+
+        if title.is_empty()
+            && let Some(t) = v.get("aiTitle").and_then(|t| t.as_str())
+        {
+            title = t.to_string();
+        }
+
+        if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
+            if start_time.is_empty() {
+                start_time = ts.to_string();
+            }
+            end_time = ts.to_string();
+        }
+
+        let Some((role, v)) = classify_line(&v) else {
+            continue;
+        };
+        match role.as_str() {
+            "user" => {
+                user_count += 1;
+                let content = extract_content(&v);
+                if content.contains("context compaction") {
+                    has_compaction = true;
+                }
+            }
+            "assistant" => assistant_count += 1,
+            "tool" => tool_count += 1,
+            _ => {}
+        }
+    }
+
+    let session_id = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    SessionSummary {
+        session_id,
+        title,
+        start_time,
+        end_time,
+        file_size,
+        line_count,
+        user_count,
+        assistant_count,
+        tool_count,
+        has_compaction,
+        directory,
+        parent_session_id: None,
+        child_sessions: Vec::new(),
+        has_tantivy_index: false,
+        aliases: Vec::new(),
+        read_error,
+    }
 }
 
 /// Classify a JSONL line. Only user/assistant/tool lines are messages;
@@ -299,102 +397,31 @@ impl RolloutAdapter for ClaudeAdapter {
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
-        let mut summaries = Vec::new();
-
-        for (directory, path) in self.session_files() {
-            // Distinguish read damage (permissions, I/O error) from a payload
-            // that does not exist yet: damage is surfaced on the entry.
-            let (data, read_error) = match std::fs::read(&path) {
-                Ok(data) => (data, None),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
-                Err(e) => (Vec::new(), Some(read_error(&path, &e))),
-            };
-            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            let text = String::from_utf8_lossy(&data);
-
-            let mut line_count = 0u64;
-            let mut user_count = 0u64;
-            let mut assistant_count = 0u64;
-            let mut tool_count = 0u64;
-            let mut has_compaction = false;
-            let mut title = String::new();
-            let mut start_time = String::new();
-            let mut end_time = String::new();
-
-            for (i, line) in text.lines().enumerate() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                line_count += 1;
-                let v = match serde_json::from_str::<serde_json::Value>(line) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!(
-                            "claude rollout {}: skipping unparseable line {}: {e}",
-                            path.display(),
-                            i + 1
-                        );
-                        continue;
-                    }
-                };
-
-                if title.is_empty()
-                    && let Some(t) = v.get("aiTitle").and_then(|t| t.as_str())
-                {
-                    title = t.to_string();
-                }
-
-                if let Some(ts) = v.get("timestamp").and_then(|t| t.as_str()) {
-                    if start_time.is_empty() {
-                        start_time = ts.to_string();
-                    }
-                    end_time = ts.to_string();
-                }
-
-                let Some((role, v)) = classify_line(&v) else {
-                    continue;
-                };
-                match role.as_str() {
-                    "user" => {
-                        user_count += 1;
-                        let content = extract_content(&v);
-                        if content.contains("context compaction") {
-                            has_compaction = true;
-                        }
-                    }
-                    "assistant" => assistant_count += 1,
-                    "tool" => tool_count += 1,
-                    _ => {}
-                }
-            }
-
-            let session_id = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-
-            summaries.push(SessionSummary {
-                session_id,
-                title,
-                start_time,
-                end_time,
-                file_size,
-                line_count,
-                user_count,
-                assistant_count,
-                tool_count,
-                has_compaction,
-                directory,
-                parent_session_id: None,
-                child_sessions: Vec::new(),
-                has_tantivy_index: false,
-                aliases: Vec::new(),
-                read_error,
-            });
-        }
-
+        let mut summaries: Vec<SessionSummary> = self
+            .session_files()
+            .into_iter()
+            .map(|(directory, path)| summarize_payload(directory, &path))
+            .collect();
         summaries.sort_by(|a, b| b.session_id.cmp(&a.session_id));
         summaries
+    }
+
+    fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing {
+        let mut rows = Vec::new();
+        for (directory_name, path) in self.session_files() {
+            // The cheap bounds are decided before the payload is ever read,
+            // so out-of-window and out-of-directory sessions cost no
+            // aggregates on a file store either.
+            let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            if !mtime_in_window(mtime, hours_back) {
+                continue;
+            }
+            if !directory_matches(directory, directory_name.as_deref()) {
+                continue;
+            }
+            rows.push((mtime, summarize_payload(directory_name, &path)));
+        }
+        listing_by_mtime(rows)
     }
 
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {

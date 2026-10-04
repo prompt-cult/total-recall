@@ -163,3 +163,72 @@ fn test_claude_real_project_layout() {
     );
     assert_eq!(profile.last_ts.as_deref(), Some("2026-09-20T10:02:00.000Z"));
 }
+
+fn claude_session_jsonl() -> String {
+    [
+        r#"{"type":"ai-title","aiTitle":"scoped claude session"}"#,
+        r#"{"type":"user","timestamp":"2026-09-20T10:00:00.000Z","message":{"role":"user","content":"scoped window question"}}"#,
+        r#"{"type":"assistant","timestamp":"2026-09-20T10:01:00.000Z","message":{"role":"assistant","content":"scoped window answer"}}"#,
+    ]
+    .join("\n")
+        + "\n"
+}
+
+fn set_mtime(path: &std::path::Path, t: std::time::SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(t)
+        .unwrap();
+}
+
+#[test]
+fn test_claude_list_sessions_scoped_windows_by_mtime_and_filters_by_directory() {
+    let tmp = scratch("claude_scoped");
+    let alpha = tmp.join("-Users-someone-code-alpha");
+    let beta = tmp.join("-Users-someone-code-beta");
+    std::fs::create_dir_all(&alpha).unwrap();
+    std::fs::create_dir_all(&beta).unwrap();
+    std::fs::write(alpha.join("aaa.jsonl"), claude_session_jsonl()).unwrap();
+    std::fs::write(beta.join("bbb.jsonl"), claude_session_jsonl()).unwrap();
+
+    let now = std::time::SystemTime::now();
+    let three_days_ago = now - std::time::Duration::from_secs(3 * 24 * 3600);
+    // alpha fresh, beta three days old.
+    set_mtime(&alpha.join("aaa.jsonl"), now);
+    set_mtime(&beta.join("bbb.jsonl"), three_days_ago);
+
+    let adapter = ClaudeAdapter::with_root(tmp.to_path_buf());
+
+    // The 24-hour window holds only the fresh alpha session — the stale beta
+    // session is invisible, not merely unprinted.
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].session_id, "aaa");
+    assert_eq!(
+        listing.sessions[0].directory.as_deref(),
+        Some("-Users-someone-code-alpha")
+    );
+    assert_eq!(listing.sessions[0].user_count, 1);
+    assert_eq!(listing.sessions[0].assistant_count, 1);
+
+    // The directory substring is applied during the walk, before the payload
+    // is read: a window that would hold alpha still lists nothing under beta.
+    let listing = adapter.list_sessions_scoped(24, Some("beta"));
+    assert_eq!(listing.window_count, 0);
+    assert!(listing.sessions.is_empty());
+
+    // hours_back 0 is no bound at the mechanism layer, so beta lists again —
+    // and only beta under its own directory filter.
+    let listing = adapter.list_sessions_scoped(0, Some("beta"));
+    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions[0].session_id, "bbb");
+
+    // Unbounded and unfiltered: both, most-recent-first by payload mtime.
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 2);
+    assert_eq!(listing.sessions[0].session_id, "aaa");
+    assert_eq!(listing.sessions[1].session_id, "bbb");
+}

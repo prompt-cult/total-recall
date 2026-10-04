@@ -345,3 +345,107 @@ fn canonical_and_alias_read_the_same_rollout() {
     assert_eq!(via_canonical.len(), 1);
     assert_eq!(via_canonical[0].content, via_alias[0].content);
 }
+
+fn set_mtime(path: &std::path::Path, t: std::time::SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(t)
+        .unwrap();
+}
+
+#[test]
+fn scoped_listing_windows_by_payload_mtime_and_dedupes_inside_the_window() {
+    let root = scratch("vibe_scoped");
+    let now = std::time::SystemTime::now();
+    let hour = std::time::Duration::from_secs(3600);
+
+    // Three distinct fresh sessions plus one duplicate pair (both members in
+    // the window), and one distinct stale session three days old.
+    make_session_dir(
+        &root,
+        "session_20260915_095955_51a9645a",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        "{\"role\":\"user\",\"content\":\"fresh a\"}\n",
+    );
+    make_session_dir(
+        &root,
+        "session_20260922_101500_51a9645b",
+        "2026-09-22T10:15:00+00:00",
+        "2026-09-22T10:20:00+00:00",
+        "{\"role\":\"user\",\"content\":\"fresh b\"}\n",
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135113_c20a924e",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        "{\"role\":\"user\",\"content\":\"dup one\"}\n",
+    );
+    make_session_dir(
+        &root,
+        "session_20260921_135114_c20a924f",
+        "2026-09-15T09:59:55+00:00",
+        "2026-09-15T10:00:00+00:00",
+        "{\"role\":\"user\",\"content\":\"dup one\"}\n",
+    );
+    make_session_dir(
+        &root,
+        "session_20260923_101500_51a9645c",
+        "2026-09-23T10:15:00+00:00",
+        "2026-09-23T10:20:00+00:00",
+        "{\"role\":\"user\",\"content\":\"stale c\"}\n",
+    );
+
+    // mtimes: a = now, dup pair = now-1h, b = now-2h, c = 3 days ago.
+    for (name, t) in [
+        ("session_20260915_095955_51a9645a", now),
+        ("session_20260921_135113_c20a924e", now - hour),
+        ("session_20260921_135114_c20a924f", now - hour),
+        ("session_20260922_101500_51a9645b", now - 2 * hour),
+        (
+            "session_20260923_101500_51a9645c",
+            now - std::time::Duration::from_secs(3 * 24 * 3600),
+        ),
+    ] {
+        set_mtime(&root.join(name).join("messages.jsonl"), t);
+    }
+
+    let adapter = VibeAdapter::with_root(&*root);
+
+    // The 24-hour window: the stale session is invisible (not merely
+    // unprinted), the duplicate pair collapses to its canonical entry, and
+    // the rows are most-recent-first by payload mtime.
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 3);
+    let ids: Vec<&str> = listing
+        .sessions
+        .iter()
+        .map(|s| s.session_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "session_20260915_095955_51a9645a",
+            "session_20260921_135113_c20a924e",
+            "session_20260922_101500_51a9645b",
+        ],
+        "most recent first; the canonical entry carries the pair's alias"
+    );
+    assert_eq!(
+        listing.sessions[1].aliases,
+        vec!["session_20260921_135114_c20a924f".to_string()],
+        "the deduped alias survives the scoped listing"
+    );
+
+    // hours_back 0 is no bound at the mechanism layer: the stale session is
+    // listed too, ordered last by its mtime.
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 4);
+    assert_eq!(
+        listing.sessions.last().map(|s| s.session_id.as_str()),
+        Some("session_20260923_101500_51a9645c")
+    );
+}

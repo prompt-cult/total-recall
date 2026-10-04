@@ -11,7 +11,8 @@ use cli::Cli;
 use std::path::Path;
 use std::process::Command;
 
-use common::scratch::child_cwd;
+use common::scratch::{child_cwd, scratch};
+use total_recall::LISTING_ROW_CAP;
 
 type FlagCheck = (Vec<&'static str>, fn(&Cli) -> bool);
 
@@ -152,4 +153,163 @@ fn index_hours_accepts_numbers_and_rejects_garbage() {
         err.to_string().contains("invalid value") || err.kind() == ErrorKind::ValueValidation,
         "expected value validation error for --hours abc, got: {err}"
     );
+}
+
+#[test]
+fn list_hours_parses_and_defaults_to_the_unbounded_stream() {
+    let cli = Cli::try_parse_from(["bin", "list"]).expect("`list` parses with no flags");
+    assert!(
+        matches!(cli.command, cli::Command::List { hours: 0 }),
+        "`list` with no --hours is the unbounded stream (hours 0)"
+    );
+    let cli = Cli::try_parse_from(["bin", "list", "--hours", "24"]).expect("--hours 24 must parse");
+    assert!(matches!(cli.command, cli::Command::List { hours: 24 }));
+
+    let err = match Cli::try_parse_from(["bin", "list", "--hours", "abc"]) {
+        Ok(_) => panic!("--hours abc must be rejected"),
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().contains("invalid value") || err.kind() == ErrorKind::ValueValidation,
+        "expected value validation error for --hours abc, got: {err}"
+    );
+}
+
+/// An opencode fixture of `count` sessions all updated now, with strictly
+/// descending `time_updated` so ordering is deterministic, and one tiny user
+/// message + part each so the aggregates are non-zero.
+fn build_listing_fixture(root: &std::path::Path, count: usize) {
+    use rusqlite::Connection;
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    for i in 0..count {
+        let sid = format!("ses_clilist{i:03}000000000000000000000aa");
+        let updated = now - (i as i64) * 1_000;
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                &sid,
+                format!("/Users/dev/clilist{i:03}"),
+                format!("cli listing session {i}"),
+                updated,
+                updated
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![
+                format!("cmsg{i:03}"),
+                &sid,
+                updated,
+                "{\"role\":\"user\",\"time\":{\"created\":1}}"
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            rusqlite::params![
+                format!("cpart{i:03}"),
+                &sid,
+                format!("cmsg{i:03}"),
+                updated,
+                serde_json::json!({"type":"text","text":format!("cli listing body {i}")})
+                    .to_string()
+            ],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn list_hours_scopes_the_listing_and_names_the_held_back_rows_on_stderr() {
+    let fixture = scratch("clilist_fixture");
+    build_listing_fixture(&fixture, 250);
+    let cwd = child_cwd("clilist_run");
+    let scoped = bin(&cwd)
+        .arg("--harness")
+        .arg("opencode")
+        .arg("list")
+        .arg("--hours")
+        .arg("1")
+        .arg("--json")
+        .env("TOTAL_RECALL_OPENCODE_ROOT", fixture.join("fixture.db"))
+        .output()
+        .expect("spawn total-recall list --hours 1 --json");
+    assert!(
+        scoped.status.success(),
+        "list --hours 1 must succeed: {}",
+        String::from_utf8_lossy(&scoped.stderr)
+    );
+
+    // stdout is the scoped listing as machine-parseable JSON: the 200 most
+    // recent rows of the window plus the window count.
+    let stdout: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&scoped.stdout))
+        .expect("scoped list --json prints one JSON object");
+    let sessions = stdout["sessions"]
+        .as_array()
+        .expect("the scoped listing renders its rows under `sessions`");
+    assert_eq!(
+        sessions.len(),
+        250_usize.min(LISTING_ROW_CAP),
+        "the scoped listing prints at most the cap rows of the window"
+    );
+    assert_eq!(
+        stdout["window_count"].as_u64(),
+        Some(250),
+        "the scoped listing states how many rows the window holds"
+    );
+
+    // The held-back count is a stderr notice, so stdout stays
+    // machine-parseable.
+    let stderr = String::from_utf8_lossy(&scoped.stderr);
+    assert!(
+        stderr.contains("TRUNCATED: 250 sessions in the 1h window, 200 printed"),
+        "the held-back notice must name the window and the printed rows: {stderr}"
+    );
+
+    // --hours 0 (the default) keeps the unbounded stream: every session on
+    // stdout as a bare array, and no truncation notice.
+    let unbounded = bin(&cwd)
+        .arg("--harness")
+        .arg("opencode")
+        .arg("list")
+        .arg("--json")
+        .env("TOTAL_RECALL_OPENCODE_ROOT", fixture.join("fixture.db"))
+        .output()
+        .expect("spawn total-recall list --json");
+    assert!(unbounded.status.success());
+    let rows: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(&unbounded.stdout))
+        .expect("the unbounded list prints one JSON array");
+    assert_eq!(
+        rows.as_array().map(Vec::len),
+        Some(250),
+        "the unbounded stream lists every session, no cap"
+    );
+    assert!(
+        !String::from_utf8_lossy(&unbounded.stderr).contains("TRUNCATED"),
+        "the unbounded stream never signals truncation"
+    );
+
+    let _ = std::fs::remove_dir_all(&cwd);
 }

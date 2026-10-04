@@ -12,10 +12,10 @@ use std::time::Instant;
 use common::scratch::scratch;
 use rusqlite::Connection;
 use total_recall::{
-    MAX_GOALS_BYTES, MAX_ROLLOUT_ROWS, MAX_STATE_BYTES, OpenCodeAdapter, RolloutAdapter,
-    RolloutMessage, SessionSummary, build_goals_prompt, build_goals_prompt_bounded,
+    LISTING_ROW_CAP, MAX_GOALS_BYTES, MAX_STATE_BYTES, OpenCodeAdapter, RolloutAdapter,
+    RolloutMessage, SessionListing, SessionSummary, build_goals_prompt, build_goals_prompt_bounded,
     build_recent_rollouts_table, build_state_prompt, build_state_prompt_bounded,
-    build_structured_prompt, filter_recent_sessions, message_to_text, messages_to_text,
+    build_structured_prompt, message_to_text, messages_to_text,
 };
 
 /// Byte budget the recall prompts are held to. Mirrors `MAX_STATE_BYTES` /
@@ -264,13 +264,19 @@ fn pre_llm_split_prompt_build_vs_session_scan() {
 
     let adapter = OpenCodeAdapter::with_root(&db);
 
-    // Leg 1: the scan behind the rollouts table. It aggregates every message
-    // and part row in the store, so its cost is set by the size of the store and
-    // not by the size of the answer.
+    // Leg 1: the listing behind the rollouts table. The full scan is the
+    // defect #21 measured — aggregates for every message and part row in the
+    // store, set by the size of the store and not the size of the answer.
+    // The scoped listing is what the call pays now: the window and the row
+    // cap are pushed into SQL, so its cost is set by the answer, and the
+    // table holds its bounded rows plus the held-back count.
     let t0 = Instant::now();
-    let sessions = adapter.list_sessions();
+    let full_scan = adapter.list_sessions();
     let scan = t0.elapsed();
-    let table = build_recent_rollouts_table(&filter_recent_sessions(&sessions, 0), Some("ses_"), 0);
+    let t1 = Instant::now();
+    let listing = adapter.list_sessions_scoped(0, None);
+    let scoped = t1.elapsed();
+    let table = build_recent_rollouts_table(&listing, Some("ses_"), 0);
 
     // The unbounded prompt, for scale: the same renderer with no byte budget,
     // which is what the call used to send.
@@ -308,9 +314,14 @@ fn pre_llm_split_prompt_build_vs_session_scan() {
 
     let mb = store_bytes as f64 / 1_000_000.0;
     println!(
-        "scan: {SESSIONS} sessions, {mb:.1} MB store in {:.3}s = {:.0} MB/s; rollouts table {} rows / {} bytes (cap {MAX_ROLLOUT_ROWS})",
+        "full scan: {SESSIONS} sessions, {mb:.1} MB store in {:.3}s = {:.0} MB/s; scoped listing (unbounded window) {:.4}s for {} of {SESSIONS} rows",
         scan.as_secs_f64(),
         mb / scan.as_secs_f64(),
+        scoped.as_secs_f64(),
+        listing.sessions.len(),
+    );
+    println!(
+        "rollouts table {} rows / {} bytes (cap {LISTING_ROW_CAP})",
         table.lines().filter(|l| l.starts_with("| ses_")).count(),
         table.len(),
     );
@@ -328,15 +339,17 @@ fn pre_llm_split_prompt_build_vs_session_scan() {
         scan.as_secs_f64(),
     );
 
-    assert_eq!(sessions.len(), SESSIONS);
+    assert_eq!(full_scan.len(), SESSIONS);
+    assert_eq!(listing.window_count, SESSIONS);
     assert!(prompts.0 <= MAX_STATE_BYTES && prompts.1 <= MAX_GOALS_BYTES);
     assert!(
         builds.iter().all(|b| *b < 1.0),
         "building both prompts must not scale with session size: {builds:?}"
     );
+    assert_eq!(listing.sessions.len(), LISTING_ROW_CAP.min(SESSIONS));
     assert!(
-        table.lines().filter(|l| l.starts_with("| ses_")).count() <= MAX_ROLLOUT_ROWS,
-        "the rollouts table must hold at most {MAX_ROLLOUT_ROWS} rows"
+        table.lines().filter(|l| l.starts_with("| ses_")).count() <= LISTING_ROW_CAP,
+        "the rollouts table must hold at most {LISTING_ROW_CAP} rows"
     );
 }
 
@@ -480,23 +493,38 @@ fn the_boundary_marker_fits_its_reserve() {
     );
 }
 
-/// The rollouts table names the rows it did not print.
+/// The rollouts table names the rows the window holds but it did not print:
+/// the cap is the listing's (already applied where the data lives), and the
+/// table states the held-back count.
 #[test]
 fn the_rollouts_table_is_capped_and_says_so() {
-    let sessions: Vec<SessionSummary> = (0..MAX_ROLLOUT_ROWS + 5)
+    let sessions: Vec<SessionSummary> = (0..LISTING_ROW_CAP + 5)
         .map(|i| summary(&format!("session_{i:04}")))
         .collect();
-    let table = build_recent_rollouts_table(&sessions, None, 24);
+    // The shape a scoped listing produces: the 200 most recent rows carried,
+    // the whole window counted.
+    let listing = SessionListing {
+        sessions: sessions[..LISTING_ROW_CAP].to_vec(),
+        window_count: sessions.len(),
+    };
+    let table = build_recent_rollouts_table(&listing, None, 24);
     assert_eq!(
         table
             .lines()
             .filter(|l| l.starts_with("| session_"))
             .count(),
-        MAX_ROLLOUT_ROWS
+        LISTING_ROW_CAP
     );
     assert!(table.contains("5 older session(s)"), "{table}");
 
-    let under = build_recent_rollouts_table(&sessions[..3], None, 24);
+    let under = build_recent_rollouts_table(
+        &SessionListing {
+            sessions: sessions[..3].to_vec(),
+            window_count: 3,
+        },
+        None,
+        24,
+    );
     assert_eq!(
         under
             .lines()

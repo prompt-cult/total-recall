@@ -3,8 +3,9 @@ use std::path::PathBuf;
 
 use super::{
     CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
-    SessionProfile, SessionSummary, mmap_error, no_session_error, read_error, resolve_root,
-    resolve_session_dir, slice_from_compaction, summarize_tool_call,
+    SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window,
+    no_session_error, read_error, resolve_root, resolve_session_dir, slice_from_compaction,
+    summarize_tool_call,
 };
 
 /// Codex adapter. Reads flat JSONL files from ~/.codex/sessions/
@@ -61,6 +62,93 @@ impl CodexAdapter {
             .session_path(session_id)
             .ok_or_else(|| no_session_error(&self.root, session_id))?;
         std::fs::read(&path).map_err(|e| read_error(&path, &e))
+    }
+
+    /// The store's candidate payload paths, enumerated exactly as the full
+    /// listing enumerates them.
+    fn payload_paths(&self) -> Vec<PathBuf> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("codex store {}: cannot be listed: {e}", self.root.display());
+                return Vec::new();
+            }
+        };
+        entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| !(path.is_file() && path.extension().is_none()))
+            .collect()
+    }
+}
+
+/// One codex payload summarized into a [`SessionSummary`]. Damage is
+/// surfaced: an unreadable payload still lists, with counts from whatever
+/// could be read and a `read_error` message. Callers apply the mtime window
+/// before calling, so this payload read only ever happens for in-window
+/// sessions.
+fn summarize_payload(path: &std::path::Path) -> SessionSummary {
+    let name_str = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // Distinguish read damage (permissions, I/O error) from a payload
+    // that does not exist yet: damage is surfaced on the entry.
+    let (data, read_error) = match std::fs::read(path) {
+        Ok(data) => (data, None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+        Err(e) => (Vec::new(), Some(read_error(path, &e))),
+    };
+    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let line_count = String::from_utf8_lossy(&data)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count() as u64;
+
+    let mut user_count = 0u64;
+    let mut assistant_count = 0u64;
+    let mut tool_count = 0u64;
+    let mut has_compaction = false;
+
+    for line in String::from_utf8_lossy(&data).lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
+            match role {
+                "user" => {
+                    user_count += 1;
+                    let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                    if content.contains("context compaction") {
+                        has_compaction = true;
+                    }
+                }
+                "assistant" => assistant_count += 1,
+                "tool" => tool_count += 1,
+                _ => {}
+            }
+        }
+    }
+
+    SessionSummary {
+        session_id: name_str,
+        title: String::new(),
+        start_time: String::new(),
+        end_time: String::new(),
+        file_size,
+        line_count,
+        user_count,
+        assistant_count,
+        tool_count,
+        has_compaction,
+        directory: None,
+        parent_session_id: None,
+        child_sessions: Vec::new(),
+        has_tantivy_index: false,
+        aliases: Vec::new(),
+        read_error,
     }
 }
 
@@ -135,85 +223,27 @@ impl RolloutAdapter for CodexAdapter {
     }
 
     fn list_sessions(&self) -> Vec<SessionSummary> {
-        let entries = match std::fs::read_dir(&self.root) {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!("codex store {}: cannot be listed: {e}", self.root.display());
-                return Vec::new();
-            }
-        };
-
-        let mut summaries = Vec::new();
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && path.extension().is_none() {
-                continue;
-            }
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy().to_string();
-
-            // Distinguish read damage (permissions, I/O error) from a payload
-            // that does not exist yet: damage is surfaced on the entry.
-            let (data, read_error) = match std::fs::read(&path) {
-                Ok(data) => (data, None),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
-                Err(e) => (Vec::new(), Some(read_error(&path, &e))),
-            };
-            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            let line_count = String::from_utf8_lossy(&data)
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .count() as u64;
-
-            let mut user_count = 0u64;
-            let mut assistant_count = 0u64;
-            let mut tool_count = 0u64;
-            let mut has_compaction = false;
-
-            for line in String::from_utf8_lossy(&data).lines() {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    let role = v.get("role").and_then(|r| r.as_str()).unwrap_or("");
-                    match role {
-                        "user" => {
-                            user_count += 1;
-                            let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                            if content.contains("context compaction") {
-                                has_compaction = true;
-                            }
-                        }
-                        "assistant" => assistant_count += 1,
-                        "tool" => tool_count += 1,
-                        _ => {}
-                    }
-                }
-            }
-
-            summaries.push(SessionSummary {
-                session_id: name_str,
-                title: String::new(),
-                start_time: String::new(),
-                end_time: String::new(),
-                file_size,
-                line_count,
-                user_count,
-                assistant_count,
-                tool_count,
-                has_compaction,
-                directory: None,
-                parent_session_id: None,
-                child_sessions: Vec::new(),
-                has_tantivy_index: false,
-                aliases: Vec::new(),
-                read_error,
-            });
-        }
-
+        let mut summaries: Vec<SessionSummary> = self
+            .payload_paths()
+            .into_iter()
+            .map(|path| summarize_payload(&path))
+            .collect();
         summaries.sort_by(|a, b| b.session_id.cmp(&a.session_id));
         summaries
+    }
+
+    fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
+        // Codex payloads carry no directory (None passes every filter, as in
+        // the full listing), so the mtime window is the only cheap bound.
+        let mut rows = Vec::new();
+        for path in self.payload_paths() {
+            let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            if !mtime_in_window(mtime, hours_back) {
+                continue;
+            }
+            rows.push((mtime, summarize_payload(&path)));
+        }
+        listing_by_mtime(rows)
     }
 
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {

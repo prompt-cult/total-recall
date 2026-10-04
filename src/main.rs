@@ -5,14 +5,14 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use total_recall::{
-    RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, build_structured_prompt,
+    LISTING_ROW_CAP, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, SessionListing,
+    build_structured_prompt,
     harness::{make_adapter, resolve_harness, resolve_session},
     index,
     mercury::provider_for,
     recall::{
         GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_goals_prompt, build_plan_files_section,
         build_recall_output, build_recent_rollouts_table, build_state_prompt,
-        filter_recent_sessions,
     },
 };
 
@@ -83,8 +83,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// List all rollouts for a harness
-    List,
+    /// List rollouts for a harness: `--hours N >= 1` is the scoped listing
+    /// (the window and the 200-row cap applied where the data lives, held-back
+    /// count on stderr); `--hours 0` (the default) is the unbounded stream.
+    List {
+        /// Hours back (mtime window) for the scoped listing. 0 = unbounded
+        /// (the default; stdout is a stream). N >= 1: at most the 200 most
+        /// recent rows of the window.
+        #[arg(long, default_value_t = 0)]
+        hours: u64,
+    },
     /// Profile a specific rollout (file size, counts, events)
     Profile,
     /// Extract all data that would be summarised from a rollout
@@ -330,9 +338,31 @@ async fn main() -> Result<()> {
     };
 
     match cli.command {
-        Command::List => {
-            let mut sessions = adapter.list_sessions();
+        Command::List { hours } => {
+            // The CLI doctrine: stdout is a stream, `0` means unbounded, and
+            // the command typed is the scope asked for. `--hours N >= 1` is
+            // the scoped listing: the window and the row cap are applied
+            // where the data lives, and the held-back count goes to stderr
+            // so stdout stays machine-parseable.
+            let (mut sessions, window_count) = match hours {
+                0 => (adapter.list_sessions(), None),
+                n => {
+                    let listing = adapter.list_sessions_scoped(n, None);
+                    (listing.sessions, Some(listing.window_count))
+                }
+            };
             index::annotate_sessions(&mut sessions, adapter.as_ref());
+            if let Some(window) = window_count
+                && window > sessions.len()
+            {
+                eprintln!(
+                    "TRUNCATED: {} sessions in the {}h window, {} printed (cap {}). Use --hours 0 for the unbounded stream.",
+                    window,
+                    hours,
+                    sessions.len(),
+                    LISTING_ROW_CAP
+                );
+            }
             if cli.markdown {
                 println!("| Session | Title | Lines | User | Assistant | Tool | Compaction |");
                 println!("|---------|-------|-------|------|-----------|------|------------|");
@@ -349,7 +379,13 @@ async fn main() -> Result<()> {
                     );
                 }
             } else if cli.json {
-                let json = serde_json::to_string_pretty(&sessions)?;
+                let json = match window_count {
+                    Some(window) => serde_json::to_string_pretty(&SessionListing {
+                        sessions,
+                        window_count: window,
+                    })?,
+                    None => serde_json::to_string_pretty(&sessions)?,
+                };
                 println!("{}", json);
             } else {
                 for s in &sessions {
@@ -585,11 +621,10 @@ async fn main() -> Result<()> {
                 .try_into()
                 .expect("compact_batch_pairs returns one result per call");
 
-            let all_sessions = adapter.list_sessions();
             let hours_back: u64 = 24;
-            let recent_sessions = filter_recent_sessions(&all_sessions, hours_back);
+            let listing = adapter.list_sessions_scoped(hours_back, None);
             let rollouts_table =
-                build_recent_rollouts_table(&recent_sessions, Some(&session_id), hours_back);
+                build_recent_rollouts_table(&listing, Some(&session_id), hours_back);
             let plan_files = build_plan_files_section();
             let output =
                 build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
@@ -598,7 +633,7 @@ async fn main() -> Result<()> {
                 "total_recall: {} messages, {} user msgs, {} recent sessions, {:.1}s",
                 messages.len(),
                 user_messages.len(),
-                recent_sessions.len(),
+                listing.window_count,
                 total_time.as_secs_f64()
             );
             print!("{}", output);

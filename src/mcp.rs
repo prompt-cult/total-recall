@@ -11,10 +11,9 @@ use crate::{
     mercury::provider_for,
     prompt::SYSTEM_PROMPT,
     recall::{
-        GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_ROLLOUT_ROWS, MAX_STATE_BYTES,
-        STATE_SYSTEM_PROMPT, build_goals_prompt_bounded, build_plan_files_section,
-        build_recall_output, build_recent_rollouts_table, build_state_prompt_bounded,
-        filter_recent_sessions,
+        GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES, STATE_SYSTEM_PROMPT,
+        build_goals_prompt_bounded, build_plan_files_section, build_recall_output,
+        build_recent_rollouts_table, build_state_prompt_bounded,
     },
 };
 
@@ -321,19 +320,20 @@ impl TotalRecallServer {
         Parameters(params): Parameters<ListSessionsParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let mut sessions = adapter.list_sessions();
-        if params.hours_back > 0 {
-            let cutoff = crate::rollout::opencode::iso_cutoff(params.hours_back);
-            sessions.retain(|s| {
-                !crate::rollout::is_iso8601(&s.end_time) || s.end_time.as_str() >= cutoff.as_str()
-            });
-        }
-        if let Some(directory) = params.directory.as_deref().filter(|d| !d.is_empty()) {
-            sessions.retain(|s| s.directory.as_deref().is_none_or(|d| d.contains(directory)));
-        }
+        // The scoped listing: the window and the directory substring are
+        // applied where the data lives, at most the 200 most recent rows are
+        // returned, and the rows the window holds but did not print are
+        // stated in the response itself.
+        let listing = adapter.list_sessions_scoped(params.hours_back, params.directory.as_deref());
+        let mut sessions = listing.sessions;
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
-        let json = serde_json::to_string_pretty(&sessions)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let held_back = listing.window_count.saturating_sub(sessions.len());
+        let json = serde_json::to_string_pretty(&serde_json::json!({
+            "sessions": sessions,
+            "window_count": listing.window_count,
+            "held_back": held_back,
+        }))
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(capped_text(
             "list_sessions",
             "list",
@@ -782,12 +782,13 @@ impl TotalRecallServer {
             .try_into()
             .expect("compact_batch_pairs returns one result per call");
 
-        // Build recent rollouts table
-        let all_sessions = adapter.list_sessions();
-        let recent_sessions = filter_recent_sessions(&all_sessions, params.hours_back);
+        // Build recent rollouts table from the scoped listing: the window is
+        // applied where the data lives and the table holds the listing's
+        // bounded rows plus the held-back count.
+        let listing = adapter.list_sessions_scoped(params.hours_back, None);
         let rollouts_table =
-            build_recent_rollouts_table(&recent_sessions, Some(&session_id), params.hours_back);
-        let table_rows = recent_sessions.len().min(MAX_ROLLOUT_ROWS);
+            build_recent_rollouts_table(&listing, Some(&session_id), params.hours_back);
+        let table_rows = listing.sessions.len();
 
         // Build plan files section
         let plan_files = build_plan_files_section();
@@ -813,7 +814,7 @@ impl TotalRecallServer {
             ),
             (
                 "recent_sessions_count".to_string(),
-                serde_json::json!(recent_sessions.len()),
+                serde_json::json!(listing.window_count),
             ),
             (
                 "rollout_table_rows".to_string(),

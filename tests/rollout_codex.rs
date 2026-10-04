@@ -1,6 +1,10 @@
+mod common;
+
 use std::path::PathBuf;
 use total_recall::RolloutAdapter;
 use total_recall::rollout::codex::CodexAdapter;
+
+use common::scratch::scratch;
 
 fn test_data_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rollouts")
@@ -77,4 +81,41 @@ fn test_codex_extract_user_messages() {
         .expect("healthy fixture user messages");
 
     assert!(!messages.is_empty(), "Should extract user messages");
+}
+
+#[test]
+fn test_codex_list_sessions_scoped_windows_by_payload_mtime() {
+    let tmp = scratch("codex_scoped");
+    let a = tmp.join("session_a.jsonl");
+    let b = tmp.join("session_b.jsonl");
+    std::fs::write(&a, "{\"role\":\"user\",\"content\":\"fresh codex line\"}\n").unwrap();
+    std::fs::write(&b, "{\"role\":\"user\",\"content\":\"stale codex line\"}\n").unwrap();
+
+    let now = std::time::SystemTime::now();
+    let three_days_ago = now - std::time::Duration::from_secs(3 * 24 * 3600);
+    for (path, t) in [(&a, now), (&b, three_days_ago)] {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+    }
+
+    let adapter = CodexAdapter::with_root(&*tmp);
+
+    // The 24-hour window holds only the fresh session — the stale one is
+    // invisible, not merely unprinted — with its aggregates computed.
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].session_id, "session_a.jsonl");
+    assert_eq!(listing.sessions[0].user_count, 1);
+    assert_eq!(listing.sessions[0].line_count, 1);
+
+    // hours_back 0 is no bound at the mechanism layer: both, most-recent-first.
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 2);
+    assert_eq!(listing.sessions[0].session_id, "session_a.jsonl");
+    assert_eq!(listing.sessions[1].session_id, "session_b.jsonl");
 }
