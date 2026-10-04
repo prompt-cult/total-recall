@@ -92,7 +92,10 @@ takes `--harness` explicitly.
 ### `list_sessions`
 
 
-CLI: `total-recall --harness <h> list [--json|--markdown]`.
+CLI: `total-recall --harness <h> list [--json|--markdown] [--hours N]` —
+`--hours 0` (the default) is the unbounded full listing stream; `--hours N`
+with `N >= 1` is the scoped listing (at most the 200 most recent rows of the
+window, held-back count on stderr).
 
 Each entry: `session_id`, `title`, `start_time`, `end_time`, `file_size`,
 `line_count`, `user_count`, `assistant_count`, `tool_count`,
@@ -110,8 +113,15 @@ rollout twice. `aliases` is empty for a unique session.
 listed, with counts from whatever could be read, so damage is visible in the
 index rather than the payload silently appearing empty.
 
-The OpenCode implementation is a single `GROUP BY` query with no correlated
-subqueries, so the index over thousands of sessions reads at disk speed.
+The listing is bounded the way the scope contract says: at most the 200
+most recent rows of the window, most recent first, with the held-back count
+stated. The bound lives where the data lives — the OpenCode implementation
+pushes the window, the directory substring and the row cap into SQL, so
+aggregates are computed only for the listed rows (through the store's
+`message(session_id, …)` and `part(session_id)` indexes) and the window count
+is a bare `COUNT(*)`; the file-based harnesses test mtime and directory
+before reading a payload. A scoped listing costs what it asks for, not what
+the store holds.
 
 ### `profile_session`
 

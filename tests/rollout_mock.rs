@@ -169,3 +169,42 @@ fn test_mock_empty_file() {
     let messages = adapter.read_session("test").expect("healthy fixture read");
     assert!(messages.is_empty());
 }
+
+#[test]
+fn test_mock_list_sessions_scoped_windows_by_payload_mtime() {
+    let dir = scratch("mock_scoped");
+    let path = dir.join("mock.jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            "{\"role\":\"user\",\"content\":\"hello\",\"tool_calls_summary\":[],\"timestamp\":null,\"injected\":false}\n",
+            "{\"role\":\"assistant\",\"content\":\"hi back\",\"tool_calls_summary\":[],\"timestamp\":null,\"injected\":false}\n",
+        ),
+    )
+    .unwrap();
+    let adapter = MockAdapter::new(&path);
+
+    // A fresh payload is inside the window, and hours_back 0 is no bound.
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions.len(), 1);
+    assert_eq!(listing.sessions[0].line_count, 2);
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 1);
+
+    // A payload mtime three days old is outside a 24-hour window — invisible,
+    // not merely unprinted — but still inside the unbounded form.
+    let three_days_ago =
+        std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 24 * 3600);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(three_days_ago)
+        .unwrap();
+    let listing = adapter.list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 0);
+    assert!(listing.sessions.is_empty());
+    let listing = adapter.list_sessions_scoped(0, None);
+    assert_eq!(listing.window_count, 1);
+}

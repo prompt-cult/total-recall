@@ -1,5 +1,5 @@
 use crate::redact::redact_secrets;
-use crate::rollout::{RolloutMessage, SessionSummary};
+use crate::rollout::{LISTING_ROW_CAP, RolloutMessage, SessionListing};
 
 /// System prompt for the current-state summary (same as compaction).
 pub const STATE_SYSTEM_PROMPT: &str =
@@ -286,22 +286,15 @@ pub fn build_goals_prompt(user_messages: &[String]) -> String {
     build_goals_prompt_bounded(user_messages, MAX_GOALS_BYTES).text
 }
 
-/// Row cap for the recent-rollouts table.
-///
-/// The session scan behind this table is the dominant pre-LLM cost of a recall
-/// call on a large store, so the table it feeds is bounded rather than allowed
-/// to grow with the number of sessions in the window. The rows kept are the
-/// first ones in the adapter's ordering, which is most-recent-first; the
-/// overflow is stated in the table itself.
-pub const MAX_ROLLOUT_ROWS: usize = 200;
-
-/// Build the recent rollouts table as markdown.
+/// Build the recent rollouts table as markdown from a scoped listing.
 /// `current_session_id` is marked as "SUMMARISED" in the table.
-/// `hours_back` limits to sessions with mtime within that many hours.
-/// At most [`MAX_ROLLOUT_ROWS`] rows are rendered, taken from the front of
-/// `sessions` (most recent first), and the omitted count is stated in the table.
+/// `hours_back` names the window the listing already applied.
+///
+/// The listing holds at most [`LISTING_ROW_CAP`] rows (the cap is the
+/// listing's, applied where the data lives, not the table's); the rows the
+/// window holds but the table did not print are stated in the table itself.
 pub fn build_recent_rollouts_table(
-    sessions: &[SessionSummary],
+    listing: &SessionListing,
     current_session_id: Option<&str>,
     hours_back: u64,
 ) -> String {
@@ -309,7 +302,7 @@ pub fn build_recent_rollouts_table(
     lines.push(format!("## Recent Rollouts ({}h)", hours_back));
     lines.push(String::new());
 
-    if sessions.is_empty() {
+    if listing.window_count == 0 {
         lines.push("No recent sessions found.".to_string());
         return lines.join("\n");
     }
@@ -321,7 +314,7 @@ pub fn build_recent_rollouts_table(
         "|---------|-------|------|-------|------|------|------|------------|-------|".to_string(),
     );
 
-    for s in &sessions[..sessions.len().min(MAX_ROLLOUT_ROWS)] {
+    for s in &listing.sessions {
         let size_str = if s.file_size >= 1_000_000 {
             format!("{:.1}MB", s.file_size as f64 / 1_000_000.0)
         } else {
@@ -354,12 +347,12 @@ pub fn build_recent_rollouts_table(
         ));
     }
 
-    let omitted = sessions.len().saturating_sub(MAX_ROLLOUT_ROWS);
+    let omitted = listing.window_count.saturating_sub(listing.sessions.len());
     if omitted > 0 {
         lines.push(String::new());
         lines.push(format!(
             "- {omitted} older session(s) in this window are not listed: the table holds the \
-             {MAX_ROLLOUT_ROWS} most recent rows."
+             {LISTING_ROW_CAP} most recent rows."
         ));
     }
 
@@ -507,67 +500,4 @@ pub struct RecallOutput {
     pub user_messages_count: usize,
     /// Number of messages in the session (from compaction point).
     pub session_messages_count: usize,
-}
-
-/// Filter sessions to those modified within `hours_back` hours.
-pub fn filter_recent_sessions(sessions: &[SessionSummary], hours_back: u64) -> Vec<SessionSummary> {
-    let now = std::time::SystemTime::now();
-    let cutoff = now
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-        .saturating_sub(hours_back * 3600);
-
-    sessions
-        .iter()
-        .filter(|s| {
-            // Parse start_time as a rough proxy for mtime.
-            // Vibe sessions are named session_YYYYMMDD_HHMMSS_<id>
-            // We can parse the session_id for a rough timestamp.
-            let parts: Vec<&str> = s.session_id.split('_').collect();
-            if parts.len() >= 3 {
-                let date_part = parts[1]; // YYYYMMDD
-                let time_part = parts[2]; // HHMMSS
-                if date_part.len() == 8 && time_part.len() == 6 {
-                    let year: u32 = date_part[..4].parse().unwrap_or(0);
-                    let month: u32 = date_part[4..6].parse().unwrap_or(0);
-                    let day: u32 = date_part[6..8].parse().unwrap_or(0);
-                    let hour: u32 = time_part[..2].parse().unwrap_or(0);
-                    let min: u32 = time_part[2..4].parse().unwrap_or(0);
-                    let sec: u32 = time_part[4..6].parse().unwrap_or(0);
-
-                    // Rough epoch conversion (not perfect, but good enough for filtering)
-                    // Days since epoch = (year-1970)*365 + leap days + day of year
-                    let days_since_epoch = ((year as u64 - 1970) * 365)
-                        + ((year as u64 - 1969) / 4) // leap years
-                        - ((year as u64 - 1901) / 100) // century non-leap
-                        + ((year as u64 - 1601) / 400) // 400-year leap
-                        + day_of_year(month, day, year);
-                    let epoch_secs = days_since_epoch * 86400
-                        + (hour as u64) * 3600
-                        + (min as u64) * 60
-                        + sec as u64;
-                    return epoch_secs >= cutoff;
-                }
-            }
-            // If we can't parse, include it (safe default)
-            true
-        })
-        .cloned()
-        .collect()
-}
-
-fn day_of_year(month: u32, day: u32, year: u32) -> u64 {
-    let days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut doy = 0u64;
-    for m in 1..month {
-        doy += days_in_month[(m - 1) as usize];
-    }
-    // Leap year adjustment
-    if month > 2
-        && (year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)))
-    {
-        doy += 1;
-    }
-    doy + (day as u64) - 1
 }

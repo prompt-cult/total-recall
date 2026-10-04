@@ -1,11 +1,18 @@
 use total_recall::{
-    SessionSummary,
+    SessionListing, SessionSummary,
     recall::{build_recall_output, build_recent_rollouts_table},
 };
 
 #[test]
 fn test_build_recent_rollouts_table_empty() {
-    let table = build_recent_rollouts_table(&[], None, 24);
+    let table = build_recent_rollouts_table(
+        &SessionListing {
+            sessions: vec![],
+            window_count: 0,
+        },
+        None,
+        24,
+    );
     assert!(table.contains("Recent Rollouts"));
     assert!(table.contains("No recent sessions"));
 }
@@ -30,7 +37,14 @@ fn test_build_recent_rollouts_table_with_sessions() {
         aliases: vec![],
         read_error: None,
     }];
-    let table = build_recent_rollouts_table(&sessions, Some("session_20260914_040914_abc123"), 24);
+    let table = build_recent_rollouts_table(
+        &SessionListing {
+            sessions,
+            window_count: 1,
+        },
+        Some("session_20260914_040914_abc123"),
+        24,
+    );
     assert!(table.contains("session_20260914_040914_abc123"));
     assert!(table.contains("test session"));
     assert!(table.contains("SUMMARISED"));

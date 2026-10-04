@@ -108,6 +108,15 @@ pub trait RolloutAdapter: Send + Sync {
     /// Find all rollout sessions, return summary info
     fn list_sessions(&self) -> Vec<SessionSummary>;
 
+    /// The bounded form of [`RolloutAdapter::list_sessions`]: the window
+    /// (`hours_back`, in hours; `0` is no bound at this mechanism layer —
+    /// policy on what a caller must pass lives above it) and the optional
+    /// `directory` substring are applied where the data lives, at most
+    /// [`LISTING_ROW_CAP`] most-recent rows are returned, and `window_count`
+    /// says how many rows the window holds in total — the count a caller
+    /// states as held back when it cannot print them all.
+    fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing;
+
     /// Stream messages from a specific session. Errors when the session cannot
     /// be resolved or its payload cannot be read — never an empty list.
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>>;
@@ -228,6 +237,59 @@ pub struct SessionSummary {
     /// absent when the payload file simply does not exist yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_error: Option<String>,
+}
+
+/// The row cap every listing renders: at most the 200 most recent rows of
+/// the requested window, most recent first. One bound, one owner — the MCP
+/// listing and the recall table's rollouts listing both take their cap from
+/// here, so a listing can never grow with the store.
+pub const LISTING_ROW_CAP: usize = 200;
+
+/// A bounded listing: at most [`LISTING_ROW_CAP`] rows of the requested
+/// window, most recent first, plus how many rows the window holds in total
+/// — so a caller that cannot print them all can state the held-back count
+/// instead of silently dropping rows.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SessionListing {
+    pub sessions: Vec<SessionSummary>,
+    pub window_count: usize,
+}
+
+/// The window test for file-based stores: `hours_back == 0` is no bound;
+/// otherwise the payload's mtime must fall inside the window. An mtime that
+/// cannot be determined passes — a session whose recency is unknown stays
+/// visible, the same safe default the ISO-timestamp filters keep.
+pub(crate) fn mtime_in_window(mtime: Option<std::time::SystemTime>, hours_back: u64) -> bool {
+    let Some(cutoff) = std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(
+        hours_back.saturating_mul(3600),
+    )) else {
+        return true;
+    };
+    hours_back == 0 || mtime.is_none_or(|m| m >= cutoff)
+}
+
+/// The directory substring test shared by the scoped listings: an absent or
+/// empty filter matches everything, and a session with no directory passes —
+/// it cannot contradict the filter.
+pub(crate) fn directory_matches(filter: Option<&str>, directory: Option<&str>) -> bool {
+    filter
+        .filter(|f| !f.is_empty())
+        .is_none_or(|f| directory.is_none_or(|d| d.contains(f)))
+}
+
+/// Assemble the bounded listing from one window's rows keyed by mtime:
+/// sorted most-recent-first, capped at [`LISTING_ROW_CAP`], with the full
+/// window count reported so held-back rows are stated, not silent.
+pub(crate) fn listing_by_mtime(
+    mut rows: Vec<(Option<std::time::SystemTime>, SessionSummary)>,
+) -> SessionListing {
+    rows.sort_by_key(|(mtime, _)| std::cmp::Reverse(*mtime));
+    let window_count = rows.len();
+    rows.truncate(LISTING_ROW_CAP);
+    SessionListing {
+        sessions: rows.into_iter().map(|(_, s)| s).collect(),
+        window_count,
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
