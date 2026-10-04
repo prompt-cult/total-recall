@@ -21,9 +21,10 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 The rollouts of the listing's window with id, title, times, directory,
 message and tool counts, byte size, parent/children. Optional bounds:
-`hours_back` (default 240 = 10 days; 0 = no bound) and `directory` substring
-filter. The listing renders at most the 200 most recent rows of the window,
-most recent first, and states how many rows the window holds but did not
+`hours_back` (a window in hours, 1 or more; default 240 = 10 days) and
+`directory` substring filter; `all: true` lists the whole store. The listing
+renders at most the 200 most recent rows of the window, most recent first,
+and states how many rows the window holds but did not
 print. The bound lives where the data lives: the OpenCode SQLite
 implementation pushes the window, the directory substring and the row cap
 into SQL — aggregates are computed only for the listed rows, through the
@@ -155,6 +156,9 @@ Each session gets `<shadow root>/<session_id>/`, plus a
 Re-indexing a session replaces its index from scratch — the folder is
 disposable, can be deleted at any time, and MUST NOT be committed.
 
+MCP: `hours_back` defaults to 24 — the natural call indexes the last day,
+not the whole store; `all: true` is the explicit whole-store opt-in.
+
 CLI:
 
 ```bash
@@ -174,9 +178,9 @@ Searches the per-session tantivy indexes with tantivy query syntax
 hits per session into one ranking ordered by score. Session selection is
 identical to `she_said_he_said_action`: the `session_id` parameter takes one
 partial id, resolving to the most recent match (an unmatched id is reported
-in the header, not fatal); empty means all sessions updated within
-`hours_back` (default 48, 0 = no bound), optionally filtered by `directory`
-substring. Sessions without an
+in the header, not fatal); empty means the window — all sessions updated
+within `hours_back` (default 48), or `all: true` for the whole store,
+optionally filtered by `directory` substring. Sessions without an
 index are listed as not indexed (run index first) and skipped; a corrupt
 index is reported in the header, not fatal.
 
@@ -451,10 +455,11 @@ flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `do_android_dream_of_electric_sheep`, `total_recall`, and `line_histogram`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
-empty = most recent) except the listing tools, which take a `hours_back`
-cutoff instead (`list_sessions` defaults to 240 hours = 10 days; 0 = no
-bound). The generated schemas are the parameter authority: `tools/list`
-for the MCP tools, `--help` for the CLI.
+empty = most recent) except the window tools, which take a `hours_back`
+window instead (a window in hours, 1 or more; `list_sessions` defaults to
+240 hours = 10 days; `all: true` opts into the whole store). The generated
+schemas are the parameter authority: `tools/list` for the MCP tools,
+`--help` for the CLI.
 
 **Flood control.** Every response that can overflow the caller's context is
 capped at `max_bytes` (default 16,384) — the mechanism is generic, not a

@@ -57,8 +57,8 @@ fn build_fixture(root: &std::path::Path) {
             "old session".into(),
             4000,
         ),
-        // a title so large that list_sessions (hours_back 0) overflows the
-        // default 16 KiB window: the JSON-tear contract, proven for real
+        // a title so large that list_sessions overflows the default 16 KiB
+        // window: the JSON-tear contract, proven for real
         (
             "ses_huge000000000000000000000000d",
             "/Users/dev/huge",
@@ -112,7 +112,7 @@ fn build_fixture(root: &std::path::Path) {
         ],
     )
     .unwrap();
-    // old: one part so it has content when listed at hours_back 0
+    // old: one part so it has content when listed with all: true
     conn.execute(
         "INSERT INTO message (id, session_id, time_created, time_updated, data)
          VALUES ('omsg1', 'ses_old0000000000000000000000000c', 4000, 4000,
@@ -333,7 +333,7 @@ fn she_said_with_session_id_scans_only_that_session() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = mcp.call(
         "she_said_he_said_action",
-        serde_json::json!({"words": ["release"], "session_id": "ses_alpha", "hours_back": 0}),
+        serde_json::json!({"words": ["release"], "session_id": "ses_alpha"}),
     );
     assert!(!err, "she_said must succeed: {text}");
     assert!(
@@ -352,7 +352,7 @@ fn she_said_overflow_returns_the_marker_and_keeps_the_whole_report() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = mcp.call(
         "she_said_he_said_action",
-        serde_json::json!({"words": ["release"], "session_id": "ses_alpha", "hours_back": 0, "max_bytes": 200}),
+        serde_json::json!({"words": ["release"], "session_id": "ses_alpha", "max_bytes": 200}),
     );
     assert!(!err, "the capped call succeeds: {text}");
     assert!(
@@ -397,18 +397,18 @@ fn list_sessions_default_cutoff_is_240_hours() {
         written.contains("ses_alpha"),
         "the recent session is listed"
     );
-    let (err, text) = mcp.call("list_sessions", serde_json::json!({"hours_back": 0}));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"all": true}));
     assert!(!err);
     let path = marker_path(&text);
     let written = std::fs::read_to_string(&path).unwrap();
-    assert!(written.contains("ses_old"), "hours_back 0 lifts the cutoff");
+    assert!(written.contains("ses_old"), "all: true lifts the window");
     reap(&mut mcp);
 }
 
 #[test]
 fn an_overflowing_json_response_is_never_torn() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) = mcp.call("list_sessions", serde_json::json!({"hours_back": 0}));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "the overflowing list still succeeds: {text}");
     assert!(
         text.contains("--- [EOF-TRUNCATED] ---"),

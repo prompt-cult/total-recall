@@ -5,7 +5,16 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- The window tools (`list_sessions`, `she_said_he_said_action`,
+  `index_sessions`, `do_android_dream_of_electric_sheep`) take `all: true`
+  as the explicit whole-store opt-in — every session of every project the
+  store holds — and reject `all: true` combined with `hours_back`: pass
+  one, not both. The adapter keeps `0` as its unbounded mechanism; only
+  `all: true` reaches it.
 
 ### Changed
 
@@ -13,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   work is bounded where the data lives, breadth is an explicit opt-in, and an
   unscoped request is rejected with the cheap forms named — never clamped,
   never silently run (README, docs/src/tools.md).
+- `hours_back` is a window in hours, `1` or more, on the four window tools:
+  `hours_back: 0` is rejected as a tool error naming the cheap forms —
+  never clamped, never "no bound". The old "0 = no bound" default is gone
+  from the MCP layer; the CLI keeps its own doctrine (`--hours 0` is the
+  unbounded stream, the command typed is the scope asked for).
+- `index_sessions` defaults to `hours_back: 24` — the natural call indexes
+  the last day, not the whole store; whole-store indexing is `all: true`,
+  explicit.
+- The window tools' schema descriptions speak in one voice: `session_id`
+  "Empty = the window (hours_back / directory / all)", hours_back "a window
+  in hours, 1 or more; 0 is rejected", and every "0 = no bound" is gone
+  from the MCP schema strings.
 
 ## [0.10.0] - 2026-10-03
 
@@ -362,7 +383,7 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
-[Unreleased]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...HEAD
+[0.11.0]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/prompt-cult/total-recall/compare/v0.9.0...v0.9.1

@@ -22,10 +22,15 @@ use crate::{
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ListSessionsParams {
     #[schemars(
-        description = "Only include sessions updated within this many hours. Default: 240 (10 days). 0 = no bound."
+        description = "Only include sessions updated within this many hours. A window in hours, 1 or more; 0 is rejected. Default: 240 (10 days)."
     )]
-    #[serde(default = "default_list_hours")]
-    pub hours_back: u64,
+    #[serde(default)]
+    pub hours_back: Option<u64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
     #[schemars(description = "Only include sessions whose directory contains this substring.")]
     pub directory: Option<String>,
 }
@@ -166,8 +171,10 @@ fn default_she_said_hours() -> u64 {
     48
 }
 
+/// The natural call indexes the last day, not the whole store; whole-store
+/// indexing is `all: true`, explicit.
 fn default_index_hours() -> u64 {
-    0
+    24
 }
 
 fn default_sheep_hours() -> u64 {
@@ -185,15 +192,22 @@ fn default_max_bytes() -> usize {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SheSaidHeSaidParams {
     #[schemars(
-        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
     )]
     #[serde(default)]
     pub session_id: String,
     #[schemars(description = "Case-insensitive search terms. At least one is required.")]
     pub words: Vec<String>,
-    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 48.")]
-    #[serde(default = "default_she_said_hours")]
-    pub hours_back: u64,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 48."
+    )]
+    #[serde(default)]
+    pub hours_back: Option<u64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
@@ -206,13 +220,20 @@ pub struct SheSaidHeSaidParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct IndexSessionsParams {
     #[schemars(
-        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
     )]
     #[serde(default)]
     pub session_id: String,
-    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 0.")]
-    #[serde(default = "default_index_hours")]
-    pub hours_back: u64,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 24 (the last day)."
+    )]
+    #[serde(default)]
+    pub hours_back: Option<u64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
 }
@@ -222,13 +243,20 @@ pub struct SheepParams {
     #[schemars(description = "Tantivy query syntax. Required.")]
     pub query: String,
     #[schemars(
-        description = "Session ID (partial match). Empty = all rollouts updated within hours_back."
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
     )]
     #[serde(default)]
     pub session_id: String,
-    #[schemars(description = "Hours back when session_id is empty. 0 = no bound. Default: 48.")]
-    #[serde(default = "default_sheep_hours")]
-    pub hours_back: u64,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 48."
+    )]
+    #[serde(default)]
+    pub hours_back: Option<u64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
@@ -275,6 +303,45 @@ impl TotalRecallServer {
     }
 }
 
+/// The scope contract, enforced at the tool layer: return the `hours_back`
+/// to hand the adapter — `0` means unbounded at that mechanism layer and is
+/// reachable only through `all: true` — or the rejection text. A window of
+/// zero hours is never a window and never a default; `all: true` is the
+/// explicit whole-store opt-in and contradicts a window; a request with no
+/// scope at all is rejected with the cheap forms named. The adapter's
+/// `0` = unbounded stays the CLI's mechanism — the MCP layer never passes
+/// `0` except through `all: true`.
+fn window_hours(
+    session_id: &str,
+    directory: Option<&str>,
+    hours_back: Option<u64>,
+    all: bool,
+    default_hours: u64,
+) -> Result<u64, String> {
+    if all && hours_back.is_some() {
+        return Err(
+            "all: true is the whole store; hours_back is a window — pass one, not both".to_string(),
+        );
+    }
+    if hours_back == Some(0) {
+        if session_id.is_empty() && directory.is_none() {
+            return Err(
+                "unscoped: pass session_id, or directory, or hours_back >= 1, or all: true deliberately"
+                    .to_string(),
+            );
+        }
+        return Err(
+            "hours_back: 0 is not a window — pass hours_back >= 1, or all: true for the whole store (explicit); the old '0 = no bound' default is gone"
+                .to_string(),
+        );
+    }
+    Ok(if all {
+        0
+    } else {
+        hours_back.unwrap_or(default_hours)
+    })
+}
+
 /// Every tool's success text that can overflow WITHOUT its own bound passes
 /// through here: flood control is generic and open-ended, so a tool added
 /// tomorrow inherits the cap by calling this like every other tool does.
@@ -313,18 +380,28 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (default 240 = 10 days; 0 = no bound) and a directory substring filter"
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (a window in hours, 1 or more; default 240 = 10 days) and a directory substring filter; all: true lists the whole store"
     )]
     async fn list_sessions(
         &self,
         Parameters(params): Parameters<ListSessionsParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
+        let hours = match window_hours(
+            "",
+            params.directory.as_deref(),
+            params.hours_back,
+            params.all,
+            default_list_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         // The scoped listing: the window and the directory substring are
         // applied where the data lives, at most the 200 most recent rows are
         // returned, and the rows the window holds but did not print are
         // stated in the response itself.
-        let listing = adapter.list_sessions_scoped(params.hours_back, params.directory.as_deref());
+        let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
         let mut sessions = listing.sessions;
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
         let held_back = listing.window_count.saturating_sub(sessions.len());
@@ -344,7 +421,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "she_said_he_said_action",
-        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Matching runs inside SQLite on a read-only connection."
+        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Matching runs inside SQLite on a read-only connection."
     )]
     async fn she_said_he_said_action(
         &self,
@@ -356,6 +433,16 @@ impl TotalRecallServer {
                 "she_said_he_said_action requires at least one term in `words`".to_string(),
             )]));
         }
+        let hours = match window_hours(
+            &params.session_id,
+            params.directory.as_deref(),
+            params.hours_back,
+            params.all,
+            default_she_said_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let sessions: Vec<String> = if params.session_id.is_empty() {
             Vec::new()
         } else {
@@ -364,7 +451,7 @@ impl TotalRecallServer {
         match adapter.she_said_he_said_action(
             &sessions,
             &params.words,
-            params.hours_back,
+            hours,
             params.directory.as_deref(),
         ) {
             Ok(report) => Ok(capped_text(
@@ -378,13 +465,23 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 0 = no bound) optionally filtered by a directory substring."
+        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 24 = the last day; directory; or all: true)."
     )]
     async fn index_sessions(
         &self,
         Parameters(params): Parameters<IndexSessionsParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
+        let hours = match window_hours(
+            &params.session_id,
+            params.directory.as_deref(),
+            params.hours_back,
+            params.all,
+            default_index_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let sessions: Vec<String> = if params.session_id.is_empty() {
             Vec::new()
         } else {
@@ -393,7 +490,7 @@ impl TotalRecallServer {
         let (selected, unmatched) = crate::index::select_sessions(
             adapter.as_ref(),
             &sessions,
-            params.hours_back,
+            hours,
             params.directory.as_deref(),
         );
         if !unmatched.is_empty() {
@@ -424,7 +521,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "do_android_dream_of_electric_sheep",
-        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. The session_id (partial match) selects one session, or, when empty, all rollouts updated within hours_back (default 48) optionally filtered by a directory substring. Sessions without an index are reported as not indexed (run index_sessions first)."
+        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Sessions without an index are reported as not indexed (run index_sessions first)."
     )]
     async fn do_android_dream_of_electric_sheep(
         &self,
@@ -437,6 +534,16 @@ impl TotalRecallServer {
                     .to_string(),
             )]));
         }
+        let hours = match window_hours(
+            &params.session_id,
+            params.directory.as_deref(),
+            params.hours_back,
+            params.all,
+            default_sheep_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let sessions: Vec<String> = if params.session_id.is_empty() {
             Vec::new()
         } else {
@@ -446,7 +553,7 @@ impl TotalRecallServer {
             adapter.as_ref(),
             &sessions,
             &params.query,
-            params.hours_back,
+            hours,
             params.directory.as_deref(),
         ) {
             Ok(report) => Ok(capped_text(

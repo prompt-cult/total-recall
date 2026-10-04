@@ -280,8 +280,11 @@ The index lives in a shadow folder next to the session store, never inside it:
 
 Each session gets `<shadow root>/<session_id>/`, plus a
 `total-recall-meta.json` marker carrying `session_id`, `doc_count` and
-`built_at`. Re-indexing a session replaces its index from scratch — the folder
-is disposable, can be deleted at any time, and MUST NOT be committed.
+`built_at`. Re-indexing a session replaces its index from scratch — the
+folder is disposable, can be deleted at any time, and MUST NOT be committed.
+
+MCP: `hours_back` defaults to 24 — the natural call indexes the last day,
+not the whole store; `all: true` is the explicit whole-store opt-in.
 
 CLI: `total-recall --harness <h> index [--sessions <id>…] [--hours 24]
 [--directory <substr>]`. `list` and `profile` carry the index presence flag
