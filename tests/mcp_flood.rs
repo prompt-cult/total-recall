@@ -238,6 +238,33 @@ fn build_listing_fixture(root: &std::path::Path, count: usize) {
     }
 }
 
+/// The pathological row a live store really produced: `count` in-window
+/// sessions where the newest one carries `children` subagent children. Each
+/// child is itself a session in the window, as in the live store, and every
+/// child is stamped older than every parent so the listing's most-recent-first
+/// order stays deterministic and the parents are the rows the cap keeps.
+fn build_fanout_fixture(root: &std::path::Path, count: usize, children: usize) {
+    build_listing_fixture(root, count);
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    let now = now_ms();
+    let parent = format!("ses_listing{:03}0000000000000000000000aa", 0);
+    for i in 0..children {
+        let updated = now - 10_000_000 - (i as i64);
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            rusqlite::params![
+                format!("ses_child{i:05}0000000000000000000aa"),
+                &parent,
+                format!("/Users/dev/child{i:05}"),
+                format!("child session {i}"),
+                updated
+            ],
+        )
+        .unwrap();
+    }
+}
+
 fn spawn() -> (Mcp, common::scratch::ScratchRoot) {
     spawn_fixture(build_fixture)
 }
@@ -563,6 +590,135 @@ fn a_budget_too_small_for_one_row_still_floods_whole() {
             .iter()
             .any(|r| r["session_id"] == "ses_huge000000000000000000000000d")),
         "the overflow file carries the rows a 16 KiB budget could not: {written}"
+    );
+    reap(&mut mcp);
+}
+
+/// The store shape that made the default listing useless: a session that
+/// accumulated subagent children, with every other row lean. One unbounded
+/// `child_sessions` array spent the whole response budget, so a default call
+/// printed a handful of the hundreds of rows the window held. Ids are bounded
+/// per row with the true count alongside, so the row count the caller gets is
+/// a function of the budget again.
+#[test]
+fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
+    let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 200, 300));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    assert!(
+        !text.contains("--- [EOF-TRUNCATED] ---"),
+        "the default listing fits its own budget: {text}"
+    );
+    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
+    let sessions = v["sessions"]
+        .as_array()
+        .expect("rows under `sessions`")
+        .clone();
+    assert!(
+        text.len() <= 16_384,
+        "the rendered listing must fit the default budget, got {} bytes",
+        text.len()
+    );
+    assert_eq!(
+        v["window_count"].as_u64(),
+        Some(500),
+        "the window holds the 200 parents and the 300 children"
+    );
+    assert_eq!(
+        v["held_back"].as_u64(),
+        Some(500 - sessions.len() as u64),
+        "the listing states the rows the window holds but did not print"
+    );
+    assert!(
+        sessions.len() >= 30,
+        "a store of 200 lean rows and one 300-child row must render materially \
+         more than the 3 rows the unbounded array allowed; rendered {} of 500",
+        sessions.len()
+    );
+    // 30 is this fixture's measured ceiling, not a chosen target: a lean row is
+    // ~550 bytes pretty-printed, so the budget and not any cap is what ends the
+    // listing. The unused tail is smaller than one more row would need.
+    let lean_bytes = serde_json::to_string(&sessions[1]).unwrap().len();
+    assert!(
+        lean_bytes < 700,
+        "a lean row stays under 700 bytes whatever the store holds, got {lean_bytes}"
+    );
+    assert!(
+        16_384 - text.len() < 1_024,
+        "the budget is saturated: the unused tail cannot hold another row, got {} bytes",
+        16_384 - text.len()
+    );
+
+    // The fan-out row itself: bounded ids, the true count beside them, and the
+    // held-back number stated rather than implied.
+    let parent = sessions
+        .iter()
+        .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
+        .expect("the newest parent is the first rendered row");
+    let ids = parent["child_sessions"]
+        .as_array()
+        .expect("child_sessions is an array");
+    assert!(
+        ids.len() <= 10,
+        "the row carries at most the per-row id cap, got {}",
+        ids.len()
+    );
+    assert_eq!(
+        ids[0].as_str(),
+        Some("ses_child000000000000000000000000aa"),
+        "the ids a bounded row keeps are the most recent children, not an arbitrary ten of them"
+    );
+    assert_eq!(
+        parent["child_session_count"].as_u64(),
+        Some(300),
+        "the row states the true child count alongside the ids it carries"
+    );
+    assert!(
+        serde_json::to_string(parent).unwrap().len() < 2048,
+        "a 300-child row stays a row, not a report"
+    );
+    let notice = parent["notice"].as_str().unwrap_or_default();
+    assert!(
+        notice.contains('2') && notice.contains("child_sessions"),
+        "the row says how many child ids it held back: {notice}"
+    );
+    reap(&mut mcp);
+}
+
+/// The pathological row taken to its limit: one session with five thousand
+/// children. The listing is still a listing — the count is stated, the ids are
+/// bounded, and the response fits its own budget rather than overflowing into
+/// the marker.
+#[test]
+fn one_row_with_five_thousand_children_still_returns_a_listing() {
+    let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 1, 5_000));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    assert!(
+        !text.contains("--- [EOF-TRUNCATED] ---"),
+        "a 5,000-child row must not overflow the listing into the marker: {text}"
+    );
+    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
+    assert!(
+        text.len() <= 16_384,
+        "the response fits the default budget, got {} bytes",
+        text.len()
+    );
+    let parent = v["sessions"]
+        .as_array()
+        .expect("rows under `sessions`")
+        .iter()
+        .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
+        .expect("the parent is rendered");
+    assert_eq!(
+        parent["child_session_count"].as_u64(),
+        Some(5_000),
+        "the true count is stated: a caller knows the fan-out is large"
+    );
+    assert_eq!(
+        parent["child_sessions"].as_array().map(Vec::len),
+        Some(10),
+        "the ids are bounded; the count is what tells the caller how much was held back"
     );
     reap(&mut mcp);
 }

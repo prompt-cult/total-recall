@@ -27,6 +27,7 @@ pub use rollout::mock::MockAdapter;
 pub use rollout::opencode::OpenCodeAdapter;
 pub use rollout::vibe::VibeAdapter;
 pub use rollout::{
-    EventType, InterestingEvent, LISTING_ROW_CAP, RolloutAdapter, RolloutMessage, SessionListing,
-    SessionProfile, SessionSummary, message_to_text, messages_to_text, summarize_tool_call,
+    EventType, IDS_PER_LISTING_ROW, InterestingEvent, LISTING_ROW_CAP, ListingRow, RolloutAdapter,
+    RolloutMessage, SessionListing, SessionProfile, SessionSummary, message_to_text,
+    messages_to_text, summarize_tool_call,
 };

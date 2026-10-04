@@ -647,7 +647,13 @@ fn scoped_listing_sqlite(
         let placeholders = std::iter::repeat_n("?", ids.len())
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = format!("SELECT parent_id, id FROM session WHERE parent_id IN ({placeholders})");
+        // Most-recent-first, so the ids a bounded row keeps are the ones a
+        // caller would have started from: the rendering cap
+        // (`IDS_PER_LISTING_ROW`) cuts the tail, never the head.
+        let sql = format!(
+            "SELECT parent_id, id FROM session WHERE parent_id IN ({placeholders}) \
+             ORDER BY time_updated DESC"
+        );
         if let Ok(mut stmt) = conn.prepare(&sql)
             && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

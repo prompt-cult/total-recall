@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-10-04
+
+### Fixed
+
+- `list_sessions` renders materially more rows at the default budget. The two
+  id arrays a row carried were unbounded, so one session with a subagent fan-out
+  (a live row held ~300 child ids, ~10 KB) spent the response budget on its own
+  and a default call printed 11 rows of the 380 its window held. Each row now
+  carries at most the 10 most recent `child_sessions` ids and the 10 first
+  `aliases`, with `child_session_count` / `alias_count` stating the true totals
+  beside them and the row's `notice` naming what it held back. Every
+  navigational field stays, the row count is still the budget's to decide, and
+  `max_bytes` still widens the slice. Child ids are ordered most-recent-first at
+  the source, so the cap cuts the tail of a fan-out rather than an arbitrary ten
+  of it.
+
 ## [0.11.1] - 2026-10-04
 
 ### Fixed
@@ -414,6 +430,7 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
+[0.11.2]: https://github.com/prompt-cult/total-recall/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/prompt-cult/total-recall/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...v0.10.0
