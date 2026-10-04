@@ -6,12 +6,52 @@ surfaces are not duplicated here: the generated schemas are the authority —
 `total-recall --help` for the CLI (derived from the `clap` definitions).
 Two generic contracts cover every tool, including ones added later:
 
-- every tool is session-scoped through a `session_id` parameter (partial
-  match, empty = most recent), except the listing tools, which take a
-  `hours_back` cutoff instead (`list_sessions` defaults to 240 hours;
-  0 = no bound)
+- the scope contract — see [The scope contract](#the-scope-contract): the
+  natural call is the cheap call; breadth is explicit, never a default, and an
+  unscoped request is rejected with the cheap forms named, never clamped,
+  never silently run
 - every response that can overflow the caller's context is flood-capped —
   see [Flood control](#flood-control)
+
+## The scope contract
+
+Work is scoped before it starts, and the bound lives where the data lives:
+a window or a directory is pushed into the store query, so a call costs
+what it asks for, not what the store holds.
+
+Two regimes, one parameter:
+
+- **session tools** — `profile_session`, `extract_messages`,
+  `extract_user_messages`, `extract_by_type`, `compact_session`,
+  `total_recall`: `session_id` (partial match; empty = the most recent
+  session). One session is the smallest useful scope, so it is the default.
+- **window tools** — `list_sessions`, `she_said_he_said_action`,
+  `index_sessions`, `do_android_dream_of_electric_sheep`: `session_id`
+  (partial match) selects sessions explicitly; when empty, the tool works
+  its window — `hours_back` (a window in hours, `1` or more; each tool
+  carries its own default) and optionally `directory` (substring).
+  `hours_back` is never "no bound": a window of zero hours is a
+  contradiction, and `0` is rejected as such.
+
+Breadth beyond a window is explicit: the window tools take `all: true` for
+the whole store — every session of every project the store holds — as a
+deliberate opt-in, and `all` together with `hours_back` is rejected as the
+same contradiction. A request with no scope at all (empty `session_id`, no
+`directory`, `hours_back: 0`, no `all`) is rejected as unscoped. Every
+rejection names the cheap forms — pass `session_id`, or `directory`, or
+`hours_back: 1` or more, or `all: true` on purpose — because the error is
+the documentation. Rejection, not clamping: a silent clamp would answer a
+smaller question than the one that was asked. The same house rule already
+governs `limit` above 1000 and an empty search query.
+
+Listings are bounded the way reports are: at most the 200 most recent rows
+are rendered, most recent first, and the listing states how many rows the
+window holds but did not print.
+
+The CLI keeps its own doctrine — stdout is a stream, `0` means unbounded,
+and the command you typed is the scope you asked for. The MCP tools are
+the ones an agent calls on the caller's behalf, so they are the ones that
+reject the unscoped call.
 
 ## Global CLI flags
 

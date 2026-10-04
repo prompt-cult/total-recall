@@ -5,6 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The scope contract: every tool defaults to the smallest useful scope,
+  work is bounded where the data lives, breadth is an explicit opt-in, and an
+  unscoped request is rejected with the cheap forms named — never clamped,
+  never silently run (README, docs/src/tools.md).
+
 ## [0.10.0] - 2026-10-03
 
 ### Changed
