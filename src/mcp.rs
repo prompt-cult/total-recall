@@ -1,8 +1,13 @@
 use rmcp::{
-    ErrorData as McpError, ServerHandler,
-    handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
-    schemars, tool, tool_handler, tool_router,
+    ErrorData as McpError, RoleServer, ServerHandler,
+    handler::server::{tool::ToolCallContext, wrapper::Parameters},
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ServerCapabilities,
+        ServerInfo,
+    },
+    schemars,
+    service::RequestContext,
+    tool, tool_handler, tool_router,
 };
 
 use crate::{
@@ -18,14 +23,23 @@ use crate::{
 };
 
 // --- Tool parameter structs ---
+//
+// Every struct here denies unknown fields and states its numeric bounds in the
+// schema, because the handler enforces both: a typo (`hour_back`,
+// `directorys`) is a silently unscoped call, and a bound the schema does not
+// state is a bound the caller has to discover by being rejected. The numerics
+// are signed so a negative arrives as a value the shared validator answers in
+// the house form instead of dying mid-parse as a serde type error.
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListSessionsParams {
     #[schemars(
-        description = "Only include sessions updated within this many hours. A window in hours, 1 or more; 0 is rejected. Default: 240 (10 days)."
+        description = "Only include sessions updated within this many hours. A window in hours, 1 or more; omitted or 0 = the default window (Default: 240 = 10 days).",
+        range(min = 1)
     )]
     #[serde(default)]
-    pub hours_back: Option<u64>,
+    pub hours_back: Option<i64>,
     #[schemars(
         description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
     )]
@@ -33,9 +47,16 @@ pub struct ListSessionsParams {
     pub all: bool,
     #[schemars(description = "Only include sessions whose directory contains this substring.")]
     pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned listing, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The listing renders as many of the most recent rows of the window as this budget holds and states how many rows it held back.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProfileParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -48,6 +69,7 @@ pub struct ProfileParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExtractParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -58,49 +80,65 @@ pub struct ExtractParams {
     #[serde(default)]
     pub full: bool,
     #[schemars(
-        description = "Max records to return. 0 = default 100, max 1000. Larger values rejected; page with offset/limit."
+        description = "Max records to return. 0 = default 100, 1 to 1000. Larger values rejected; page with offset/limit.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
     )]
     #[serde(default)]
-    pub limit: usize,
+    pub limit: i64,
     #[schemars(
-        description = "0-based start index into the chronological list. Omit = most recent `limit`; set 0 and follow bounds.next_offset to page the whole session."
+        description = "0-based start index into the chronological list. Omit = most recent `limit`; set 0 and follow bounds.next_offset to page the whole session.",
+        range(min = 0)
     )]
     #[serde(default)]
-    pub offset: Option<usize>,
+    pub offset: Option<i64>,
     #[schemars(
-        description = "Hard byte cap on the returned payload. 0 = default, clamped to the 8 MiB ceiling."
+        description = "Hard byte cap on the returned payload. 0 = default, clamped to the 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default)]
-    pub max_bytes: usize,
+    pub max_bytes: i64,
     #[schemars(
-        description = "Per-record clamp for content/thinking, bytes. 0 = default 262144 (256 KiB)."
+        description = "Per-record clamp for content/thinking, bytes. 0 = default 262144 (256 KiB), up to the 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default)]
-    pub max_record_bytes: usize,
+    pub max_record_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UserMessagesParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
     pub session_id: String,
-    #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
-    #[serde(default)]
-    pub limit: usize,
     #[schemars(
-        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page."
+        description = "Max records to return. 0 = default 100, 1 to 1000.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
     )]
     #[serde(default)]
-    pub offset: Option<usize>,
-    #[schemars(description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.")]
+    pub limit: i64,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
+        range(min = 0)
+    )]
     #[serde(default)]
-    pub max_bytes: usize,
-    #[schemars(description = "Per-record clamp, bytes. 0 = default 256 KiB.")]
+    pub offset: Option<i64>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
     #[serde(default)]
-    pub max_record_bytes: usize,
+    pub max_bytes: i64,
+    #[schemars(
+        description = "Per-record clamp, bytes. 0 = default 256 KiB.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_record_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExtractByTypeParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -120,23 +158,34 @@ pub struct ExtractByTypeParams {
     )]
     #[serde(default)]
     pub include_injected: bool,
-    #[schemars(description = "Max records to return. 0 = default 100, max 1000.")]
-    #[serde(default)]
-    pub limit: usize,
     #[schemars(
-        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page."
+        description = "Max records to return. 0 = default 100, 1 to 1000.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
     )]
     #[serde(default)]
-    pub offset: Option<usize>,
-    #[schemars(description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.")]
+    pub limit: i64,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
+        range(min = 0)
+    )]
     #[serde(default)]
-    pub max_bytes: usize,
-    #[schemars(description = "Per-record clamp, bytes. 0 = default 256 KiB.")]
+    pub offset: Option<i64>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
     #[serde(default)]
-    pub max_record_bytes: usize,
+    pub max_bytes: i64,
+    #[schemars(
+        description = "Per-record clamp, bytes. 0 = default 256 KiB.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_record_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CompactParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -149,21 +198,26 @@ pub struct CompactParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TotalRecallParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
     pub session_id: String,
-    #[schemars(description = "Hours back to include in the recent rollouts table. Default: 24.")]
-    #[serde(default = "default_hours")]
-    pub hours_back: u64,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+        description = "Hours back to include in the recent rollouts table. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24).",
+        range(min = 1)
+    )]
+    #[serde(default = "default_hours")]
+    pub hours_back: i64,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
-    pub max_bytes: usize,
+    pub max_bytes: i64,
 }
 
-fn default_hours() -> u64 {
+fn default_hours() -> i64 {
     24
 }
 
@@ -185,11 +239,12 @@ fn default_list_hours() -> u64 {
     240
 }
 
-fn default_max_bytes() -> usize {
-    crate::report_cap::DEFAULT_MAX_BYTES
+fn default_max_bytes() -> i64 {
+    crate::report_cap::DEFAULT_MAX_BYTES as i64
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SheSaidHeSaidParams {
     #[schemars(
         description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
@@ -199,10 +254,11 @@ pub struct SheSaidHeSaidParams {
     #[schemars(description = "Case-insensitive search terms. At least one is required.")]
     pub words: Vec<String>,
     #[schemars(
-        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 48."
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
+        range(min = 1)
     )]
     #[serde(default)]
-    pub hours_back: Option<u64>,
+    pub hours_back: Option<i64>,
     #[schemars(
         description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
     )]
@@ -211,13 +267,15 @@ pub struct SheSaidHeSaidParams {
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
-    pub max_bytes: usize,
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct IndexSessionsParams {
     #[schemars(
         description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
@@ -225,10 +283,11 @@ pub struct IndexSessionsParams {
     #[serde(default)]
     pub session_id: String,
     #[schemars(
-        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 24 (the last day)."
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24 = the last day).",
+        range(min = 1)
     )]
     #[serde(default)]
-    pub hours_back: Option<u64>,
+    pub hours_back: Option<i64>,
     #[schemars(
         description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
     )]
@@ -239,6 +298,7 @@ pub struct IndexSessionsParams {
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SheepParams {
     #[schemars(description = "Tantivy query syntax. Required.")]
     pub query: String,
@@ -248,10 +308,11 @@ pub struct SheepParams {
     #[serde(default)]
     pub session_id: String,
     #[schemars(
-        description = "Hours back when session_id is empty. A window in hours, 1 or more; 0 is rejected. Default: 48."
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
+        range(min = 1)
     )]
     #[serde(default)]
-    pub hours_back: Option<u64>,
+    pub hours_back: Option<i64>,
     #[schemars(
         description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
     )]
@@ -260,26 +321,37 @@ pub struct SheepParams {
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram."
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
-    pub max_bytes: usize,
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LineHistogramParams {
     #[schemars(description = "Path of the file to profile. Required.")]
     pub file_path: String,
     #[schemars(
-        description = "histogram (default) or extract: line-size distribution, or the line at `line` / the inclusive range `start`..=`end`."
+        description = "histogram (default) or extract: line-size distribution, or the line at `line` / the inclusive range `start`..=`end`. The line selectors need mode: extract; extract needs one of them."
     )]
     pub mode: Option<String>,
-    #[schemars(description = "extract mode: single 1-based line number.")]
-    pub line: Option<u64>,
-    #[schemars(description = "extract mode: inclusive range start (with end).")]
-    pub start: Option<u64>,
-    #[schemars(description = "extract mode: inclusive range end (with start).")]
-    pub end: Option<u64>,
+    #[schemars(
+        description = "extract mode: single 1-based line number.",
+        range(min = 1)
+    )]
+    pub line: Option<i64>,
+    #[schemars(
+        description = "extract mode: inclusive 1-based range start (with end).",
+        range(min = 1)
+    )]
+    pub start: Option<i64>,
+    #[schemars(
+        description = "extract mode: inclusive 1-based range end (with start).",
+        range(min = 1)
+    )]
+    pub end: Option<i64>,
 }
 
 // --- MCP Server ---
@@ -303,43 +375,124 @@ impl TotalRecallServer {
     }
 }
 
-/// The scope contract, enforced at the tool layer: return the `hours_back`
-/// to hand the adapter — `0` means unbounded at that mechanism layer and is
-/// reachable only through `all: true` — or the rejection text. A window of
-/// zero hours is never a window and never a default; `all: true` is the
-/// explicit whole-store opt-in and contradicts a window; a request with no
-/// scope at all is rejected with the cheap forms named. The adapter's
-/// `0` = unbounded stays the CLI's mechanism — the MCP layer never passes
-/// `0` except through `all: true`.
+/// The scope contract, enforced at the tool layer: validate `hours_back` in
+/// the house form, then return the hours to hand the adapter — `0` means
+/// unbounded at that mechanism layer and is reachable only through
+/// `all: true` — or the rejection text.
+///
+/// `hours_back` is normalised after validation: `0` means "omitted" and takes
+/// the tool's default window, because a client that serialises an unset
+/// window as zero is asking the cheap question, not for the whole store. The
+/// contradiction check runs on the normalised value, so `all: true` alongside
+/// a filled-in `0` is the whole store the caller explicitly asked for, while
+/// `all: true` with a real window is still rejected. The adapter's
+/// `0` = unbounded stays the mechanism layer's own — the MCP layer never
+/// passes `0` except through `all: true`.
 fn window_hours(
-    session_id: &str,
-    directory: Option<&str>,
-    hours_back: Option<u64>,
+    tool: &str,
+    hours_back: Option<i64>,
     all: bool,
     default_hours: u64,
 ) -> Result<u64, String> {
+    let hours_back = match hours_back {
+        Some(hours) => Some(number(tool, "hours_back", hours, 0, i64::MAX, HOURS_CHEAP)?),
+        None => None,
+    };
+    let hours_back = hours_back.filter(|h| *h >= 1);
     if all && hours_back.is_some() {
         return Err(
             "all: true is the whole store; hours_back is a window — pass one, not both".to_string(),
         );
     }
-    if hours_back == Some(0) {
-        if session_id.is_empty() && directory.is_none() {
-            return Err(
-                "unscoped: pass session_id, or directory, or hours_back >= 1, or all: true deliberately"
-                    .to_string(),
-            );
-        }
-        return Err(
-            "hours_back: 0 is not a window — pass hours_back >= 1, or all: true for the whole store (explicit); the old '0 = no bound' default is gone"
-                .to_string(),
-        );
-    }
     Ok(if all {
         0
     } else {
-        hours_back.unwrap_or(default_hours)
+        hours_back.map(|h| h as u64).unwrap_or(default_hours)
     })
+}
+
+/// The house form for a numeric input, one helper for every numeric parameter
+/// of every tool: a value outside `[min, max]` is rejected by name, with the
+/// cheap form spelled out, before any work starts. `cheap` is the caller's way
+/// forward; `min`/`max` are the same bounds the schema states, so what a
+/// client can send and what a handler accepts cannot drift. The value arrives
+/// signed, so a negative is an answer rather than a serde type error.
+fn number(
+    tool: &str,
+    field: &str,
+    value: i64,
+    min: i64,
+    max: i64,
+    cheap: &str,
+) -> Result<i64, String> {
+    if value < min || value > max {
+        return Err(format!("{tool}: `{field}` is out of range — {cheap}"));
+    }
+    Ok(value)
+}
+
+/// `0` is "omitted" for the window, so the schema states `minimum: 1` and the
+/// handler normalises instead of detonating: the caller gets the default
+/// window it would have got by omitting the field.
+const HOURS_CHEAP: &str = "pass hours_back >= 1, or omit it — 0 means the tool's default window, never the whole store (all: true is the whole store)";
+const LIMIT_CHEAP: &str =
+    "pass limit from 1 to 1000, or omit it for the default 100, and page with offset/limit";
+const OFFSET_CHEAP: &str = "pass offset >= 0, or omit it for the most recent page";
+const REPORT_MAX_BYTES_CHEAP: &str =
+    "pass max_bytes from 1 to 8388608, or omit it for the default 16384";
+const ENVELOPE_MAX_BYTES_CHEAP: &str =
+    "pass max_bytes from 0 to 8388608, or omit it for the default 8 MiB ceiling";
+const MAX_RECORD_BYTES_CHEAP: &str =
+    "pass max_record_bytes from 1 to 8388608, or omit it (0 = no per-record clamp)";
+const LINE_CHEAP: &str = "pass line >= 1 (1-based), or mode: extract with start and end";
+const START_CHEAP: &str = "pass start >= 1 (1-based) with end, or mode: extract with line";
+const END_CHEAP: &str = "pass end >= 1 (1-based) with start";
+
+/// The bounded-extraction bounds of `extract_messages`,
+/// `extract_user_messages` and `extract_by_type`, validated in the house form
+/// and then normalised: `0` takes each bound's default, an over-ceiling value
+/// is rejected rather than silently clamped down to a cap the caller never
+/// asked for. Every numeric input is checked BEFORE the session is resolved, so
+/// a bad bound is answered as a bound and never as "no sessions found".
+fn envelope_bounds(
+    tool: &str,
+    limit: i64,
+    offset: Option<i64>,
+    max_bytes: i64,
+    max_record_bytes: i64,
+) -> Result<(usize, Option<usize>, usize, usize), String> {
+    let limit = number(
+        tool,
+        "limit",
+        limit,
+        0,
+        crate::bound::MAX_RECORD_LIMIT as i64,
+        LIMIT_CHEAP,
+    )
+    .and_then(|l| crate::bound::normalize_limit(l as usize))?;
+    let offset = match offset {
+        Some(offset) => Some(number(tool, "offset", offset, 0, i64::MAX, OFFSET_CHEAP)? as usize),
+        None => None,
+    };
+    let max_bytes = number(
+        tool,
+        "max_bytes",
+        max_bytes,
+        0,
+        crate::bound::MAX_BYTES_CEILING as i64,
+        ENVELOPE_MAX_BYTES_CHEAP,
+    )
+    .map(|v| crate::bound::normalize_max_bytes(v as usize))?;
+    let max_record_bytes = number(
+        tool,
+        "max_record_bytes",
+        max_record_bytes,
+        0,
+        crate::bound::MAX_BYTES_CEILING as i64,
+        MAX_RECORD_BYTES_CHEAP,
+    )
+    .map(|v| crate::bound::normalize_max_record_bytes(v as usize))?;
+    Ok((limit, offset, max_bytes, max_record_bytes))
 }
 
 /// Every tool's success text that can overflow WITHOUT its own bound passes
@@ -380,16 +533,26 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (a window in hours, 1 or more; default 240 = 10 days) and a directory substring filter; all: true lists the whole store"
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (a window in hours, 1 or more; 0 or omitted = the 240-hour default) and a directory substring filter; all: true lists the whole store. The listing renders as many of the most recent rows as max_bytes holds and states the held-back count."
     )]
     async fn list_sessions(
         &self,
         Parameters(params): Parameters<ListSessionsParams>,
     ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "list_sessions",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         let hours = match window_hours(
-            "",
-            params.directory.as_deref(),
+            "list_sessions",
             params.hours_back,
             params.all,
             default_list_hours(),
@@ -398,35 +561,35 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
         // The scoped listing: the window and the directory substring are
-        // applied where the data lives, at most the 200 most recent rows are
-        // returned, and the rows the window holds but did not print are
-        // stated in the response itself.
+        // applied where the data lives, at most the 200 most recent rows of the
+        // window reach this layer, and the rows the window holds but did not
+        // print are stated in the response itself.
         let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
         let mut sessions = listing.sessions;
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
-        let held_back = listing.window_count.saturating_sub(sessions.len());
-        let json = serde_json::to_string_pretty(&serde_json::json!({
-            "sessions": sessions,
-            "window_count": listing.window_count,
-            "held_back": held_back,
-        }))
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(capped_text(
-            "list_sessions",
-            "list",
-            json,
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        let json = listing_json(&sessions, listing.window_count, max_bytes);
+        Ok(capped_text("list_sessions", "list", json, max_bytes))
     }
 
     #[tool(
         name = "she_said_he_said_action",
-        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Matching runs inside SQLite on a read-only connection."
+        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true). Matching runs inside SQLite on a read-only connection."
     )]
     async fn she_said_he_said_action(
         &self,
         Parameters(params): Parameters<SheSaidHeSaidParams>,
     ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "she_said_he_said_action",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         if params.words.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -434,8 +597,7 @@ impl TotalRecallServer {
             )]));
         }
         let hours = match window_hours(
-            &params.session_id,
-            params.directory.as_deref(),
+            "she_said_he_said_action",
             params.hours_back,
             params.all,
             default_she_said_hours(),
@@ -458,7 +620,7 @@ impl TotalRecallServer {
                 "she_said_he_said_action",
                 &params.session_id,
                 report,
-                params.max_bytes,
+                max_bytes,
             )),
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
@@ -473,8 +635,7 @@ impl TotalRecallServer {
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
         let hours = match window_hours(
-            &params.session_id,
-            params.directory.as_deref(),
+            "index_sessions",
             params.hours_back,
             params.all,
             default_index_hours(),
@@ -527,6 +688,17 @@ impl TotalRecallServer {
         &self,
         Parameters(params): Parameters<SheepParams>,
     ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "do_android_dream_of_electric_sheep",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         if params.query.trim().is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
@@ -535,8 +707,7 @@ impl TotalRecallServer {
             )]));
         }
         let hours = match window_hours(
-            &params.session_id,
-            params.directory.as_deref(),
+            "do_android_dream_of_electric_sheep",
             params.hours_back,
             params.all,
             default_sheep_hours(),
@@ -560,7 +731,7 @@ impl TotalRecallServer {
                 "do_android_dream_of_electric_sheep",
                 &params.session_id,
                 report,
-                params.max_bytes,
+                max_bytes,
             )),
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
@@ -603,6 +774,16 @@ impl TotalRecallServer {
         &self,
         Parameters(params): Parameters<ExtractParams>,
     ) -> Result<CallToolResult, McpError> {
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_messages",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
             .unwrap_or_default();
@@ -611,12 +792,6 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let limit = match crate::bound::normalize_limit(params.limit) {
-            Ok(l) => l,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
-        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
         let messages = match read_window(adapter.as_ref(), &session_id, params.full) {
             Ok(m) => m,
@@ -630,7 +805,7 @@ impl TotalRecallServer {
             "messages",
             messages,
             limit,
-            params.offset,
+            offset,
             max_bytes,
             max_record_bytes,
         ) {
@@ -649,6 +824,16 @@ impl TotalRecallServer {
         &self,
         Parameters(params): Parameters<UserMessagesParams>,
     ) -> Result<CallToolResult, McpError> {
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_user_messages",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
             .unwrap_or_default();
@@ -657,12 +842,6 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let limit = match crate::bound::normalize_limit(params.limit) {
-            Ok(l) => l,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
-        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
         // Derive from the bounded message stream so we bound during iteration
         // rather than materializing the full unbounded Vec first.
@@ -682,7 +861,7 @@ impl TotalRecallServer {
             "user_messages",
             user,
             limit,
-            params.offset,
+            offset,
             max_bytes,
             max_record_bytes,
         ) {
@@ -716,6 +895,16 @@ impl TotalRecallServer {
             }
         }
 
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_by_type",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
             .unwrap_or_default();
@@ -724,12 +913,6 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let limit = match crate::bound::normalize_limit(params.limit) {
-            Ok(l) => l,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let max_bytes = crate::bound::normalize_max_bytes(params.max_bytes);
-        let max_record_bytes = crate::bound::normalize_max_record_bytes(params.max_record_bytes);
 
         let entries =
             match adapter.read_session_entries(&session_id, params.full, params.include_injected) {
@@ -753,7 +936,7 @@ impl TotalRecallServer {
             &selected,
             &filtered,
             limit,
-            params.offset,
+            offset,
             max_bytes,
             max_record_bytes,
         ) {
@@ -824,6 +1007,28 @@ impl TotalRecallServer {
         &self,
         Parameters(params): Parameters<TotalRecallParams>,
     ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "total_recall",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        // The rollouts table works a window like every other tool, so `0` here
+        // means the default window and never the adapter's unbounded `0`.
+        let hours = match window_hours(
+            "total_recall",
+            Some(params.hours_back),
+            false,
+            default_hours() as u64,
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
         let adapter = self.adapter()?;
         let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
             .unwrap_or_default();
@@ -892,9 +1097,8 @@ impl TotalRecallServer {
         // Build recent rollouts table from the scoped listing: the window is
         // applied where the data lives and the table holds the listing's
         // bounded rows plus the held-back count.
-        let listing = adapter.list_sessions_scoped(params.hours_back, None);
-        let rollouts_table =
-            build_recent_rollouts_table(&listing, Some(&session_id), params.hours_back);
+        let listing = adapter.list_sessions_scoped(hours, None);
+        let rollouts_table = build_recent_rollouts_table(&listing, Some(&session_id), hours);
         let table_rows = listing.sessions.len();
 
         // Build plan files section
@@ -936,7 +1140,7 @@ impl TotalRecallServer {
             "total_recall",
             &session_id,
             format!("<!-- {} -->\n\n{}", timing_str, output),
-            params.max_bytes,
+            max_bytes,
         ))
     }
 
@@ -948,12 +1152,21 @@ impl TotalRecallServer {
         &self,
         Parameters(params): Parameters<LineHistogramParams>,
     ) -> Result<CallToolResult, McpError> {
-        match crate::report_cap::line_histogram(
-            std::path::Path::new(&params.file_path),
+        let selectors = match line_selectors(
             params.mode.as_deref(),
             params.line,
             params.start,
             params.end,
+        ) {
+            Ok(selectors) => selectors,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        match crate::report_cap::line_histogram(
+            std::path::Path::new(&params.file_path),
+            selectors.mode.as_deref(),
+            selectors.line,
+            selectors.start,
+            selectors.end,
         ) {
             Ok(out) => Ok(capped_text(
                 "line_histogram",
@@ -971,6 +1184,242 @@ impl ServerHandler for TotalRecallServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
+
+    /// The one boundary every call crosses, so the parameter errors are stated
+    /// in one voice. rmcp answers a rejected argument set with serde's own
+    /// message; a typo is a silently unscoped call otherwise, so the message is
+    /// rewritten here to name the unrecognised field and the fields the tool
+    /// does accept — read from the served schema, which is the same authority
+    /// `tools/list` publishes, so the list cannot drift from the struct.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        let router = Self::tool_router();
+        let tool = request.name.to_string();
+        let accepted = accepted_fields(&router, &tool);
+        let response = router
+            .call(ToolCallContext::new(self, request, context))
+            .await?;
+        let CallToolResponse::Complete(mut result) = response else {
+            return Ok(response);
+        };
+        if result.is_error == Some(true)
+            && let Some(ContentBlock::Text(text)) = result.content.first_mut()
+            && let Some(house) = house_form_params(&tool, &accepted, &text.text)
+        {
+            text.text = house;
+        }
+        Ok(CallToolResponse::Complete(result))
+    }
+}
+
+/// rmcp's prefix on a rejected argument set: everything after it is serde's
+/// own message, which is written for a serde user rather than for the agent
+/// holding the call.
+const PARAM_ERROR_PREFIX: &str = "failed to deserialize parameters:";
+
+/// The house form for a rejected argument set, or `None` when the error is
+/// not a parameter error and must be left alone.
+fn house_form_params(tool: &str, accepted: &[String], raw: &str) -> Option<String> {
+    let message = raw.trim_start_matches(PARAM_ERROR_PREFIX).trim();
+    if message.len() == raw.len() && !raw.starts_with(PARAM_ERROR_PREFIX) {
+        return None;
+    }
+    // serde appends " at line 1 column 42" to every message it produces from a
+    // `serde_json::Value`; the position is noise to a caller holding a tool
+    // call, and the house errors carry the position nowhere.
+    let message = message
+        .rsplit_once(" at line ")
+        .filter(|(_, tail)| {
+            tail.trim_end()
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ' ')
+        })
+        .map_or(message, |(head, _)| head);
+    let accepts = format!("{tool} accepts: {}", accepted.join("|"));
+    if let Some(field) = message
+        .strip_prefix("unknown field ")
+        .and_then(|rest| rest.split('`').nth(1))
+    {
+        return Some(format!(
+            "{tool}: unrecognised field `{field}` — a typo is a call run on the wrong scope; {accepts}"
+        ));
+    }
+    Some(format!("{tool}: {message} — {accepts}"))
+}
+
+/// The parameter names a tool's served schema declares, sorted. Read from the
+/// schema the server publishes rather than from a second list kept beside the
+/// struct.
+fn accepted_fields(
+    router: &rmcp::handler::server::router::tool::ToolRouter<TotalRecallServer>,
+    tool: &str,
+) -> Vec<String> {
+    let mut fields: Vec<String> = router
+        .get(tool)
+        .and_then(|tool| tool.input_schema.get("properties"))
+        .and_then(|props| props.as_object())
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default();
+    fields.sort();
+    fields
+}
+
+/// The validated `line_histogram` selectors. `mode` is an enum, not a free
+/// string (the awk treats anything that is not `extract` as a histogram, so a
+/// typo silently answers a different question), the line numbers are 1-based,
+/// and the selector set is coherent: `extract` needs one selector, a range
+/// needs both ends, `start` may not sit past `end`, and a selector without
+/// `mode: extract` is a request the histogram mode would ignore.
+struct LineSelectors {
+    mode: Option<String>,
+    line: Option<u64>,
+    start: Option<u64>,
+    end: Option<u64>,
+}
+
+fn line_selectors(
+    mode: Option<&str>,
+    line: Option<i64>,
+    start: Option<i64>,
+    end: Option<i64>,
+) -> Result<LineSelectors, String> {
+    let mode = match mode {
+        None | Some("") | Some("histogram") => "histogram",
+        Some("extract") => "extract",
+        Some(other) => {
+            return Err(format!(
+                "line_histogram: unknown mode `{other}` — pass histogram (the default) or extract"
+            ));
+        }
+    };
+    let line = line
+        .map(|l| number("line_histogram", "line", l, 1, i64::MAX, LINE_CHEAP))
+        .transpose()?
+        .map(|l| l as u64);
+    let start = start
+        .map(|s| number("line_histogram", "start", s, 1, i64::MAX, START_CHEAP))
+        .transpose()?
+        .map(|s| s as u64);
+    let end = end
+        .map(|e| number("line_histogram", "end", e, 1, i64::MAX, END_CHEAP))
+        .transpose()?
+        .map(|e| e as u64);
+
+    let extract = mode == "extract";
+    if end.is_some() && start.is_none() {
+        return Err(
+            "line_histogram: `end` needs `start` — pass the inclusive range as start and end (start=1, end=40), or line for a single line"
+                .to_string(),
+        );
+    }
+    if let (Some(start), Some(end)) = (start, end)
+        && start > end
+    {
+        return Err(format!(
+            "line_histogram: `start` ({start}) is past `end` ({end}) — pass start <= end for an inclusive range"
+        ));
+    }
+    if line.is_some() && start.is_some() {
+        return Err(
+            "line_histogram: `line` and `start`/`end` are two answers to one question — pass one: line for a single line, or start with end for a range"
+                .to_string(),
+        );
+    }
+    if extract && line.is_none() && start.is_none() {
+        return Err(
+            "line_histogram: mode: extract needs a line selector — pass line=42 for one line, or start=1 with end=40 for a range"
+                .to_string(),
+        );
+    }
+    if !extract && (line.is_some() || start.is_some()) {
+        return Err(
+            "line_histogram: `line`/`start`/`end` are extract-mode selectors — pass mode: extract with them, or drop them for the histogram"
+                .to_string(),
+        );
+    }
+    Ok(LineSelectors {
+        mode: if extract {
+            Some("extract".to_string())
+        } else {
+            None
+        },
+        line,
+        start,
+        end,
+    })
+}
+
+/// The `list_sessions` response, with the row count derived from the response
+/// budget: rows are rendered most recent first until the next one would push
+/// the response past `max_bytes`, and the rows the window holds but did not
+/// print are stated in `held_back`.
+///
+/// The budget is the one owner of this bound. A fixed row cap cannot be: a
+/// `SessionSummary` is ~500 bytes pretty-printed, so 200 of them is ~100 KB
+/// and the 16 KiB flood cap replaces the whole listing with a marker — a
+/// default call that returns nothing usable. The row count is therefore
+/// measured, not guessed: the candidate response is serialised exactly as it
+/// is emitted, so the contract ("the listing fits `max_bytes`") holds by
+/// construction rather than by arithmetic.
+///
+/// A single row larger than the whole budget is the one case the budget cannot
+/// satisfy. There the full listing is rendered and handed to flood control,
+/// which writes it to the overflow file and returns the marker with its
+/// histogram — the escape hatch every other report has. Answering with an
+/// empty table instead would hide the store behind a bound.
+fn listing_json(
+    sessions: &[crate::SessionSummary],
+    window_count: usize,
+    max_bytes: usize,
+) -> String {
+    let mut rendered: Vec<&crate::SessionSummary> = Vec::new();
+    let mut json = listing_envelope(&rendered, window_count, max_bytes);
+    for row in sessions {
+        rendered.push(row);
+        let candidate = listing_envelope(&rendered, window_count, max_bytes);
+        if candidate.len() > max_bytes {
+            rendered.pop();
+            break;
+        }
+        json = candidate;
+    }
+    if rendered.is_empty() && !sessions.is_empty() {
+        // No row fits the budget: flood control takes the whole listing.
+        return listing_envelope(
+            &sessions.iter().collect::<Vec<_>>(),
+            window_count,
+            max_bytes,
+        );
+    }
+    json
+}
+
+/// The listing envelope, serialised exactly as it is emitted.
+fn listing_envelope(
+    rows: &[&crate::SessionSummary],
+    window_count: usize,
+    max_bytes: usize,
+) -> String {
+    let held_back = window_count.saturating_sub(rows.len());
+    let notice = if held_back > 0 {
+        format!(
+            "TRUNCATED: rendered {} of the {window_count} rows the window holds under max_bytes {max_bytes}. Raise max_bytes for a bigger slice, or narrow the window with hours_back or directory.",
+            rows.len()
+        )
+    } else {
+        String::new()
+    };
+    serde_json::to_string_pretty(&serde_json::json!({
+        "sessions": rows,
+        "window_count": window_count,
+        "held_back": held_back,
+        "max_bytes": max_bytes,
+        "notice": notice,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
 }
 
 /// Read a session window respecting `full`, propagating read damage as a tool

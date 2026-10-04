@@ -239,10 +239,13 @@ pub struct SessionSummary {
     pub read_error: Option<String>,
 }
 
-/// The row cap every listing renders: at most the 200 most recent rows of
-/// the requested window, most recent first. One bound, one owner — the MCP
-/// listing and the recall table's rollouts listing both take their cap from
-/// here, so a listing can never grow with the store.
+/// The row cap a listing query returns: at most the 200 most recent rows of
+/// the requested window, most recent first. One bound, one owner at this
+/// layer — the MCP listing and the recall table's rollouts listing both take
+/// their cap from here, so the work a listing does can never grow with the
+/// store. The MCP listing then renders as many of those rows as its response
+/// budget holds, so the cap is the ceiling and the byte budget is what the
+/// caller actually sees.
 pub const LISTING_ROW_CAP: usize = 200;
 
 /// A bounded listing: at most [`LISTING_ROW_CAP`] rows of the requested

@@ -21,9 +21,10 @@ Augment Code [moved compaction to Mercury and cut latency 82%](https://www.incep
 
 The rollouts of the listing's window with id, title, times, directory,
 message and tool counts, byte size, parent/children. Optional bounds:
-`hours_back` (a window in hours, 1 or more; default 240 = 10 days) and
-`directory` substring filter; `all: true` lists the whole store. The listing
-renders at most the 200 most recent rows of the window, most recent first,
+`hours_back` (a window in hours, 1 or more; 0 or omitted = the 240-hour
+default) and `directory` substring filter; `all: true` lists the whole
+store. `max_bytes` (default 16,384) is the response budget: the listing
+renders as many of the most recent rows of the window as the budget holds
 and states how many rows the window holds but did not
 print. The bound lives where the data lives: the OpenCode SQLite
 implementation pushes the window, the directory substring and the row cap
@@ -252,14 +253,19 @@ a silent clamp.
 - **Window tools** (`list_sessions`, `she_said_he_said_action`,
   `index_sessions`, `do_android_dream_of_electric_sheep`): `session_id`
   selects explicitly; when empty the tool works its window — `hours_back`
-  (a window in hours, `1` or more) and optionally `directory`. `0` is not a
-  window and is rejected, as is `all: true` (the explicit whole-store
-  opt-in) combined with `hours_back`, and as is a request with no scope at
-  all. Every rejection names the cheap forms — the error is the
-  documentation. The same rule already governs `limit` above 1000 and an
-  empty search query.
-- Listings render at most the 200 most recent rows and state how many rows
-  the window holds but did not print.
+  (a window in hours, `1` or more) and optionally `directory`. `0` means
+  "omitted", so it takes the tool's default window — never the whole store.
+  `all: true` (the explicit whole-store opt-in) combined with a real
+  `hours_back` is rejected as the contradiction it is. Every rejection names
+  the cheap forms — the error is the documentation. The same rule governs
+  every numeric input: `limit` above 1000, a `max_bytes` above the 8 MiB
+  ceiling, a 0-based `line`/`start`, and an empty search query.
+- Unknown parameters are rejected by name — a typo is a silently unscoped
+  call otherwise — and every served schema states the bounds the handlers
+  enforce (`minimum`, `maximum`).
+- Listings render as many of the most recent rows as the response budget
+  holds (at most the 200 the store query bounds) and state how many rows the
+  window holds but did not print.
 - The CLI keeps its own doctrine: stdout is a stream, `0` means unbounded,
   and the command typed is the scope asked for. The MCP tools — the ones an
   agent calls on the caller's behalf — reject the unscoped call instead.

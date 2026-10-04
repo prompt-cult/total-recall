@@ -7,9 +7,9 @@ surfaces are not duplicated here: the generated schemas are the authority —
 Two generic contracts cover every tool, including ones added later:
 
 - the scope contract — see [The scope contract](#the-scope-contract): the
-  natural call is the cheap call; breadth is explicit, never a default, and an
-  unscoped request is rejected with the cheap forms named, never clamped,
-  never silently run
+  natural call is the cheap call; breadth is explicit, never a default, and
+  every request outside the cheap forms is rejected with those forms named,
+  never clamped, never silently run
 - every response that can overflow the caller's context is flood-capped —
   see [Flood control](#flood-control)
 
@@ -30,23 +30,34 @@ Two regimes, one parameter:
   (partial match) selects sessions explicitly; when empty, the tool works
   its window — `hours_back` (a window in hours, `1` or more; each tool
   carries its own default) and optionally `directory` (substring).
-  `hours_back` is never "no bound": a window of zero hours is a
-  contradiction, and `0` is rejected as such.
+  `hours_back` is never "no bound": `0` means "omitted" and takes the
+  tool's default window, so a client that serialises an unset window as
+  zero gets the default window and never the whole store.
 
 Breadth beyond a window is explicit: the window tools take `all: true` for
 the whole store — every session of every project the store holds — as a
-deliberate opt-in, and `all` together with `hours_back` is rejected as the
-same contradiction. A request with no scope at all (empty `session_id`, no
-`directory`, `hours_back: 0`, no `all`) is rejected as unscoped. Every
-rejection names the cheap forms — pass `session_id`, or `directory`, or
-`hours_back: 1` or more, or `all: true` on purpose — because the error is
-the documentation. Rejection, not clamping: a silent clamp would answer a
-smaller question than the one that was asked. The same house rule already
-governs `limit` above 1000 and an empty search query.
+deliberate opt-in, and `all` together with a real `hours_back` is rejected
+as the same contradiction. Every rejection names the cheap forms — pass
+`session_id`, or `directory`, or `hours_back: 1` or more, or `all: true` on
+purpose — because the error is the documentation. Rejection, not clamping: a
+silent clamp would answer a smaller question than the one that was asked.
+The same house rule governs every other input a tool can be handed: `limit`
+above 1000, `max_bytes` above the 8 MiB ceiling, a 0-based `line`/`start`, an
+unknown parameter, and an empty search query.
 
-Listings are bounded the way reports are: at most the 200 most recent rows
-are rendered, most recent first, and the listing states how many rows the
-window holds but did not print.
+Every params struct rejects unknown fields by name: a typo (`hour_back`,
+`directorys`) is a silently unscoped call otherwise, so the error names the
+unrecognised field and the fields the tool does accept. Every served schema
+states the bounds its handler enforces (`minimum`, `maximum`), so a
+schema-honouring client cannot send a value the handler will reject.
+
+Listings are bounded the way reports are: the listing renders as many of the
+most recent rows as `max_bytes` holds — at most the 200 rows the store query
+bounds — and states how many rows the window holds but did not print. A
+default `list_sessions` therefore returns rows; when a single row is larger
+than the whole budget the response is handed to [flood
+control](#flood-control) whole, which is the same escape hatch every other
+report has.
 
 The CLI keeps its own doctrine — stdout is a stream, `0` means unbounded,
 and the command you typed is the scope you asked for. The MCP tools are
@@ -91,6 +102,11 @@ takes `--harness` explicitly.
 
 ### `list_sessions`
 
+MCP: `hours_back` (a window in hours, `1` or more; `0` or omitted = the
+240-hour default), `directory` (substring), `all: true` (the whole store),
+`max_bytes` (the response budget, default 16,384). `window_count` is how many
+rows the window holds, `held_back` how many of them the response did not
+print, and `max_bytes` the budget that decided it.
 
 CLI: `total-recall --harness <h> list [--json|--markdown] [--hours N]` —
 `--hours 0` (the default) is the unbounded full listing stream; `--hours N`
@@ -113,10 +129,15 @@ rollout twice. `aliases` is empty for a unique session.
 listed, with counts from whatever could be read, so damage is visible in the
 index rather than the payload silently appearing empty.
 
-The listing is bounded the way the scope contract says: at most the 200
-most recent rows of the window, most recent first, with the held-back count
-stated. The bound lives where the data lives — the OpenCode implementation
-pushes the window, the directory substring and the row cap into SQL, so
+The listing is bounded the way the scope contract says: most recent rows
+first, at most the 200 the store query bounds and as many of those as
+`max_bytes` holds, with the held-back count stated. A default
+`list_sessions` returns rows, never the flood cap's overflow marker; when a
+single row is larger than the whole budget the response is handed to flood
+control whole, which writes it out and returns the marker — the escape hatch
+every other report has. The bound lives where the data lives — the OpenCode
+implementation pushes the window, the directory substring and the row cap
+into SQL, so
 aggregates are computed only for the listed rows (through the store's
 `message(session_id, …)` and `part(session_id)` indexes) and the window count
 is a bare `COUNT(*)`; the file-based harnesses test mtime and directory
@@ -374,7 +395,10 @@ The companion for overflow files and any large dump on disk. Profiles a
 file by line-size distribution (histogram mode, ten buckets — a 2 MB file
 yields a 2 KB histogram) or extracts a line range (`mode: extract` with
 `line`, or `start` and `end`). Runs the vendored `line_histogram.awk` with a
-direct `awk -f` spawn — the shebang is never relied on.
+direct `awk -f` spawn — the shebang is never relied on. The line selectors are
+validated as a set: `mode: extract` needs `line`, or `start` with `end`;
+`end` alone, `start` past `end`, and a selector without `mode: extract` are
+rejected by name rather than answered with a histogram nobody asked for.
 
 ## Ingestion guardrails
 

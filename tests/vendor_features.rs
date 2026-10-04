@@ -404,9 +404,12 @@ fn call_tool(
     id: i64,
     name: &str,
 ) -> serde_json::Value {
+    // Only the fields every tool takes: a tool rejects a parameter it does not
+    // accept by name, so a shared argument soup would test the rejection, not
+    // the vendor.
     send(
         stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":{"session_id":SESSION_ID,"hours_back":48,"query":"vendor","words":"vendor"}}}),
+        &serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":{"session_id":SESSION_ID}}}),
     );
     read_id(reader, id)
 }
