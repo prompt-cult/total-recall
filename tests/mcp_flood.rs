@@ -383,36 +383,48 @@ fn she_said_overflow_returns_the_marker_and_keeps_the_whole_report() {
 #[test]
 fn list_sessions_default_cutoff_is_240_hours() {
     let (mut mcp, _dir) = spawn();
-    // The fixture's huge-title session overflows the default window, so the
-    // return is the marker; the cutoff contract lives in the overflow file.
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
-    let path = marker_path(&text);
-    let written = std::fs::read_to_string(&path).unwrap();
+    let v: Value =
+        serde_json::from_str(&text).expect("the default listing is returned inline, untorn");
+    assert_eq!(
+        v["window_count"].as_u64(),
+        Some(3),
+        "the 240-hour default holds the three recent sessions: {text}"
+    );
     assert!(
-        !written.contains("ses_old"),
+        !whole_listing(&text).contains("ses_old"),
         "the epoch-old session is cut off by the 240-hour default"
     );
-    assert!(
-        written.contains("ses_alpha"),
-        "the recent session is listed"
-    );
+    assert!(text.contains("ses_alpha"), "the recent session is listed");
     let (err, text) = mcp.call("list_sessions", serde_json::json!({"all": true}));
-    assert!(!err);
-    let path = marker_path(&text);
-    let written = std::fs::read_to_string(&path).unwrap();
-    assert!(written.contains("ses_old"), "all: true lifts the window");
+    assert!(!err, "all: true succeeds: {text}");
+    let v: Value =
+        serde_json::from_str(&text).expect("the whole-store listing is returned inline, untorn");
+    assert_eq!(
+        v["window_count"].as_u64(),
+        Some(4),
+        "all: true lifts the window to the whole store: {text}"
+    );
+    assert_eq!(
+        v["held_back"].as_u64(),
+        Some(2),
+        "the 20,000-character-title row does not fit the default budget and the rows behind it are held back with it, and the listing says so: {text}"
+    );
     reap(&mut mcp);
 }
 
 #[test]
 fn an_overflowing_json_response_is_never_torn() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    // A budget too small for even the first row is the one listing the byte
+    // budget cannot satisfy: the whole listing goes to flood control, whose
+    // contract is that JSON is never torn.
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
     assert!(!err, "the overflowing list still succeeds: {text}");
     assert!(
         text.contains("--- [EOF-TRUNCATED] ---"),
-        "the huge-title list overflows and returns the marker"
+        "a listing that cannot fit its budget overflows and returns the marker: {text}"
     );
     assert!(
         !text.trim_start().starts_with('['),
@@ -459,32 +471,41 @@ fn whole_listing(text: &str) -> String {
     }
 }
 
-/// The listing cap and its held-back statement (the scope contract): at most
-/// the 200 most recent rows of the window are rendered, and the listing
-/// states how many rows the window holds but did not print.
+/// The listing cap and its held-back statement (the scope contract): the
+/// listing renders as many of the most recent rows of the window as its
+/// `max_bytes` response budget holds — never more than the 200 rows the store
+/// query bounds — and states how many rows the window holds but did not
+/// print. A default call returns rows: the budget, not the 16 KiB flood cap,
+/// decides the row count.
 #[test]
-fn list_sessions_caps_at_200_rows_and_names_the_held_back_count() {
+fn list_sessions_renders_what_the_budget_holds_and_names_the_held_back_count() {
     let (mut mcp, _dir) = spawn_fixture(|root| build_listing_fixture(root, 250));
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
-    let whole = whole_listing(&text);
-    let v: Value =
-        serde_json::from_str(&whole).expect("the listing response is whole, untorn JSON");
+    assert!(
+        !text.contains("--- [EOF-TRUNCATED] ---"),
+        "the default listing fits its own budget: {text}"
+    );
+    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
     let sessions = v["sessions"].as_array().unwrap_or_else(|| {
         panic!(
             "the listing must render its rows under `sessions`: {}",
-            &whole[..whole.len().min(400)]
+            &text[..text.len().min(400)]
         )
     });
     assert!(
+        !sessions.is_empty(),
+        "a default call returns rows, not an empty table: {text}"
+    );
+    assert!(
         sessions.len() <= 200,
-        "the listing must render at most 200 rows, got {}",
+        "the listing must render at most the 200 rows the query bounds, got {}",
         sessions.len()
     );
-    assert_eq!(
-        sessions.len(),
-        200,
-        "a 250-session window must render exactly the 200 most recent rows"
+    assert!(
+        text.len() <= 16_384,
+        "the rendered listing must fit the default budget, got {} bytes",
+        text.len()
     );
     assert_eq!(
         v["window_count"].as_u64(),
@@ -493,13 +514,55 @@ fn list_sessions_caps_at_200_rows_and_names_the_held_back_count() {
     );
     assert_eq!(
         v["held_back"].as_u64(),
-        Some(50),
-        "the listing must state the 50 rows the window holds but did not print"
+        Some(250 - sessions.len() as u64),
+        "the listing must state the rows the window holds but did not print"
     );
     assert_eq!(
         sessions[0]["session_id"].as_str(),
         Some("ses_listing0000000000000000000000000aa"),
         "the first row must be the most recent session of the window"
+    );
+
+    // A bigger budget buys a bigger slice of the same window: the row count
+    // is derived from the budget, not from a fixed cap.
+    let (err, wider) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 262_144}));
+    assert!(!err, "a wider budget succeeds: {wider}");
+    let wide: Value = serde_json::from_str(&wider).expect("whole JSON");
+    let wide_rows = wide["sessions"].as_array().unwrap().len();
+    assert!(
+        wide_rows > sessions.len(),
+        "a wider budget must return more rows: {} vs {}",
+        wide_rows,
+        sessions.len()
+    );
+    assert_eq!(
+        wide["window_count"].as_u64(),
+        Some(250),
+        "the window is the same window"
+    );
+    reap(&mut mcp);
+}
+
+/// A budget too small for the first row is still handed to flood control
+/// whole: the listing is never answered with an empty table, and the overflow
+/// file carries the untorn JSON the marker points at.
+#[test]
+fn a_budget_too_small_for_one_row_still_floods_whole() {
+    let (mut mcp, _dir) = spawn();
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
+    assert!(!err, "the oversized listing still succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "a row larger than the budget overflows and returns the marker: {text}"
+    );
+    let written = whole_listing(&text);
+    let v: Value =
+        serde_json::from_str(&written).expect("the overflow file carries the whole, untorn JSON");
+    assert!(
+        v["sessions"].as_array().is_some_and(|rows| rows
+            .iter()
+            .any(|r| r["session_id"] == "ses_huge000000000000000000000000d")),
+        "the overflow file carries the rows a 16 KiB budget could not: {written}"
     );
     reap(&mut mcp);
 }

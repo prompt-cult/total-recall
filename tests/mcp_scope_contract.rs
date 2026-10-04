@@ -1,9 +1,10 @@
 //! The scope contract's policy half, proven through the real MCP stdio
-//! server against an opencode fixture store: `hours_back: 0` is rejected on
-//! every window tool (never clamped, never "no bound"), `all: true` is the
-//! explicit whole-store opt-in and contradicts a window, an unscoped request
-//! is rejected with the cheap forms named, `index_sessions` defaults to the
-//! last day, and the schema descriptions speak in one voice. Written RED.
+//! server against an opencode fixture store: `all: true` is the explicit
+//! whole-store opt-in and contradicts a real window, an unscoped request
+//! takes the tool's default window (the rule for an explicit `hours_back: 0`
+//! — read as "omitted", never as "no bound" — is proven in
+//! `mcp_input_validation.rs`), `index_sessions` defaults to the last day,
+//! and the schema descriptions speak in one voice. Written RED.
 
 mod common;
 
@@ -209,65 +210,8 @@ const WINDOW_TOOLS: [&str; 4] = [
     "do_android_dream_of_electric_sheep",
 ];
 
-const NOT_A_WINDOW: &str = "hours_back: 0 is not a window — pass hours_back >= 1, or all: true for the whole store (explicit); the old '0 = no bound' default is gone";
-const UNSCOPED: &str =
-    "unscoped: pass session_id, or directory, or hours_back >= 1, or all: true deliberately";
 const CONTRADICTION: &str =
     "all: true is the whole store; hours_back is a window — pass one, not both";
-
-#[test]
-fn hours_back_0_is_rejected_on_every_window_tool() {
-    let (mut mcp, _dir) = spawn();
-    for tool in WINDOW_TOOLS {
-        // No other scope: the explicit zero is the unscoped request.
-        let (err, text) = mcp.call(
-            tool,
-            match tool {
-                "list_sessions" => serde_json::json!({"hours_back": 0}),
-                "she_said_he_said_action" => {
-                    serde_json::json!({"words": ["release"], "hours_back": 0})
-                }
-                "do_android_dream_of_electric_sheep" => {
-                    serde_json::json!({"query": "release", "hours_back": 0})
-                }
-                _ => serde_json::json!({"hours_back": 0}),
-            },
-        );
-        assert!(
-            err,
-            "{tool} must reject hours_back: 0 as a tool error: {text}"
-        );
-        assert!(
-            text.contains(UNSCOPED),
-            "{tool} must name the cheap forms: {text}"
-        );
-        // With a directory set the request is scoped but 0 is still not a window.
-        let (err, text) = mcp.call(
-            tool,
-            match tool {
-                "list_sessions" => {
-                    serde_json::json!({"hours_back": 0, "directory": "dev"})
-                }
-                "she_said_he_said_action" => {
-                    serde_json::json!({"words": ["release"], "hours_back": 0, "directory": "dev"})
-                }
-                "do_android_dream_of_electric_sheep" => {
-                    serde_json::json!({"query": "release", "hours_back": 0, "directory": "dev"})
-                }
-                _ => serde_json::json!({"hours_back": 0, "directory": "dev"}),
-            },
-        );
-        assert!(
-            err,
-            "{tool} must reject hours_back: 0 with a directory: {text}"
-        );
-        assert!(
-            text.contains(NOT_A_WINDOW),
-            "{tool} must name the cheap forms: {text}"
-        );
-    }
-    reap(&mut mcp);
-}
 
 #[test]
 fn all_true_with_hours_back_is_rejected_on_every_window_tool() {
@@ -374,7 +318,7 @@ fn schema_descriptions_speak_in_one_voice() {
                 .as_str()
                 .unwrap_or_default();
             assert!(
-                hours_desc.contains("1 or more") && hours_desc.contains("0 is rejected"),
+                hours_desc.contains("1 or more") && hours_desc.contains("the default window"),
                 "{name} hours_back description must state the window rule: {hours_desc}"
             );
         }

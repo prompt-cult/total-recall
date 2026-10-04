@@ -46,8 +46,10 @@ Indexes are per session, in a shadow folder adjacent to the store:
 total-recall --harness opencode index --hours 48
 ```
 
-MCP: `index_sessions` with `hours_back` (0 = no bound) and optional
-`directory` substring filter and explicit `sessions` list of partial ids.
+MCP: `index_sessions` with `hours_back` (a window in hours, 1 or more;
+omitted or 0 = the 24-hour default; `all: true` is the whole store) and
+optional `directory` substring filter and explicit `sessions` list of partial
+ids.
 
 3. Search:
 
@@ -58,7 +60,8 @@ total-recall --harness opencode do-android-dream-of-electric-sheep \
 
 MCP: `do_android_dream_of_electric_sheep` with `query` (tantivy query
 syntax: terms, `OR`, phrase in quotes), `sessions` (partial ids, empty =
-all within `hours_back`, default 48, 0 = no bound), optional `directory`.
+all within `hours_back`, default 48, omitted or 0 = that default), optional
+`directory`.
 
 The report lists hits ordered by relevance score: session id, score,
 timestamp, role (marked `ROLE (thinking)` when the match is in reasoning),
@@ -72,6 +75,7 @@ total-recall --harness opencode he-said-she-said --words "mcp,tantivy" --hours 4
 ```
 
 MCP: `she_said_he_said_action` with `words` (required, at least one),
-optional `sessions`, `hours_back` (default 48, 0 = no bound), `directory`.
+optional `sessions`, `hours_back` (default 48, omitted or 0 = that
+default), `directory`.
 Returns HE SAID (user), SHE SAID (assistant), THEY DID (tool calls) per
 session, most recent first.

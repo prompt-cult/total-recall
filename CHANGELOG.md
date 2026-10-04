@@ -5,6 +5,37 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-10-04
+
+### Fixed
+
+- `hours_back: 0` no longer fails every window-tool call (#25). The served
+  schema states `minimum: 1` so a schema-honouring client cannot send it, and
+  the handler reads `0` (and `null`) as "omitted" — the tool's default window,
+  never the whole store. `all: true` with `hours_back: 0` reaches the whole
+  store the caller explicitly asked for; `all: true` with a real window is
+  still rejected as the contradiction it is. `total_recall`'s `hours_back`
+  reads `0` the same way, closing the last route to the adapter's unbounded
+  mechanism except `all: true`.
+- `list_sessions` returns rows again (#25). The row count it renders is
+  derived from the response budget (`max_bytes`, default 16,384) instead of a
+  fixed 200 fat rows that the 16 KiB flood cap replaced whole, so a default
+  call returns rows and states `held_back`. A row larger than the whole
+  budget is still handed to flood control, which is the escape hatch every
+  other report has.
+- Unknown parameters are rejected by name on every tool (#25): `hour_back`
+  or `directorys` is answered with the unrecognised field and the fields the
+  tool does accept, instead of running the call on the default scope.
+- Numeric inputs are validated in the house form on every tool (#25):
+  negatives and over-ceiling values for `hours_back`, `limit`, `offset`,
+  `max_bytes`, `max_record_bytes`, `line`, `start` and `end` return
+  "<tool>: `<field>` is out of range — <cheap form>" instead of a raw serde
+  type error, and the served schemas state the same `minimum`/`maximum` the
+  handlers enforce. `line_histogram`'s `mode`/`line`/`start`/`end` sets are
+  validated as a set: an unknown mode, `mode: extract` with no selector,
+  `end` without `start`, `start` past `end`, and a selector without
+  `mode: extract` are all named errors.
+
 ## [0.11.0] - 2026-10-04
 
 ### Added
@@ -383,6 +414,7 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
+[0.11.1]: https://github.com/prompt-cult/total-recall/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/prompt-cult/total-recall/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/prompt-cult/total-recall/compare/v0.9.1...v0.9.2

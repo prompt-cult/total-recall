@@ -138,8 +138,23 @@ silently breaking the cap.
 ## The store is huge and `list` is slow
 
 A scoped listing is bounded where the data lives: the window, the directory
-substring and the 200-row cap are pushed into the store query, so a scoped
+substring and the row cap are pushed into the store query, so a scoped
 `list` costs what it asks for, not what the store holds. An unscoped `list`
 is the full aggregate scan over the whole store — a disk-read question, not
 a CPU one. A store that grew without bound is the subject of the
 [store-vacuum runbook](operations/opencode-store-vacuum.md).
+
+## "unrecognised field `hour_back`"
+
+A parameter name the tool does not accept. Every tool rejects unknown fields
+by name and lists the fields it does accept: a typo is a silently unscoped
+call otherwise, so the call is answered with the accepted names rather than
+run on the default scope.
+
+## "`limit` is out of range" / "`max_bytes` is out of range"
+
+The value is outside the bound the tool enforces — `limit` runs 1 to 1000,
+`max_bytes` 1 to the 8 MiB ceiling. Either value is stated in the tool's
+schema as `minimum`/`maximum`, and `0` means "omitted" for both: `limit: 0`
+takes the default 100, `max_bytes: 0` takes the tool's default. Page with
+`offset`/`limit` instead of raising `limit`.
