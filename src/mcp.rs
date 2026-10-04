@@ -1358,26 +1358,31 @@ fn line_selectors(
 /// print are stated in `held_back`.
 ///
 /// The budget is the one owner of this bound. A fixed row cap cannot be: a
-/// `SessionSummary` is ~500 bytes pretty-printed, so 200 of them is ~100 KB
-/// and the 16 KiB flood cap replaces the whole listing with a marker — a
-/// default call that returns nothing usable. The row count is therefore
-/// measured, not guessed: the candidate response is serialised exactly as it
-/// is emitted, so the contract ("the listing fits `max_bytes`") holds by
-/// construction rather than by arithmetic.
+/// rendered [`ListingRow`] is a few hundred bytes pretty-printed, so 200 of
+/// them is tens of KB and the 16 KiB flood cap replaces the whole listing with
+/// a marker — a default call that returns nothing usable. The row count is
+/// therefore measured, not guessed: the candidate response is serialised
+/// exactly as it is emitted, so the contract ("the listing fits `max_bytes`")
+/// holds by construction rather than by arithmetic.
 ///
-/// A single row larger than the whole budget is the one case the budget cannot
-/// satisfy. There the full listing is rendered and handed to flood control,
-/// which writes it to the overflow file and returns the marker with its
-/// histogram — the escape hatch every other report has. Answering with an
-/// empty table instead would hide the store behind a bound.
+/// Each row's own id arrays are bounded before it is ever measured, in
+/// [`ListingRow::new`] — a row is rendered as a [`ListingRow`], never as a raw
+/// [`SessionSummary`] — so no row's cost is a function of how many subagent
+/// children or vibe aliases its session happens to carry. One row larger than
+/// the whole budget is then only reachable through a title or directory of its
+/// own; there the full listing is rendered and handed to flood control, which
+/// writes it to the overflow file and returns the marker with its histogram —
+/// the escape hatch every other report has. Answering with an empty table
+/// instead would hide the store behind a bound.
 fn listing_json(
     sessions: &[crate::SessionSummary],
     window_count: usize,
     max_bytes: usize,
 ) -> String {
-    let mut rendered: Vec<&crate::SessionSummary> = Vec::new();
+    let rows: Vec<crate::ListingRow> = sessions.iter().map(crate::ListingRow::new).collect();
+    let mut rendered: Vec<&crate::ListingRow> = Vec::new();
     let mut json = listing_envelope(&rendered, window_count, max_bytes);
-    for row in sessions {
+    for row in &rows {
         rendered.push(row);
         let candidate = listing_envelope(&rendered, window_count, max_bytes);
         if candidate.len() > max_bytes {
@@ -1386,23 +1391,15 @@ fn listing_json(
         }
         json = candidate;
     }
-    if rendered.is_empty() && !sessions.is_empty() {
+    if rendered.is_empty() && !rows.is_empty() {
         // No row fits the budget: flood control takes the whole listing.
-        return listing_envelope(
-            &sessions.iter().collect::<Vec<_>>(),
-            window_count,
-            max_bytes,
-        );
+        return listing_envelope(&rows.iter().collect::<Vec<_>>(), window_count, max_bytes);
     }
     json
 }
 
 /// The listing envelope, serialised exactly as it is emitted.
-fn listing_envelope(
-    rows: &[&crate::SessionSummary],
-    window_count: usize,
-    max_bytes: usize,
-) -> String {
+fn listing_envelope(rows: &[&crate::ListingRow], window_count: usize, max_bytes: usize) -> String {
     let held_back = window_count.saturating_sub(rows.len());
     let notice = if held_back > 0 {
         format!(

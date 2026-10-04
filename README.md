@@ -41,6 +41,11 @@ new directory name); `list_sessions` emits one canonical entry per payload —
 the id whose directory-name date prefix agrees with the session's start time —
 and lists the rest under `aliases`, so a caller paging the index never
 processes the same rollout twice. `aliases` is empty for a unique session.
+The two id arrays a row carries are bounded: the 10 most recent child ids and
+the 10 first alias names travel with the row, `child_session_count` and
+`alias_count` state the true totals beside them and the row's `notice` says
+what it held back, so no session's subagent fan-out can spend the response
+budget on its own — raise `max_bytes` for a wider slice.
 When a rollout payload cannot be read (permissions, I/O error), the entry is
 still listed — with counts from whatever could be read — and carries a
 `read_error` message so damage is visible in the index instead of the

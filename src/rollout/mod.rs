@@ -239,6 +239,119 @@ pub struct SessionSummary {
     pub read_error: Option<String>,
 }
 
+/// The per-row cap on navigation ids a rendered listing row carries: the most
+/// [`IDS_PER_LISTING_ROW`] child ids and the most [`IDS_PER_LISTING_ROW`]
+/// alias names, with the true count of each beside them.
+///
+/// Ten is the value because of what it buys and what it costs. Ten ids are
+/// ~350 bytes pretty-printed — enough for a caller to see a subagent fan-out
+/// or an alias set and navigate from it — while a row that carries them stays
+/// under a kilobyte, so the worst one row in a store can do to a 16 KiB budget
+/// is a rounding error. A larger cap buys ids the caller already has another
+/// route to: `parent_session_id` walks up, `child_session_count` says how deep
+/// the fan-out goes, and the counts plus a narrower window get the rest.
+pub const IDS_PER_LISTING_ROW: usize = 10;
+
+/// A rendered listing row: every navigational field of a [`SessionSummary`],
+/// with its two unbounded id arrays bounded to [`IDS_PER_LISTING_ROW`] and the
+/// truth carried alongside in `child_session_count`, `alias_count` and
+/// `notice`.
+///
+/// [`SessionSummary`] keeps every id the store produced — the recall table,
+/// the profile and the shadow-index annotation all read the full set — so this
+/// is the one place the listing's byte cost per row is expressed. An unbounded
+/// array in a store that accumulates subagent children is not a slow query, it
+/// is a row that can spend the whole response budget on its own.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ListingRow {
+    pub session_id: String,
+    pub title: String,
+    pub start_time: String,
+    pub end_time: String,
+    pub file_size: u64,
+    pub line_count: u64,
+    pub user_count: u64,
+    pub assistant_count: u64,
+    pub tool_count: u64,
+    pub has_compaction: bool,
+    pub directory: Option<String>,
+    pub parent_session_id: Option<String>,
+    /// The most recent child ids, at most [`IDS_PER_LISTING_ROW`] of them.
+    pub child_sessions: Vec<String>,
+    /// How many child ids the row's session actually has. Absent when the
+    /// session has none — an empty array says that already.
+    #[serde(skip_serializing_if = "is_zero_count")]
+    pub child_session_count: usize,
+    pub has_tantivy_index: bool,
+    /// The alias names, at most [`IDS_PER_LISTING_ROW`] of them.
+    pub aliases: Vec<String>,
+    /// How many alias names the row's session actually has. Absent when the
+    /// entry is unique — an empty array says that already.
+    #[serde(skip_serializing_if = "is_zero_count")]
+    pub alias_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_error: Option<String>,
+    /// What this row held back, in the row itself: a caller reading one row
+    /// learns that it is a partial view rather than mistaking a bounded array
+    /// for the whole fan-out. Absent when nothing was held back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+}
+
+fn is_zero_count(count: &usize) -> bool {
+    *count == 0
+}
+
+impl ListingRow {
+    /// Bound one summary's id arrays into a row. Cheap: at most
+    /// `2 * IDS_PER_LISTING_ROW` ids are copied regardless of how many the
+    /// session has.
+    pub fn new(summary: &SessionSummary) -> Self {
+        let (child_sessions, child_session_count) = bounded_ids(&summary.child_sessions);
+        let (aliases, alias_count) = bounded_ids(&summary.aliases);
+        let mut notice = Vec::new();
+        if child_session_count > child_sessions.len() {
+            notice.push(format!(
+                "{} of {child_session_count} child_sessions not shown",
+                child_session_count - child_sessions.len()
+            ));
+        }
+        if alias_count > aliases.len() {
+            notice.push(format!(
+                "{} of {alias_count} aliases not shown",
+                alias_count - aliases.len()
+            ));
+        }
+        Self {
+            session_id: summary.session_id.clone(),
+            title: summary.title.clone(),
+            start_time: summary.start_time.clone(),
+            end_time: summary.end_time.clone(),
+            file_size: summary.file_size,
+            line_count: summary.line_count,
+            user_count: summary.user_count,
+            assistant_count: summary.assistant_count,
+            tool_count: summary.tool_count,
+            has_compaction: summary.has_compaction,
+            directory: summary.directory.clone(),
+            parent_session_id: summary.parent_session_id.clone(),
+            child_sessions,
+            child_session_count,
+            has_tantivy_index: summary.has_tantivy_index,
+            aliases,
+            alias_count,
+            read_error: summary.read_error.clone(),
+            notice: (!notice.is_empty()).then(|| notice.join("; ")),
+        }
+    }
+}
+
+/// The leading [`IDS_PER_LISTING_ROW`] ids and the count they were cut from.
+fn bounded_ids(ids: &[String]) -> (Vec<String>, usize) {
+    let kept = IDS_PER_LISTING_ROW.min(ids.len());
+    (ids[..kept].to_vec(), ids.len())
+}
+
 /// The row cap a listing query returns: at most the 200 most recent rows of
 /// the requested window, most recent first. One bound, one owner at this
 /// layer — the MCP listing and the recall table's rollouts listing both take

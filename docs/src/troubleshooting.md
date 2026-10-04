@@ -144,6 +144,16 @@ is the full aggregate scan over the whole store — a disk-read question, not
 a CPU one. A store that grew without bound is the subject of the
 [store-vacuum runbook](operations/opencode-store-vacuum.md).
 
+## `held_back` is most of the window
+
+Expected: `list_sessions` renders as many of the window's most recent rows as
+`max_bytes` holds, and states the rest in `held_back`. Each row carries at most
+the 10 most recent `child_sessions` ids and the 10 first `aliases`, with
+`child_session_count` / `alias_count` stating the true totals and the row's
+`notice` naming what it held back — a bounded row means the count is set by the
+budget, not by any session's size. Raise `max_bytes` for a wider slice, or
+narrow the window with `hours_back` or `directory`.
+
 ## "unrecognised field `hour_back`"
 
 A parameter name the tool does not accept. Every tool rejects unknown fields

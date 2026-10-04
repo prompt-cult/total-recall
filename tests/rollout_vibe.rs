@@ -449,3 +449,46 @@ fn scoped_listing_windows_by_payload_mtime_and_dedupes_inside_the_window() {
         Some("session_20260923_101500_51a9645c")
     );
 }
+
+/// A dedupe group bigger than the per-row id cap is a real store shape, not a
+/// thought experiment: fifteen directories for one payload is fifteen names,
+/// and the canonical entry's `aliases` array carries all fourteen. The rendered
+/// row carries the cap, the true count and the notice; the summary the adapter
+/// produced keeps the whole set for the readers that need it.
+#[test]
+fn a_dedupe_group_larger_than_the_row_cap_renders_bounded() {
+    use total_recall::{IDS_PER_LISTING_ROW, ListingRow};
+
+    let root = scratch("vibe_alias_cap");
+    let now = std::time::SystemTime::now();
+    let group = 15;
+    for i in 0..group {
+        let name = format!("session_20260915_095955_{i:06x}a");
+        make_session_dir(
+            &root,
+            &name,
+            "2026-09-15T09:59:55+00:00",
+            "2026-09-15T10:00:00+00:00",
+            DUP_MSGS,
+        );
+        set_mtime(&root.join(&name).join("messages.jsonl"), now);
+    }
+
+    let listing = VibeAdapter::with_root(&*root).list_sessions_scoped(24, None);
+    assert_eq!(listing.window_count, 1, "one payload, one canonical entry");
+    let canonical = &listing.sessions[0];
+    assert_eq!(
+        canonical.aliases.len(),
+        group - 1,
+        "the adapter's summary carries every alias name"
+    );
+
+    let row = ListingRow::new(canonical);
+    assert_eq!(row.aliases.len(), IDS_PER_LISTING_ROW);
+    assert_eq!(row.alias_count, group - 1);
+    let notice = row.notice.as_deref().unwrap_or_default();
+    assert!(
+        notice.contains("4 of 14 aliases not shown"),
+        "the row names what it held back: {notice}"
+    );
+}

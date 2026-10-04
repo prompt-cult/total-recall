@@ -116,7 +116,15 @@ window, held-back count on stderr).
 Each entry: `session_id`, `title`, `start_time`, `end_time`, `file_size`,
 `line_count`, `user_count`, `assistant_count`, `tool_count`,
 `has_compaction`, `directory`, `parent_session_id`, `child_sessions`,
-`has_tantivy_index`, `aliases`, and `read_error` when present.
+`child_session_count`, `has_tantivy_index`, `aliases`, `alias_count`,
+`notice` and `read_error` when present.
+
+`child_sessions` and `aliases` are bounded per row to the 10 most recent child
+ids and the 10 first alias names, with `child_session_count` / `alias_count`
+carrying the true count beside them and the row's `notice` naming what it held
+back — a store that accumulates subagent children cannot spend the response
+budget on one row, so the row count a default call gets is a function of
+`max_bytes`; raise `max_bytes` for a wider slice.
 
 `aliases` lists other session directory names that resolve to the same
 underlying rollout payload — the vibe store can hold two directories for one
