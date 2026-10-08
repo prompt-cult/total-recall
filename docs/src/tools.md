@@ -23,8 +23,9 @@ Two regimes, one parameter:
 
 - **session tools** — `profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`, `compact_session`,
-  `total_recall`: `session_id` (partial match; empty = the most recent
-  session). One session is the smallest useful scope, so it is the default.
+  `total_recall`, `todo_history`: `session_id` (partial match; empty = the
+  most recent session). One session is the smallest useful scope, so it is
+  the default.
 - **window tools** — `list_sessions`, `she_said_he_said_action`,
   `index_sessions`, `do_android_dream_of_electric_sheep`: `session_id`
   (partial match) selects sessions explicitly; when empty, the tool works
@@ -83,8 +84,9 @@ Accepted before the subcommand:
 
 Output format per subcommand, with no flag given: `list` and `profile` print a
 human-readable summary, `extract` prints one JSON object per line,
-`user-messages` prints a JSON array, and `extract-by-type` always prints
-`type,timestamp,json` records. `he-said-she-said`,
+`user-messages` prints a JSON array, `extract-by-type` always prints
+`type,timestamp,json` records, and `todo-history` always prints one JSONL
+todo-edit event per line. `he-said-she-said`,
 `do-android-dream-of-electric-sheep` and `index` print their own report format
 regardless of flags.
 
@@ -262,6 +264,33 @@ normalized message stream.
 
 CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
 --type thinking [--include-injected]`.
+
+### `todo_history`
+
+Recovers a rollout's todo-list edits: every `todowrite` flush replayed as
+the edits between consecutive list states, one compact JSON object per
+line, in ts order:
+
+```
+{"ts":"2026-10-08T04:14:18Z","action":"added","todo":"item00: ship the fix","status":"pending"}
+{"ts":"2026-10-08T04:20:02Z","action":"in_progress","todo":"item00: ship the fix","status":"in_progress"}
+{"ts":"2026-10-08T04:31:47Z","action":"removed","todo":"item01: later"}
+```
+
+`action` is `added` (first sight of an item), `updated` (reworded, same
+status), the item's new status on a status change (`pending`,
+`in_progress`, `completed`, `cancelled`, …), or `removed` (the flush
+dropped it — `status` is omitted on a removal). Item identity is the
+`itemNN:` slug prefix this repo's sessions carry, else the full content
+string. Folding the events reproduces the flushes. `full` defaults to true
+— the whole rollout's todo history; `false` reads from the last compaction
+point. The MCP report carries a `#`-prefixed header line (filter it with
+`grep -v '^#'`); the CLI streams the bare JSONL, unbounded. The report is
+flood-capped at `max_bytes` (default 16384, 8 MiB ceiling) with the EOF
+marker and overflow file. Opencode only: every other harness refuses with
+an explicit error, never an empty list.
+
+CLI: `total-recall --harness opencode --session <id> todo-history [--no-full]`.
 
 ## Matched dialogue and actions
 

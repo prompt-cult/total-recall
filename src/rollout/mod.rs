@@ -179,6 +179,23 @@ pub trait RolloutAdapter: Send + Sync {
         Ok(entries_from_messages(selected.iter().copied()))
     }
 
+    /// Every `todowrite` flush of a session, in order, for `todo_history`:
+    /// the whole todo list as each flush wrote it, with the ISO8601
+    /// timestamp of the message that carried it. `full` reads the entire
+    /// session; `false` reads from the last compaction point. The default
+    /// refuses: a harness without native todowrite access must say so,
+    /// never return an empty list that reads as "no todos".
+    fn read_todo_writes(
+        &self,
+        _session_id: &str,
+        _full: bool,
+    ) -> ReadResult<Vec<crate::todo_history::TodoWrite>> {
+        Err(format!(
+            "todo_history is only available for the opencode harness (this is the {} harness)",
+            self.name()
+        ))
+    }
+
     /// Case-insensitive term-matched dialogue and tool actions, as a markdown
     /// report of HE SAID (user text), SHE SAID (assistant text) and THEY DID
     /// (tool calls). Harnesses without a native implementation return a clear

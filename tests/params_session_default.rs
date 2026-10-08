@@ -3,8 +3,8 @@
 //! fail with "missing field `session_id`". Written RED.
 
 use total_recall::mcp::{
-    CompactParams, ExtractByTypeParams, ExtractParams, ProfileParams, TotalRecallParams,
-    UserMessagesParams,
+    CompactParams, ExtractByTypeParams, ExtractParams, ProfileParams, TodoHistoryParams,
+    TotalRecallParams, UserMessagesParams,
 };
 
 fn de<T: serde::de::DeserializeOwned>(body: &str) -> T {
@@ -23,6 +23,12 @@ fn an_omitted_session_id_defaults_to_empty_everywhere() {
     assert_eq!(p.session_id, "");
     let p: CompactParams = de("{}");
     assert_eq!(p.session_id, "");
+    let p: TodoHistoryParams = de("{}");
+    assert_eq!(p.session_id, "");
+    assert!(
+        p.full,
+        "todo_history's full defaults to true: the whole rollout's todo history"
+    );
     // The #18 reproduction: hours_back alone, session_id omitted.
     let p: TotalRecallParams = de(r#"{"hours_back": 72}"#);
     assert_eq!(p.session_id, "");

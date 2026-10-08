@@ -186,6 +186,25 @@ pub struct ExtractByTypeParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct TodoHistoryParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "If true (the default), recover the whole rollout's todo history. If false, read from the last compaction point. Default true, deliberately: this tool's entire purpose is the whole rollout's todo history, and a compaction slice would silently hide most of it."
+    )]
+    #[serde(default = "default_true")]
+    pub full: bool,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CompactParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -219,6 +238,10 @@ pub struct TotalRecallParams {
 
 fn default_hours() -> i64 {
     24
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_she_said_hours() -> u64 {
@@ -948,6 +971,47 @@ impl TotalRecallServer {
     }
 
     #[tool(
+        name = "todo_history",
+        description = "Total-recall MCP tool: recover a session rollout's todo-list edits as a JSONL event stream — one compact JSON object per line {\"ts\",\"action\",\"todo\"[,\"status\"]}, in ts order. Replays every todowrite flush and emits the edits between consecutive list states: added, updated, the new status on a status change, or removed. full defaults to true (the whole rollout)."
+    )]
+    async fn todo_history(
+        &self,
+        Parameters(params): Parameters<TodoHistoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let max_bytes = match number(
+            "todo_history",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        let writes = match adapter.read_todo_writes(&session_id, params.full) {
+            Ok(w) => w,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let events = crate::todo_history::diff_todo_states(&writes);
+        let text =
+            todo_history_report(&session_id, self.harness(), params.full, &events, max_bytes);
+        // The report can overflow: flood control caps it at max_bytes.
+        Ok(capped_text("todo_history", &session_id, text, max_bytes))
+    }
+
+    #[tool(
         description = "Total-recall MCP tool: fast compaction of a session using the LLM vendor compiled in as the default (Mercury) — the server has no provider selector — returns a structured summary with Accomplished, Current Work, Files, Next Steps, and Key Decisions. Supplements the built-in slower compactions."
     )]
     async fn compact_session(
@@ -1417,6 +1481,38 @@ fn listing_envelope(rows: &[&crate::ListingRow], window_count: usize, max_bytes:
         "notice": notice,
     }))
     .unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Assemble the `todo_history` report. Line 1 is a `#`-prefixed compact-JSON
+/// header carrying the session, harness, window, event count and byte cap;
+/// each subsequent line is one edit event, compact JSON, in ts order. The
+/// `#` prefix keeps the stream filterable (`grep -v '^#'`) and keeps flood
+/// control's line-boundary cut honest — an overflowing report returns the
+/// header plus as many whole event lines as `max_bytes` holds, then the EOF
+/// marker naming the overflow file.
+fn todo_history_report(
+    session_id: &str,
+    harness: &str,
+    full: bool,
+    events: &[crate::todo_history::TodoEditEvent],
+    max_bytes: usize,
+) -> String {
+    let header = serde_json::json!({
+        "session_id": session_id,
+        "harness": harness,
+        "full": full,
+        "events": events.len(),
+        "max_bytes": max_bytes,
+    });
+    let mut out = String::new();
+    out.push('#');
+    out.push_str(&serde_json::to_string(&header).unwrap_or_else(|_| "{}".to_string()));
+    out.push('\n');
+    for e in events {
+        out.push_str(&serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string()));
+        out.push('\n');
+    }
+    out
 }
 
 /// Read a session window respecting `full`, propagating read damage as a tool
