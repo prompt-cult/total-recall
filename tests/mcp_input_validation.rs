@@ -226,7 +226,7 @@ fn reap(mcp: &mut Mcp) {
 
 /// Every tool that takes parameters, with the arguments that get it past its
 /// required fields.
-fn tools() -> [(&'static str, Value); 11] {
+fn tools() -> [(&'static str, Value); 12] {
     [
         ("list_sessions", json!({})),
         ("profile_session", json!({})),
@@ -242,6 +242,7 @@ fn tools() -> [(&'static str, Value); 11] {
             json!({"query": "release"}),
         ),
         ("line_histogram", json!({"file_path": "{FILE}"})),
+        ("todo_history", json!({})),
     ]
 }
 
@@ -366,7 +367,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
         );
     }
     // The numeric bounds the handlers enforce.
-    let cases: [(&str, &str, Option<f64>, Option<f64>); 14] = [
+    let cases: [(&str, &str, Option<f64>, Option<f64>); 15] = [
         ("extract_messages", "limit", Some(0.0), Some(1000.0)),
         ("extract_messages", "offset", Some(0.0), None),
         (
@@ -401,6 +402,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
         ("total_recall", "max_bytes", Some(1.0), Some(8_388_608.0)),
         ("line_histogram", "line", Some(1.0), None),
         ("line_histogram", "start", Some(1.0), None),
+        ("todo_history", "max_bytes", Some(1.0), Some(8_388_608.0)),
     ];
     for (tool, field, min, max) in cases {
         let props = mcp.schema(tool);
@@ -460,7 +462,7 @@ fn every_tool_rejects_an_unknown_field_by_name_and_lists_what_it_accepts() {
 fn every_numeric_input_out_of_range_returns_the_house_form() {
     let (mut mcp, dir) = spawn();
     // (tool, args, the field the error must name)
-    let cases: [(&str, Value, &str); 22] = [
+    let cases: [(&str, Value, &str); 25] = [
         ("list_sessions", json!({"hours_back": -1}), "hours_back"),
         ("list_sessions", json!({"max_bytes": -1}), "max_bytes"),
         (
@@ -523,6 +525,9 @@ fn every_numeric_input_out_of_range_returns_the_house_form() {
             json!({"file_path": "{FILE}", "start": 0, "end": 4}),
             "start",
         ),
+        ("todo_history", json!({"max_bytes": -1}), "max_bytes"),
+        ("todo_history", json!({"max_bytes": 0}), "max_bytes"),
+        ("todo_history", json!({"max_bytes": 9_000_000}), "max_bytes"),
     ];
     for (tool, args, field) in cases {
         let args = file_args(&args, &dir);

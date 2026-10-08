@@ -12,6 +12,7 @@ use super::{
     RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
     no_session_error, resolve_root, slice_from_compaction, summarize_tool_call, truncate_chars,
 };
+use crate::todo_history::{TodoItemState, TodoWrite};
 
 /// OpenCode adapter. Reads session history from the local SQLite database at
 /// ~/.local/share/opencode/opencode.db (read-only), mirroring the schema used
@@ -472,6 +473,14 @@ impl RolloutAdapter for OpenCodeAdapter {
             .collect())
     }
 
+    fn read_todo_writes(&self, session_id: &str, full: bool) -> ReadResult<Vec<TodoWrite>> {
+        let conn = self.connect()?;
+        let full_id = self
+            .resolve_session_id(&conn, session_id)
+            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+        load_todo_writes(&conn, &full_id, full)
+    }
+
     fn she_said_he_said_action(
         &self,
         sessions: &[String],
@@ -683,6 +692,142 @@ fn session_time_updated(conn: &Connection, full_id: &str) -> Option<i64> {
         |r| r.get(0),
     )
     .ok()
+}
+
+/// Load every `todowrite` flush of a session, in message/part order. The
+/// part stream is filtered in Rust, exactly like `load_messages`: a part
+/// whose JSON is unparseable is skipped with a warning, never fatal and
+/// never silently empty (a malformed row cannot take the query down with
+/// it). `full = false` slices at the session's last compaction part — rows
+/// before the marker are dropped, mirroring how `read_session_from_compaction`
+/// finds the marker.
+fn load_todo_writes(conn: &Connection, full_id: &str, full: bool) -> ReadResult<Vec<TodoWrite>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.data, p.data, p.time_created
+              FROM message m
+              JOIN part p ON m.id = p.message_id
+              WHERE m.session_id = ?1
+              ORDER BY m.time_created ASC, p.time_created ASC",
+        )
+        .map_err(|e| format!("cannot query opencode todo writes for {full_id}: {e}"))?;
+
+    let rows = stmt
+        .query_map([full_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|e| format!("cannot read opencode todo writes for {full_id}: {e}"))?;
+
+    // One ordered pass: parse every row, remember the last compaction part,
+    // keep what the window allows.
+    let mut last_compaction: Option<i64> = None;
+    let mut parsed: Vec<(Value, Value, i64)> = Vec::new();
+    for row in rows.flatten() {
+        let (msg_json, part_json, part_time) = row;
+        let msg: Value = match serde_json::from_str(&msg_json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("opencode session {full_id}: skipping unparseable message: {e}");
+                continue;
+            }
+        };
+        let part: Value = match serde_json::from_str(&part_json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("opencode session {full_id}: skipping unparseable part: {e}");
+                continue;
+            }
+        };
+        if part.get("type").and_then(|t| t.as_str()) == Some("compaction") {
+            last_compaction = Some(part_time);
+        }
+        parsed.push((msg, part, part_time));
+    }
+
+    let mut writes = Vec::new();
+    for (msg, part, part_time) in parsed {
+        if !full && last_compaction.is_some_and(|marker| part_time < marker) {
+            continue;
+        }
+        if part.get("type").and_then(|t| t.as_str()) != Some("tool") {
+            continue;
+        }
+        if part.get("tool").and_then(|t| t.as_str()) != Some("todowrite") {
+            continue;
+        }
+        let timestamp = msg
+            .get("time")
+            .and_then(|t| t.get("created"))
+            .and_then(|t| t.as_i64())
+            .map(ms_to_iso8601);
+        let Some(todos) = todo_items_from_part(&part, full_id) else {
+            continue;
+        };
+        writes.push(TodoWrite { timestamp, todos });
+    }
+    Ok(writes)
+}
+
+/// The todo list a todowrite part carried, or `None` when the part is not a
+/// flush: a failed call (`input` without a `todos` list) is skipped quietly,
+/// while a todo list that is present but unparseable — a JSON-encoded
+/// `input` or `todos` string that does not parse, a non-array `todos`, an
+/// item without a string `content` — is skipped with a warning, so the
+/// damage is diagnosable. Both `input` and `todos` are accepted as JSON
+/// objects or as JSON-encoded strings (both shapes occur in the live store).
+fn todo_items_from_part(part: &Value, full_id: &str) -> Option<Vec<TodoItemState>> {
+    let input = part.get("state")?.get("input")?;
+    let input = match input {
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    "opencode session {full_id}: skipping todowrite part with an unparseable input: {e}"
+                );
+                return None;
+            }
+        },
+        other => other.clone(),
+    };
+    let todos = input.get("todos")?;
+    let todos = match todos {
+        Value::String(s) => match serde_json::from_str::<Value>(s) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    "opencode session {full_id}: skipping todowrite part with an unparseable todos list: {e}"
+                );
+                return None;
+            }
+        },
+        other => other.clone(),
+    };
+    let arr = match todos.as_array() {
+        Some(a) => a,
+        None => {
+            tracing::warn!(
+                "opencode session {full_id}: skipping todowrite part whose todos is not an array"
+            );
+            return None;
+        }
+    };
+    let mut items = Vec::with_capacity(arr.len());
+    for item in arr {
+        match serde_json::from_value::<TodoItemState>(item.clone()) {
+            Ok(i) => items.push(i),
+            Err(e) => {
+                tracing::warn!(
+                    "opencode session {full_id}: skipping todowrite part with an unparseable todo item: {e}"
+                );
+                return None;
+            }
+        }
+    }
+    Some(items)
 }
 
 /// Compute the profile from SQLite for an already-resolved session id.

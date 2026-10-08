@@ -10,6 +10,7 @@ pub mod recall;
 pub mod redact;
 pub mod report_cap;
 pub mod rollout;
+pub mod todo_history;
 
 pub use mercury::{
     KNOWN_VENDORS, MAX_5XX_RETRIES, MAX_429_RETRIES, MAX_BACKOFF, MAX_CONCURRENCY,

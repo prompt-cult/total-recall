@@ -5,6 +5,24 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-08
+
+### Added
+
+- New `todo_history` MCP tool and `todo-history` CLI subcommand: recover a
+  rollout's todo-list edits as a JSONL event stream — one compact JSON object
+  per line (`{"ts","action","todo"[,"status"]}`), in ts order. Every
+  `todowrite` flush in the session is replayed as the edits between
+  consecutive list states: `added`, `updated`, the item's new status on a
+  status change, or `removed` (`status` omitted). Item identity is the
+  `itemNN:` slug prefix, else the full content string; folding the events
+  reproduces the flushes. `full` defaults to true (the whole rollout's todo
+  history); `false` reads from the last compaction point. The MCP report
+  carries a `#`-prefixed header and is flood-capped at `max_bytes` (default
+  16384, 8 MiB ceiling) with the EOF marker and overflow file; the CLI
+  streams the bare JSONL unbounded. Opencode only — every other harness
+  refuses with an explicit error, never an empty list.
+
 ## [0.11.2] - 2026-10-04
 
 ### Fixed
@@ -430,6 +448,7 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
+[0.12.0]: https://github.com/prompt-cult/total-recall/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/prompt-cult/total-recall/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/prompt-cult/total-recall/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/prompt-cult/total-recall/compare/v0.10.0...v0.11.0

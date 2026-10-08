@@ -107,6 +107,14 @@ pub enum Command {
         #[arg(long = "type", value_name = "kind")]
         types: Vec<String>,
     },
+    /// Recover a rollout's todo-list edits as a JSONL event stream: one
+    /// {ts,action,todo} object per line, in ts order
+    #[command(name = "todo-history")]
+    TodoHistory {
+        /// Read from the last compaction point instead of the whole rollout
+        #[arg(long = "no-full")]
+        no_full: bool,
+    },
     /// Compact a rollout using the configured LLM provider (`--provider`)
     Compact,
     /// Total recall: state summary + user goals + rollouts table + plan files
@@ -569,6 +577,21 @@ async fn main() -> Result<()> {
             }
             for r in kept {
                 println!("{}", r.json);
+            }
+            let _ = std::io::stdout().flush();
+        }
+
+        Command::TodoHistory { no_full } => {
+            // The whole rollout is this command's natural scope (matching the
+            // MCP tool's full=true default); --no-full slices at the last
+            // compaction point.
+            let full = cli.full || !no_full;
+            let writes = unwrap_read(adapter.read_todo_writes(&session_id, full));
+            let events = total_recall::todo_history::diff_todo_states(&writes);
+            // CLI: unbounded — stdout is a stream, one JSONL event per line.
+            for e in &events {
+                let line = serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string());
+                println!("{}", line);
             }
             let _ = std::io::stdout().flush();
         }

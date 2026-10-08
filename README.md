@@ -253,8 +253,8 @@ a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`, `compact_session`,
-  `total_recall`): `session_id` partial match; empty = the most recent
-  session.
+  `total_recall`, `todo_history`): `session_id` partial match; empty = the
+  most recent session.
 - **Window tools** (`list_sessions`, `she_said_he_said_action`,
   `index_sessions`, `do_android_dream_of_electric_sheep`): `session_id`
   selects explicitly; when empty the tool works its window — `hours_back`
@@ -362,7 +362,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
 | `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 | `total_recall` (MCP), `recall` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -410,6 +410,9 @@ $B --harness vibe --session 4836855e extract-by-type --type user --type thinking
 # CLI extraction is unbounded by default; bound it explicitly when paging large
 # sessions (--limit/--offset/--max-bytes/--max-record-bytes, notice on stderr)
 $B --harness vibe --session 4836855e extract --limit 100 --offset 0
+
+# Todo-list edits as a JSONL event stream (one {ts,action,todo} object per line)
+$B --harness opencode --session ses_ee8e8f72 todo-history
 
 # Compact from the last compaction point (default) or the full rollout
 $B --harness vibe --session 4836855e compact
@@ -463,7 +466,8 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `compact_session`,
 `she_said_he_said_action`, `index_sessions`,
-`do_android_dream_of_electric_sheep`, `total_recall`, and `line_histogram`:
+`do_android_dream_of_electric_sheep`, `total_recall`, `todo_history`,
+and `line_histogram`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
 empty = most recent) except the window tools, which take a `hours_back`
