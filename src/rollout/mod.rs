@@ -100,6 +100,313 @@ pub fn entry_timestamp(ts: Option<&str>) -> String {
     }
 }
 
+/// One selectable option of a question asked through a harness question tool
+/// (opencode `question`, vibe `ask_user_question`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct QaOption {
+    pub label: String,
+    pub description: String,
+}
+
+/// One question/answer pair extracted from a session: the question as the
+/// harness asked it, its header and options where the format carries them,
+/// and the answer(s) the user picked or typed. A question call that was
+/// never answered, or whose prompt was cancelled, yields no pair.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct QaPair {
+    pub question: String,
+    pub header: Option<String>,
+    pub options: Vec<QaOption>,
+    pub answers: Vec<String>,
+    pub timestamp: Option<String>,
+}
+
+/// One parsed answer record from a question tool's answer payload: the
+/// answer text, plus the question it names when the payload carries it.
+pub(crate) struct QaAnswerRecord {
+    pub question: Option<String>,
+    pub answer: String,
+}
+
+/// One question parsed out of a question tool call's arguments: the text,
+/// its header when present, and the options offered.
+pub(crate) struct ParsedQuestion {
+    pub question: String,
+    pub header: Option<String>,
+    pub options: Vec<QaOption>,
+}
+
+/// The args JSON of a question tool call, from its normalized summary line
+/// (`question({...})` / `ask_user_question({...})`). `None` for any other
+/// tool.
+fn question_call_args(summary: &str) -> Option<&str> {
+    if !summary.starts_with("question(") && !summary.starts_with("ask_user_question(") {
+        return None;
+    }
+    let open = summary.find('(')?;
+    let args = &summary[open + 1..];
+    let args = args.strip_suffix(')').unwrap_or(args);
+    Some(args)
+}
+
+/// Parse the `questions` payload of a question tool call's arguments. Empty
+/// when the arguments are not a recognizable question payload.
+pub(crate) fn parse_questions_payload(args: &str) -> Vec<ParsedQuestion> {
+    let mut out = Vec::new();
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(args) else {
+        return out;
+    };
+    let Some(questions) = v.get("questions").and_then(|q| q.as_array()) else {
+        return out;
+    };
+    for q in questions {
+        let Some(question) = q.get("question").and_then(|t| t.as_str()) else {
+            continue;
+        };
+        let header = q.get("header").and_then(|t| t.as_str()).map(String::from);
+        let options = q
+            .get("options")
+            .and_then(|o| o.as_array())
+            .map(|opts| {
+                opts.iter()
+                    .filter_map(|o| {
+                        Some(QaOption {
+                            label: o.get("label")?.as_str()?.to_string(),
+                            description: o
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.push(ParsedQuestion {
+            question: question.to_string(),
+            header,
+            options,
+        });
+    }
+    out
+}
+
+/// One quoted string from a python-ish literal: `s` starts with `'` or `"`,
+/// backslash escapes the next character. Returns the decoded string and the
+/// rest of the input.
+pub(crate) fn parse_quoted_string(s: &str) -> Option<(String, &str)> {
+    let quote = s.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    let mut out = String::new();
+    let mut chars = s[1..].char_indices();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' => {
+                let (_, escaped) = chars.next()?;
+                out.push(match escaped {
+                    'n' => '\n',
+                    't' => '\t',
+                    other => other,
+                });
+            }
+            _ if c == quote => return Some((out, &s[1 + i + c.len_utf8()..])),
+            _ => out.push(c),
+        }
+    }
+    None
+}
+
+/// One bare python-ish scalar (True/False/None, a number): the text up to the
+/// next `,`, `]`, `}` or end. Returns it and the rest of the input.
+fn parse_bare_value(s: &str) -> Option<(String, &str)> {
+    let end = s.find([',', ']', '}']).unwrap_or(s.len());
+    Some((s[..end].trim().to_string(), &s[end..]))
+}
+
+/// One key/value pair of a python-ish dict: `'key': value`.
+fn parse_dict_pair(s: &str) -> Option<(String, String, &str)> {
+    let (key, rest) = parse_quoted_string(s.trim_start())?;
+    let rest = rest.trim_start().strip_prefix(':')?.trim_start();
+    if let Some((value, rest)) = parse_quoted_string(rest) {
+        return Some((key, value, rest));
+    }
+    let (value, rest) = parse_bare_value(rest)?;
+    Some((key, value, rest))
+}
+
+/// The `{...}` dict bodies at the top level of a python-ish list body, in
+/// order, string-aware so a `}` inside a value never splits a dict.
+fn python_dict_bodies(body: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\'' | b'"' => {
+                if let Some((_, rest)) = parse_quoted_string(&body[i..]) {
+                    i = body.len() - rest.len();
+                    continue;
+                }
+                i += 1;
+            }
+            b'{' => {
+                let start = i;
+                let mut depth = 1usize;
+                let mut j = i + 1;
+                while j < bytes.len() && depth > 0 {
+                    match bytes[j] {
+                        b'\'' | b'"' => {
+                            if let Some((_, rest)) = parse_quoted_string(&body[j..]) {
+                                j = body.len() - rest.len();
+                                continue;
+                            }
+                            j += 1;
+                        }
+                        b'{' => depth += 1,
+                        b'}' => depth -= 1,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                if depth == 0 {
+                    out.push(&body[start + 1..j - 1]);
+                }
+                i = j;
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// Parse the python-ish `answers: [...]` / `cancelled: ...` text a question
+/// tool writes into its result content: the answer records (question text
+/// when the payload carries it) and whether the prompt was cancelled.
+pub(crate) fn parse_answers_text(content: &str) -> (Vec<QaAnswerRecord>, bool) {
+    let cancelled = content
+        .split_once("cancelled:")
+        .map(|(_, tail)| tail.trim_start().starts_with(['T', 't']))
+        .unwrap_or(false);
+
+    let Some((_, tail)) = content.split_once("answers:") else {
+        return (Vec::new(), cancelled);
+    };
+    let Some(open) = tail.find('[') else {
+        return (Vec::new(), cancelled);
+    };
+    let body = &tail[open + 1..];
+    let close = match body.rfind(']') {
+        Some(c) => c,
+        None => return (Vec::new(), cancelled),
+    };
+    let mut records = Vec::new();
+    for dict in python_dict_bodies(&body[..close]) {
+        let mut question = None;
+        let mut answer = None;
+        let mut rest = dict;
+        while !rest.trim().is_empty() {
+            let Some((key, value, after)) = parse_dict_pair(rest) else {
+                break;
+            };
+            match key.as_str() {
+                "question" => question = Some(value),
+                "answer" => answer = Some(value),
+                _ => {}
+            }
+            rest = after.trim_start();
+            rest = rest.strip_prefix(',').unwrap_or(rest).trim_start();
+        }
+        if let Some(answer) = answer {
+            records.push(QaAnswerRecord { question, answer });
+        }
+    }
+    (records, cancelled)
+}
+
+/// Pair each parsed question with its answer record: the record naming the
+/// question wins, the positionally matching record is the fallback. A
+/// question with no record yields no pair; with no parsed questions at all,
+/// each record is its own pair (the question text from the record, or the
+/// raw summary line when the record carries none).
+pub(crate) fn pair_questions_with_answers(
+    questions: &[ParsedQuestion],
+    records: &[QaAnswerRecord],
+    fallback_question: Option<&str>,
+    timestamp: Option<String>,
+) -> Vec<QaPair> {
+    let mut pairs = Vec::new();
+    if questions.is_empty() {
+        for record in records {
+            pairs.push(QaPair {
+                question: record
+                    .question
+                    .clone()
+                    .or_else(|| fallback_question.map(String::from))
+                    .unwrap_or_default(),
+                header: None,
+                options: Vec::new(),
+                answers: vec![record.answer.clone()],
+                timestamp: timestamp.clone(),
+            });
+        }
+        return pairs;
+    }
+    for (i, q) in questions.iter().enumerate() {
+        let record = records
+            .iter()
+            .find(|r| r.question.as_deref() == Some(q.question.as_str()))
+            .or_else(|| records.get(i));
+        let Some(record) = record else { continue };
+        pairs.push(QaPair {
+            question: q.question.clone(),
+            header: q.header.clone(),
+            options: q.options.clone(),
+            answers: vec![record.answer.clone()],
+            timestamp: timestamp.clone(),
+        });
+    }
+    pairs
+}
+
+/// The default Q/A extraction over the normalized message stream: an
+/// assistant tool-call summary starting `question(`/`ask_user_question(`
+/// pairs against the next tool-role message, whose content is parsed as the
+/// python-ish `answers: [...]` text a question tool writes. Cancelled and
+/// unpaired calls yield nothing. Harnesses whose formats carry the full
+/// question payload natively (opencode, vibe) override this for headers,
+/// options and multi-select answers; harnesses without question tools
+/// answer an empty list, never an error.
+pub(crate) fn qa_pairs_from_messages(messages: &[RolloutMessage]) -> Vec<QaPair> {
+    let mut pairs = Vec::new();
+    for (i, msg) in messages.iter().enumerate() {
+        if msg.role != "assistant" {
+            continue;
+        }
+        for summary in &msg.tool_calls_summary {
+            let Some(args) = question_call_args(summary) else {
+                continue;
+            };
+            let Some(tool_msg) = messages[i + 1..].iter().find(|m| m.role == "tool") else {
+                continue;
+            };
+            let (records, cancelled) = parse_answers_text(&tool_msg.content);
+            if cancelled || records.is_empty() {
+                continue;
+            }
+            let questions = parse_questions_payload(args);
+            pairs.extend(pair_questions_with_answers(
+                &questions,
+                &records,
+                Some(summary.as_str()),
+                msg.timestamp.clone(),
+            ));
+        }
+    }
+    pairs
+}
+
 /// Trait abstracting over different CLI tool session formats.
 pub trait RolloutAdapter: Send + Sync {
     /// Name of the harness ("vibe", "codex", "claude", "opencode")
@@ -177,6 +484,19 @@ pub trait RolloutAdapter: Send + Sync {
             .filter(|m| include_injected || !m.injected)
             .collect();
         Ok(entries_from_messages(selected.iter().copied()))
+    }
+
+    /// Question/answer pairs of a session, chronologically: each question a
+    /// harness question tool asked (opencode `question`, vibe
+    /// `ask_user_question`) paired with the answer(s) the user selected or
+    /// typed. The default pairs the normalized `question(...)` summary line
+    /// against the next tool-role message; adapters with native access to
+    /// the question payload override for headers, options and multi-select
+    /// answers. A session without question calls reads as an empty list,
+    /// never an error.
+    fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
+        let messages = self.read_session(session_id)?;
+        Ok(qa_pairs_from_messages(&messages))
     }
 
     /// Every `todowrite` flush of a session, in order, for `todo_history`:

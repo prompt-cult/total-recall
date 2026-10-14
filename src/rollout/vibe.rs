@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionListing,
-    SessionProfile, SessionSummary, VIBE_ROOT_ENV_VAR, listing_by_mtime, mmap_error,
-    mtime_in_window, no_session_error, read_error, resolve_root, resolve_session_dir,
+    EventType, InterestingEvent, QaAnswerRecord, QaPair, ReadResult, RolloutAdapter,
+    RolloutMessage, SessionListing, SessionProfile, SessionSummary, VIBE_ROOT_ENV_VAR,
+    listing_by_mtime, mmap_error, mtime_in_window, no_session_error, pair_questions_with_answers,
+    parse_answers_text, parse_questions_payload, read_error, resolve_root, resolve_session_dir,
     slice_from_compaction, summarize_tool_call,
 };
 
@@ -549,6 +550,20 @@ impl RolloutAdapter for VibeAdapter {
             .collect())
     }
 
+    /// Question/answer pairs read from the raw `messages.jsonl`: the full
+    /// question payload (header, options) is parsed from the assistant
+    /// `ask_user_question` call's arguments, and the answer is looked up by
+    /// `tool_call_id` — the structured `tool_result.output.answers[]` when
+    /// the tool message carries it, the python-ish `answers: [...]` content
+    /// text otherwise. A cancelled call or an unanswered question yields no
+    /// pair. Pairing follows `tool_call_id`, so a question asked twice in
+    /// one session keeps each call's own answer.
+    fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
+        let data = self.read_payload(session_id)?;
+        let text = String::from_utf8_lossy(&data);
+        Ok(qa_pairs_from_vibe_lines(&text))
+    }
+
     /// Byte-faithful raw entries: re-parse the native `messages.jsonl` so each
     /// emitted record is the source line's JSON, not a normalized projection.
     fn read_session_entries(
@@ -613,6 +628,115 @@ impl RolloutAdapter for VibeAdapter {
         }
         Ok(out)
     }
+}
+
+/// The structured answers of a question tool's result message: the records
+/// from `tool_result.output.answers[]` when present, else the python-ish
+/// `answers: [...]` text of the message content. Returns the records, the
+/// cancelled flag and the message's timestamp.
+fn vibe_answer_entry(v: &serde_json::Value) -> (Vec<QaAnswerRecord>, bool, Option<String>) {
+    let timestamp = v
+        .get("timestamp")
+        .and_then(|t| t.as_str())
+        .map(String::from);
+    let structured = v
+        .get("tool_result")
+        .and_then(|tr| tr.get("output"))
+        .and_then(|o| o.get("answers"))
+        .and_then(|a| a.as_array())
+        .map(|answers| {
+            answers
+                .iter()
+                .filter_map(|a| {
+                    Some(QaAnswerRecord {
+                        question: a.get("question").and_then(|q| q.as_str()).map(String::from),
+                        answer: a.get("answer")?.as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        });
+    match structured {
+        Some(records) => (records, false, timestamp),
+        None => {
+            let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
+            let (records, cancelled) = parse_answers_text(content);
+            (records, cancelled, timestamp)
+        }
+    }
+}
+
+/// The Q/A pairs of one vibe session payload, in line order: assistant
+/// `ask_user_question` calls paired with their `tool_call_id`-matched tool
+/// messages.
+fn qa_pairs_from_vibe_lines(text: &str) -> Vec<QaPair> {
+    let mut lines = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(line) {
+            Ok(v) => lines.push(v),
+            Err(e) => tracing::warn!("vibe rollout: skipping unparseable line {}: {e}", i + 1),
+        }
+    }
+
+    // tool_call_id -> answer payload of the tool message that carries it.
+    let mut answers: HashMap<String, (Vec<QaAnswerRecord>, bool, Option<String>)> = HashMap::new();
+    for v in &lines {
+        if v.get("role").and_then(|r| r.as_str()) != Some("tool") {
+            continue;
+        }
+        let Some(id) = v.get("tool_call_id").and_then(|i| i.as_str()) else {
+            continue;
+        };
+        answers.insert(id.to_string(), vibe_answer_entry(v));
+    }
+
+    let mut pairs = Vec::new();
+    for v in &lines {
+        if v.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        let assistant_ts = v
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .map(String::from);
+        let Some(tool_calls) = v.get("tool_calls").and_then(|tc| tc.as_array()) else {
+            continue;
+        };
+        for tc in tool_calls {
+            let name = tc
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("");
+            if name != "ask_user_question" {
+                continue;
+            }
+            let Some(id) = tc.get("id").and_then(|i| i.as_str()) else {
+                continue;
+            };
+            let Some((records, cancelled, answer_ts)) = answers.get(id) else {
+                continue;
+            };
+            if *cancelled || records.is_empty() {
+                continue;
+            }
+            let args = tc
+                .get("function")
+                .and_then(|f| f.get("arguments"))
+                .and_then(|a| a.as_str())
+                .unwrap_or("");
+            let questions = parse_questions_payload(args);
+            pairs.extend(pair_questions_with_answers(
+                &questions,
+                records,
+                None,
+                answer_ts.clone().or_else(|| assistant_ts.clone()),
+            ));
+        }
+    }
+    pairs
 }
 
 /// Parse the `session_YYYYMMDD_HHMMSS_<id>` directory-name prefix into a

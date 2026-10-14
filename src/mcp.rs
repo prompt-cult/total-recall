@@ -186,6 +186,35 @@ pub struct ExtractByTypeParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct QaPairsParams {
+    #[schemars(
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
+    )]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
+        range(min = 1)
+    )]
+    #[serde(default)]
+    pub hours_back: Option<i64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
+    pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TodoHistoryParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -247,6 +276,17 @@ fn default_true() -> bool {
 fn default_she_said_hours() -> u64 {
     48
 }
+
+/// The natural question/answer call indexes the last two days, like the
+/// other window tools; the whole store is `all: true`, explicit.
+fn default_qa_hours() -> u64 {
+    48
+}
+
+/// The most-recent pairs one session's `extract_qa_pairs` section carries:
+/// the tail is kept, and the held-back count is stated in the section, the
+/// same most-recent-100 default the extraction envelopes use.
+const QA_PAIR_CAP: usize = 100;
 
 /// The natural call indexes the last day, not the whole store; whole-store
 /// indexing is `all: true`, explicit.
@@ -971,6 +1011,99 @@ impl TotalRecallServer {
     }
 
     #[tool(
+        name = "extract_qa_pairs",
+        description = "Total-recall MCP tool: extract question/answer pairs from sessions where the harness asked through a question tool (opencode `question`, vibe `ask_user_question`) — the question text, its headers/options where the format carries them, paired with the selected or typed answers, chronologically. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true) resolves sessions most-recent-first, each session's pairs under one output. Capped at the most recent 100 pairs per session with the held-back count stated, then byte-capped like every other report."
+    )]
+    async fn extract_qa_pairs(
+        &self,
+        Parameters(params): Parameters<QaPairsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let max_bytes = match number(
+            "extract_qa_pairs",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let hours = match window_hours(
+            "extract_qa_pairs",
+            params.hours_back,
+            params.all,
+            default_qa_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+
+        if !params.session_id.is_empty() {
+            let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+                .unwrap_or_default();
+            if session_id.is_empty() {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    "No sessions found".to_string(),
+                )]));
+            }
+            let pairs = match adapter.read_qa_pairs(&session_id) {
+                Ok(p) => p,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+            };
+            let text = qa_pairs_report(&session_id, self.harness(), &pairs, QA_PAIR_CAP);
+            return Ok(capped_text(
+                "extract_qa_pairs",
+                &params.session_id,
+                text,
+                max_bytes,
+            ));
+        }
+
+        // Window mode: sessions most-recent-first, each session's pairs under
+        // one output. Sessions without question calls contribute no section,
+        // and the header states how many were scanned.
+        let (selected, _unmatched) = crate::index::select_sessions(
+            adapter.as_ref(),
+            &[],
+            hours,
+            params.directory.as_deref(),
+        );
+        let mut sections = Vec::new();
+        for summary in &selected {
+            let Ok(pairs) = adapter.read_qa_pairs(&summary.session_id) else {
+                continue;
+            };
+            if pairs.is_empty() {
+                continue;
+            }
+            sections.push(qa_pairs_report(
+                &summary.session_id,
+                self.harness(),
+                &pairs,
+                QA_PAIR_CAP,
+            ));
+        }
+        let mut out = format!(
+            "# extract_qa_pairs — {} sessions scanned, {} with Q/A pairs\n",
+            selected.len(),
+            sections.len()
+        );
+        for section in sections {
+            out.push_str(&section);
+        }
+        Ok(capped_text(
+            "extract_qa_pairs",
+            &params.session_id,
+            out,
+            max_bytes,
+        ))
+    }
+
+    #[tool(
         name = "todo_history",
         description = "Total-recall MCP tool: recover a session rollout's todo-list edits as a JSONL event stream — one compact JSON object per line {\"ts\",\"action\",\"todo\"[,\"status\"]}, in ts order. Replays every todowrite flush and emits the edits between consecutive list states: added, updated, the new status on a status change, or removed. full defaults to true (the whole rollout)."
     )]
@@ -1511,6 +1644,44 @@ fn todo_history_report(
     for e in events {
         out.push_str(&serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string()));
         out.push('\n');
+    }
+    out
+}
+
+/// Render one session's Q/A pairs for `extract_qa_pairs`: pairs in
+/// chronological order, at most the most-recent `cap` of them, with the
+/// held-back count stated in the section itself.
+fn qa_pairs_report(
+    session_id: &str,
+    harness: &str,
+    pairs: &[crate::rollout::QaPair],
+    cap: usize,
+) -> String {
+    let total = pairs.len();
+    let shown = &pairs[total.saturating_sub(cap)..];
+    let mut out = format!("=== {} ({})\n", session_id, harness);
+    if total > shown.len() {
+        out += &format!("({} of {total} pairs not shown)\n", total - shown.len());
+    }
+    for (i, pair) in shown.iter().enumerate() {
+        match &pair.timestamp {
+            Some(ts) => out += &format!("--- QA {} ({ts})\n", i + 1),
+            None => out += &format!("--- QA {}\n", i + 1),
+        }
+        if let Some(header) = &pair.header {
+            out += &format!("HEADER: {header}\n");
+        }
+        out += &format!("QUESTION: {}\n", pair.question);
+        if !pair.options.is_empty() {
+            out += "OPTIONS:\n";
+            for option in &pair.options {
+                out += &format!("  - {} — {}\n", option.label, option.description);
+            }
+        }
+        out += "ANSWERS:\n";
+        for answer in &pair.answers {
+            out += &format!("  - {answer}\n");
+        }
     }
     out
 }

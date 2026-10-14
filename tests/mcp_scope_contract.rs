@@ -203,11 +203,12 @@ fn whole_listing(text: &str) -> String {
     }
 }
 
-const WINDOW_TOOLS: [&str; 4] = [
+const WINDOW_TOOLS: [&str; 5] = [
     "list_sessions",
     "she_said_he_said_action",
     "index_sessions",
     "do_android_dream_of_electric_sheep",
+    "extract_qa_pairs",
 ];
 
 const CONTRADICTION: &str =

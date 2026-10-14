@@ -5,6 +5,27 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-14
+
+### Added
+
+- New `extract_qa_pairs` MCP tool: the question/answer pairs from sessions
+  where the harness asked through a question tool — the question text, its
+  header and options where the format carries them, paired with the answers
+  the user picked or typed, chronologically. Opencode `question` parts are
+  read store-side (`state.input.questions`, the picks under
+  `state.metadata.answers`, the tool result output as fallback); vibe
+  `ask_user_question` pairs its arguments' questions against the following
+  `tool_result` output's answers by `tool_call_id`, and a cancelled question
+  yields nothing. Session selection matches the window tools: a `session_id`
+  (partial match) selects one session; empty works the `hours_back` window
+  (default 48, `0` = omitted; `directory` substring; `all: true` is the
+  whole store), most-recent-first, one section per session that has pairs
+  with the scanned count in the header. Each session carries at most the
+  most recent 100 pairs, the held-back count stated, and the report is
+  flood-capped at `max_bytes` like every other one. MCP only — there is no
+  CLI subcommand.
+
 ## [0.12.0] - 2026-10-08
 
 ### Added
@@ -448,6 +469,7 @@ The first tagged release, and the end of the Python prototype.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
   and the GitHub ARM runner used instead of Blacksmith.
 
+[0.13.0]: https://github.com/prompt-cult/total-recall/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/prompt-cult/total-recall/compare/v0.11.2...v0.12.0
 [0.11.2]: https://github.com/prompt-cult/total-recall/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/prompt-cult/total-recall/compare/v0.11.0...v0.11.1
