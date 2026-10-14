@@ -120,6 +120,41 @@ For vibe the records are the byte-faithful source lines re-parsed from
 `messages.jsonl`; other harnesses derive entries from the normalized message
 stream.
 
+### `extract_qa_pairs` — question/answer pairs
+
+The question/answer pairs from sessions where the harness asked through a
+question tool — the question text, its header and options where the format
+carries them, paired with the answers the user picked or typed,
+chronologically:
+
+```
+=== ses_ee8e8f72 (opencode)
+--- QA 1 (2026-10-12T08:15:04Z)
+HEADER: Branch
+OPTIONS:
+  - main — the trunk, release when green
+  - feature — cut a branch instead
+ANSWERS:
+  - main
+```
+
+For opencode the pairs are read store-side from the `question` tool parts
+(`state.input.questions`), the picks under `state.metadata.answers` and the
+tool result output as fallback. For vibe, `ask_user_question` arguments'
+questions are paired with the following `tool_result` output's answers by
+`tool_call_id`. A question that was never answered, or whose prompt was
+cancelled, yields no pair. Harnesses without question tools report no
+sections, never an error.
+
+MCP tool. Session selection follows the window tools: `session_id` (partial
+match) selects one session; empty works the `hours_back` window (default 48,
+`0` = omitted) with an optional `directory` substring, and `all: true` is
+the explicit whole-store opt-in. In window mode sessions are ordered
+most-recent-first, one section each for the sessions that have pairs, the
+scanned count stated in the header. Each session's section carries at most
+the most recent 100 pairs with the held-back count stated, and the report is
+flood-capped at `max_bytes` like every other one.
+
 ### `she_said_he_said_action` — matched dialogue and actions
 
 Given case-insensitive terms and a session list (partial IDs) — or, when the
@@ -256,7 +291,8 @@ a silent clamp.
   `total_recall`, `todo_history`): `session_id` partial match; empty = the
   most recent session.
 - **Window tools** (`list_sessions`, `she_said_he_said_action`,
-  `index_sessions`, `do_android_dream_of_electric_sheep`): `session_id`
+  `extract_qa_pairs`, `index_sessions`,
+  `do_android_dream_of_electric_sheep`): `session_id`
   selects explicitly; when empty the tool works its window — `hours_back`
   (a window in hours, `1` or more) and optionally `directory`. `0` means
   "omitted", so it takes the tool's default window — never the whole store.
@@ -362,7 +398,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
 | `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 | `total_recall` (MCP), `recall` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -464,8 +500,8 @@ live sessions.
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
-`extract_user_messages`, `extract_by_type`, `compact_session`,
-`she_said_he_said_action`, `index_sessions`,
+`extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
+`compact_session`, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `total_recall`, `todo_history`,
 and `line_histogram`:
 

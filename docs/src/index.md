@@ -55,13 +55,15 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | `extract_messages` | messages since the last compaction point (or the whole rollout) as a bounded JSON envelope |
 | `extract_user_messages` | the same envelope over verbatim user messages |
 | `extract_by_type` | a raw `type,timestamp,json` recovery dump, one record per line |
+| `extract_qa_pairs` | question/answer pairs from question-tool calls: the question, its options, the picked or typed answers |
 | `she_said_he_said_action` | per session: HE SAID (user text), SHE SAID (assistant text), THEY DID (tool calls) matching your terms |
 | `index_sessions` | builds or refreshes a tantivy full-text index per session |
 | `do_android_dream_of_electric_sheep` | full-text search across those indexes, merged by score |
 | `compact_session` | a structured summary of a session: Accomplished, Current Work, Files, Next Steps, Key Decisions |
 | `total_recall` | state summary + user goals/tasks/steers + a recent-rollouts table + plan files |
 
-Full parameter tables and the CLI equivalent of each tool: [Tools](tools.md).
+Full parameter tables and the CLI equivalent of each tool (with the MCP-only
+exceptions named): [Tools](tools.md).
 
 ## Reading a store is read-only
 
