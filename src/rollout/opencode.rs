@@ -8,9 +8,10 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::{
-    EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, ReadResult,
+    EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair, ReadResult,
     RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
-    no_session_error, resolve_root, slice_from_compaction, summarize_tool_call, truncate_chars,
+    no_session_error, parse_questions_payload, parse_quoted_string, resolve_root,
+    slice_from_compaction, summarize_tool_call, truncate_chars,
 };
 use crate::todo_history::{TodoItemState, TodoWrite};
 
@@ -481,6 +482,14 @@ impl RolloutAdapter for OpenCodeAdapter {
         load_todo_writes(&conn, &full_id, full)
     }
 
+    fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
+        let conn = self.connect()?;
+        let full_id = self
+            .resolve_session_id(&conn, session_id)
+            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+        load_qa_pairs(&conn, &full_id)
+    }
+
     fn she_said_he_said_action(
         &self,
         sessions: &[String],
@@ -828,6 +837,152 @@ fn todo_items_from_part(part: &Value, full_id: &str) -> Option<Vec<TodoItemState
         }
     }
     Some(items)
+}
+
+/// The Q/A pairs of a session, read from the raw question-tool parts. The
+/// full question text, header and options live in `state.input.questions`,
+/// and the answers in `state.metadata.answers` — one pick list per question,
+/// joined with "; " when a multi-select picked several. A completed part
+/// without metadata falls back to the `state.output` text
+/// (`"question"="answer"` pairs). Pending or otherwise unfinished question
+/// parts yield no pair.
+fn load_qa_pairs(conn: &Connection, full_id: &str) -> ReadResult<Vec<QaPair>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.data, p.data
+              FROM message m
+              JOIN part p ON m.id = p.message_id
+              WHERE m.session_id = ?1
+              ORDER BY m.time_created ASC, p.time_created ASC",
+        )
+        .map_err(|e| format!("cannot query opencode question parts for {full_id}: {e}"))?;
+
+    let rows = stmt
+        .query_map([full_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("cannot read opencode question parts for {full_id}: {e}"))?;
+
+    let mut pairs = Vec::new();
+    for row in rows.flatten() {
+        let (msg_json, part_json) = row;
+        let (Ok(msg), Ok(part)) = (
+            serde_json::from_str::<Value>(&msg_json),
+            serde_json::from_str::<Value>(&part_json),
+        ) else {
+            continue;
+        };
+        if part.get("type").and_then(|t| t.as_str()) != Some("tool")
+            || part.get("tool").and_then(|t| t.as_str()) != Some("question")
+        {
+            continue;
+        }
+        let Some(state) = part.get("state") else {
+            continue;
+        };
+        if state.get("status").and_then(|s| s.as_str()) != Some("completed") {
+            continue;
+        }
+        let timestamp = msg
+            .get("time")
+            .and_then(|t| t.get("created"))
+            .and_then(|t| t.as_i64())
+            .map(ms_to_iso8601);
+        let questions = state
+            .get("input")
+            .map(|i| i.to_string())
+            .map(|i| parse_questions_payload(&i))
+            .unwrap_or_default();
+        if questions.is_empty() {
+            continue;
+        }
+
+        // One pick list per question from metadata, when present.
+        let metadata_answers: Vec<Vec<String>> = state
+            .get("metadata")
+            .and_then(|m| m.get("answers"))
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|picks| {
+                        picks
+                            .as_array()
+                            .map(|ps| {
+                                ps.iter()
+                                    .filter_map(|p| p.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        for (i, q) in questions.iter().enumerate() {
+            let mut answers: Vec<String> = metadata_answers
+                .get(i)
+                .filter(|picks| !picks.is_empty())
+                .map(|picks| vec![picks.join("; ")])
+                .unwrap_or_default();
+            if answers.is_empty() {
+                // Fallback: the `"question"="answer"` pairs of the
+                // output text, matched by question text first.
+                let output = state.get("output").and_then(|o| o.as_str()).unwrap_or("");
+                let from_output = answers_from_output(output);
+                match from_output
+                    .iter()
+                    .find(|(question, _)| question == &q.question)
+                    .or_else(|| from_output.get(i))
+                {
+                    Some((_, answer)) => answers = vec![answer.clone()],
+                    None => continue,
+                }
+            }
+            pairs.push(QaPair {
+                question: q.question.clone(),
+                header: q.header.clone(),
+                options: q.options.clone(),
+                answers,
+                timestamp: timestamp.clone(),
+            });
+        }
+    }
+    Ok(pairs)
+}
+
+/// The answers stated in a question part's `output` text
+/// (`User has answered your questions: "q"="a", "q2"="a2"`), as
+/// (question, answer) pairs. `"…"` inside an answer is handled
+/// escape-aware; text that does not parse yields whatever pairs it carries.
+fn answers_from_output(output: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let bytes = output.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'"' {
+            i += 1;
+            continue;
+        }
+        let Some((key, rest)) = parse_quoted_string(&output[i..]) else {
+            i += 1;
+            continue;
+        };
+        i = output.len() - rest.len();
+        let rest = output[i..].trim_start();
+        let Some(after_eq) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let after_eq = after_eq.trim_start();
+        if !after_eq.starts_with('"') {
+            continue;
+        }
+        let Some((value, tail)) = parse_quoted_string(after_eq) else {
+            continue;
+        };
+        i = output.len() - tail.len();
+        out.push((key, value));
+    }
+    out
 }
 
 /// Compute the profile from SQLite for an already-resolved session id.
