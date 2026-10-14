@@ -163,10 +163,7 @@ pub(crate) fn parse_questions_payload(args: &str) -> Vec<ParsedQuestion> {
         let Some(question) = q.get("question").and_then(|t| t.as_str()) else {
             continue;
         };
-        let header = q
-            .get("header")
-            .and_then(|t| t.as_str())
-            .map(String::from);
+        let header = q.get("header").and_then(|t| t.as_str()).map(String::from);
         let options = q
             .get("options")
             .and_then(|o| o.as_array())
@@ -224,9 +221,7 @@ pub(crate) fn parse_quoted_string(s: &str) -> Option<(String, &str)> {
 /// One bare python-ish scalar (True/False/None, a number): the text up to the
 /// next `,`, `]`, `}` or end. Returns it and the rest of the input.
 fn parse_bare_value(s: &str) -> Option<(String, &str)> {
-    let end = s
-        .find([',', ']', '}'])
-        .unwrap_or(s.len());
+    let end = s.find([',', ']', '}']).unwrap_or(s.len());
     Some((s[..end].trim().to_string(), &s[end..]))
 }
 

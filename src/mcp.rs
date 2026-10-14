@@ -1043,9 +1043,8 @@ impl TotalRecallServer {
         };
 
         if !params.session_id.is_empty() {
-            let session_id =
-                crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-                    .unwrap_or_default();
+            let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+                .unwrap_or_default();
             if session_id.is_empty() {
                 return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "No sessions found".to_string(),
@@ -1056,14 +1055,23 @@ impl TotalRecallServer {
                 Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
             };
             let text = qa_pairs_report(&session_id, self.harness(), &pairs, QA_PAIR_CAP);
-            return Ok(capped_text("extract_qa_pairs", &params.session_id, text, max_bytes));
+            return Ok(capped_text(
+                "extract_qa_pairs",
+                &params.session_id,
+                text,
+                max_bytes,
+            ));
         }
 
         // Window mode: sessions most-recent-first, each session's pairs under
         // one output. Sessions without question calls contribute no section,
         // and the header states how many were scanned.
-        let (selected, _unmatched) =
-            crate::index::select_sessions(adapter.as_ref(), &[], hours, params.directory.as_deref());
+        let (selected, _unmatched) = crate::index::select_sessions(
+            adapter.as_ref(),
+            &[],
+            hours,
+            params.directory.as_deref(),
+        );
         let mut sections = Vec::new();
         for summary in &selected {
             let Ok(pairs) = adapter.read_qa_pairs(&summary.session_id) else {

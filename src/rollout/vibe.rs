@@ -649,10 +649,7 @@ fn vibe_answer_entry(v: &serde_json::Value) -> (Vec<QaAnswerRecord>, bool, Optio
                 .iter()
                 .filter_map(|a| {
                     Some(QaAnswerRecord {
-                        question: a
-                            .get("question")
-                            .and_then(|q| q.as_str())
-                            .map(String::from),
+                        question: a.get("question").and_then(|q| q.as_str()).map(String::from),
                         answer: a.get("answer")?.as_str()?.to_string(),
                     })
                 })
@@ -661,10 +658,7 @@ fn vibe_answer_entry(v: &serde_json::Value) -> (Vec<QaAnswerRecord>, bool, Optio
     match structured {
         Some(records) => (records, false, timestamp),
         None => {
-            let content = v
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
+            let content = v.get("content").and_then(|c| c.as_str()).unwrap_or("");
             let (records, cancelled) = parse_answers_text(content);
             (records, cancelled, timestamp)
         }

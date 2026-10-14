@@ -141,10 +141,18 @@ fn test_opencode_read_qa_pairs_returns_both_questions_with_headers_options_and_a
         .read_qa_pairs("ses_qafixture0a")
         .expect("healthy fixture Q/A read");
 
-    assert_eq!(pairs.len(), 3, "two answered questions plus the output-fallback pair: {:?}", pairs);
+    assert_eq!(
+        pairs.len(),
+        3,
+        "two answered questions plus the output-fallback pair: {:?}",
+        pairs
+    );
 
     let first = &pairs[0];
-    assert_eq!(first.question, "Which deployment target should the demo use?");
+    assert_eq!(
+        first.question,
+        "Which deployment target should the demo use?"
+    );
     assert_eq!(first.header.as_deref(), Some("First Question"));
     assert_eq!(first.options.len(), 2);
     assert_eq!(first.options[0].label, "Docker Compose");
@@ -152,15 +160,23 @@ fn test_opencode_read_qa_pairs_returns_both_questions_with_headers_options_and_a
     assert_eq!(first.options[1].label, "Bare Metal");
     assert_eq!(first.options[1].description, "Direct systemd deployment");
     assert_eq!(first.answers, vec!["Docker Compose".to_string()]);
-    assert!(first.timestamp.is_some(), "the pair carries the asking message's timestamp");
+    assert!(
+        first.timestamp.is_some(),
+        "the pair carries the asking message's timestamp"
+    );
 
     let second = &pairs[1];
-    assert_eq!(second.question, "Which license note should the sample carry?");
+    assert_eq!(
+        second.question,
+        "Which license note should the sample carry?"
+    );
     assert_eq!(second.header.as_deref(), Some("Second Question"));
     assert_eq!(second.answers, vec!["a plain free text note".to_string()]);
 
     assert!(
-        pairs.iter().all(|p| p.question != "Should the pending question appear?"),
+        pairs
+            .iter()
+            .all(|p| p.question != "Should the pending question appear?"),
         "a pending question part must yield no pair: {:?}",
         pairs
     );
@@ -187,7 +203,10 @@ fn test_opencode_read_qa_pairs_unknown_session_is_an_error() {
     let err = adapter
         .read_qa_pairs("ses_nope")
         .expect_err("an unresolvable session id must not read as an empty session");
-    assert!(err.contains("ses_nope"), "error must name the session: {err}");
+    assert!(
+        err.contains("ses_nope"),
+        "error must name the session: {err}"
+    );
 }
 
 #[test]
@@ -197,10 +216,18 @@ fn test_vibe_read_qa_pairs_pairs_by_tool_call_id_and_skips_cancelled() {
         .read_qa_pairs("qa0a0a0a")
         .expect("healthy fixture Q/A read");
 
-    assert_eq!(pairs.len(), 4, "three answered calls (one re-asked) plus the text-only fallback: {:?}", pairs);
+    assert_eq!(
+        pairs.len(),
+        4,
+        "three answered calls (one re-asked) plus the text-only fallback: {:?}",
+        pairs
+    );
 
     let first = &pairs[0];
-    assert_eq!(first.question, "Which deployment target should the demo use?");
+    assert_eq!(
+        first.question,
+        "Which deployment target should the demo use?"
+    );
     assert_eq!(first.header.as_deref(), Some("Deployment Target"));
     assert_eq!(first.options.len(), 2);
     assert_eq!(first.options[0].label, "Docker Compose");
@@ -211,17 +238,25 @@ fn test_vibe_read_qa_pairs_pairs_by_tool_call_id_and_skips_cancelled() {
     assert!(first.timestamp.is_some(), "the pair carries a timestamp");
 
     let second = &pairs[1];
-    assert_eq!(second.question, "Which license note should the sample carry?");
+    assert_eq!(
+        second.question,
+        "Which license note should the sample carry?"
+    );
     assert_eq!(second.answers, vec!["a plain free text note".to_string()]);
 
     // The same question text was asked again in a second call and answered
     // differently: pairing must follow tool_call_id, not question text.
     let re_asked = &pairs[2];
-    assert_eq!(re_asked.question, "Which deployment target should the demo use?");
+    assert_eq!(
+        re_asked.question,
+        "Which deployment target should the demo use?"
+    );
     assert_eq!(re_asked.answers, vec!["Bare Metal".to_string()]);
 
     assert!(
-        pairs.iter().all(|p| p.question != "Should the demo include the cancelled question?"),
+        pairs
+            .iter()
+            .all(|p| p.question != "Should the demo include the cancelled question?"),
         "a cancelled question call must yield no pair: {:?}",
         pairs
     );
@@ -318,7 +353,12 @@ fn test_default_read_qa_pairs_parses_summary_and_answers_text() {
     let pairs = adapter
         .read_qa_pairs("mock")
         .expect("default read path over a mock payload");
-    assert_eq!(pairs.len(), 1, "the cancelled ask_user_question call yields nothing: {:?}", pairs);
+    assert_eq!(
+        pairs.len(),
+        1,
+        "the cancelled ask_user_question call yields nothing: {:?}",
+        pairs
+    );
     let pair = &pairs[0];
     assert_eq!(pair.question, "Which demo mode should run?");
     assert_eq!(pair.header.as_deref(), Some("Mode"));
