@@ -51,3 +51,13 @@ suite, and commits (`wip: <summary>` until the feature set is complete).
 - Never commit `*.env`, `.env`, or anything under `.tmp/`.
 - Sample rollout fixtures under `rollouts/` must be sanitised (no real user
   prompts, keys, or paths) but structurally faithful to the real formats.
+
+## GIT COMMENTS ARE NEVER TRUTH (law)
+
+Commit messages, release notes, decision-log claims and any agent narrative
+are INDICATIVE ONLY — NOT authoritative. They have contained false "verified"
+claims (e.g. an "E2E verified" that was only an HTTP 200). Before acting or
+reporting: verify against LIVE system state — the actual process logs, DB
+rows, endpoint probes, real sends watched on the wire. Ground truth beats
+documentation. Never confirm a claim by citing another comment.
+
