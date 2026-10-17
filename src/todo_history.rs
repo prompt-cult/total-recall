@@ -76,6 +76,38 @@ fn item_key(content: &str) -> &str {
     }
 }
 
+/// Whether a todo edit event closes its item: a status change to
+/// `completed` or `cancelled`, or a `removed` event. Everything else
+/// (`added`, `updated`, a re-open to `pending`, `in_progress`) leaves the
+/// item open.
+pub fn is_terminal_action(action: &str) -> bool {
+    action == "completed" || action == "cancelled" || action == "removed"
+}
+
+/// The `(opened, closed)` counts over a period's todo writes, for the churn
+/// note: an `added` event opens an item, a terminal event
+/// ([`is_terminal_action`]) closes one. When the write list is a slice whose
+/// first flush restates a carried-in list — a `full = false` read on a
+/// session with a compaction point — that flush's adds are the baseline the
+/// period started with, not items opened in it, and are not counted;
+/// `first_flush_is_restatement` says so. The counts feed the churn note only;
+/// the transition list itself always shows every event.
+pub fn opened_closed_counts(
+    writes: &[TodoWrite],
+    first_flush_is_restatement: bool,
+) -> (usize, usize) {
+    let events = diff_todo_states(writes);
+    let closed = events
+        .iter()
+        .filter(|e| is_terminal_action(&e.action))
+        .count();
+    let mut opened = events.iter().filter(|e| e.action == "added").count();
+    if first_flush_is_restatement && !writes.is_empty() {
+        opened = opened.saturating_sub(writes[0].todos.len());
+    }
+    (opened, closed)
+}
+
 /// The edits between consecutive todo-list states, in input order. The first
 /// flush adds every item; a flush identical to the previous state emits
 /// nothing; a status change is actioned as the new status; a content change

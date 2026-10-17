@@ -419,8 +419,12 @@ CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 
 CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mistral]`.
 
-### `total_recall`
+### `total_recall` (deprecated)
 
+DEPRECATED — superseded by `prior_period_summary`, which is the same
+voluntary summary with the period's todo log, the period's commits, a
+compaction-points FYI footer and an orientation warning folded in. Kept
+unchanged for comparison; it will be removed once the new tool is adopted.
 
 1. Makes two parallel Mercury 2.5 calls: a current-state summary, and the
    user's goals / tasks / steers
@@ -431,6 +435,46 @@ CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mis
    metadata first, substance middle, instructions last
 
 CLI: `total-recall --harness <h> --session <id> recall [--provider mistral]`.
+
+### `prior_period_summary`
+
+A voluntary summary of a prior period — not a compaction. The harness owns
+compaction (an unattended agent gets the built-in default when it hits the
+context limit); this tool is only ever invoked voluntarily, so calling its
+output a "compaction" sets the wrong expectation about what it covers. Two
+flows, two correct answers:
+
+- after a `/compact`, summarise **since that compaction point** — the last
+  period between compactions (`full: false`, the default)
+- before a `/new` drop, summarise **the whole session up to the point of the
+  drop**, including what earlier compactions folded away (`full: true`)
+
+The output carries, in deliberate ordering for autoregressive LLMs (metadata
+first, ground truth next, LLM summaries middle, action last):
+
+1. Recent rollouts within `hours_back`, with the current session marked
+   SUMMARISED
+2. Plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
+3. The **todo log** of the period (opencode): items opened and closed with
+   timings, the state-change history (opened → in_progress →
+   completed/cancelled transitions), and a **churn note** when items open
+   faster than they close — starting new things without finishing old ones
+   may be causing churn — with the human's recent steers read into it. On a
+   harness without readable todowrite flushes the section says so instead of
+   failing or silently reading as "no todos".
+4. The **commits made in the period**: the git commit tool calls with their
+   timestamps.
+5. The current-state summary and the user's goals / tasks / steers (two
+   parallel Mercury 2.5 calls).
+6. A **compaction-points FYI footer**: the timestamps of the last few
+   compaction points with the message and line counts since each — FYI only;
+   mine the logs for anything deeper.
+7. The instructions, then a fixed **orientation warning** appended to every
+   output: summarising in-flight work in more detail is a fool's errand and
+   a moral hazard — the model would trust the summary and not double-check —
+   so the warning makes re-orientation the model's job.
+
+CLI: `total-recall --harness <h> --session <id> [--full] prior-period-summary [--provider mistral]`.
 
 ## Flood control
 

@@ -345,12 +345,41 @@ exceeding any of them returns HTTP 429:
 These contracts are asserted against a local mock server in
 `tests/mercury_guardrails.rs`; no test ever calls the real API.
 
-### `recall` — total recall
+### `recall` — total recall (deprecated)
+
+DEPRECATED — superseded by `prior-period-summary` below. Kept unchanged for
+comparison; it will be removed once the new tool is adopted.
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
 3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
 4. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, substance middle, instructions last
+
+### `prior-period-summary` — a voluntary summary of a prior period
+
+`recall`, renamed and amended. It is a voluntary summary of a prior period,
+not a compaction: the harness owns compaction, and this tool is only ever
+invoked voluntarily. Two flows, two correct answers — after a `/compact`,
+summarise since that compaction point (the default); before a `/new` drop,
+summarise the whole session up to the point of the drop (`--full`), including
+what earlier compactions folded away.
+
+1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
+2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
+3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
+4. Folds in the period's todo log (opencode) — items opened and closed with
+   timings, the state-change history, and a churn note when items open
+   faster than they close, with the human's recent steers read into it —
+   and the commits made in the period
+5. Appends a compaction-points FYI footer (the last few compaction points
+   with message/line counts since each) and a fixed orientation warning:
+   the summary does not attempt to show what was in-flight or the next
+   steps — those are known from the todo list, the user's most recent
+   inputs, and the commit history — so take stock and get your bearings
+   before picking up the work
+6. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, ground truth next, substance middle, action last
+
+CLI: `total-recall --harness <h> --session <id> [--full] prior-period-summary [--provider mistral]`.
 
 ## Supported tools
 
