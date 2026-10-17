@@ -441,6 +441,325 @@ where nothing the user has asked for that is material is dropped. If a todo
 is not in the current context, use the tool to mine the rollouts to
 efficiently continue where you left off."#;
 
+/// The fixed orientation warning appended to every prior-period summary.
+///
+/// Summarising in-flight work in more detail is a fool's errand — it cannot
+/// be perfect — and the feature is a moral hazard: a model that trusts the
+/// summary stops double-checking. The warning makes re-orientation the
+/// model's job instead of the summary's.
+pub const ORIENTATION_WARNING: &str = "## Orientation Warning\n\nThis summary does not attempt to show what was in-flight or the next steps. Those are known from the todo list, the user's most recent inputs, and the commit history. Be sure to take stock and get your bearings before picking up the work.";
+
+/// The cap on each todo-log list (opened, closed, transitions): the most
+/// recent entries are kept and the held-back count is stated, so a long
+/// period's todo history cannot spend the whole response budget on its own.
+pub const TODO_LOG_LIST_CAP: usize = 200;
+
+/// How many compaction points the FYI footer names: the last few, with the
+/// counts since each. Nothing more elaborate — the model can mine the logs
+/// itself for anything deeper.
+pub const COMPACTION_FOOTER_CAP: usize = 3;
+
+/// How many recent user messages the churn note reads in as the human's
+/// recent steers.
+pub const CHURN_STEER_COUNT: usize = 3;
+
+/// The byte cap on one steer or commit line.
+const LINE_TRUNCATE: usize = 300;
+
+/// `1 message` / `2 messages` — the footer's counts read as English.
+fn plural(n: usize, word: &str) -> String {
+    if n == 1 {
+        format!("{n} {word}")
+    } else {
+        format!("{n} {word}s")
+    }
+}
+
+/// Keep the most recent `cap` lines of a rendered list, returning them and
+/// the held-back count.
+fn capped_recent(lines: Vec<String>, cap: usize) -> (Vec<String>, usize) {
+    let total = lines.len();
+    if total <= cap {
+        return (lines, 0);
+    }
+    (lines[total - cap..].to_vec(), total - cap)
+}
+
+/// The human's recent steers: the newest `count` user messages, redacted and
+/// truncated — the raw steering signal, unfiltered by any LLM extraction.
+/// The churn note reads these in, since the distractions are usually steered.
+pub fn recent_steers(user_messages: &[String], count: usize) -> Vec<String> {
+    user_messages
+        .iter()
+        .rev()
+        .take(count)
+        .rev()
+        .map(|m| crate::rollout::truncate_chars(&redact_secrets(m), LINE_TRUNCATE).to_string())
+        .collect()
+}
+
+/// Build the todo log section of a prior-period summary: items opened and
+/// closed in the period with timings, the state-change history, and the
+/// churn note. `opened`/`closed` come from
+/// [`crate::todo_history::opened_closed_counts`]; `recent_steers` feed the
+/// churn note.
+pub fn build_todo_log_section(
+    events: &[crate::todo_history::TodoEditEvent],
+    opened: usize,
+    closed: usize,
+    steers: &[String],
+) -> String {
+    let mut lines = vec!["## Todo Log (this period)".to_string(), String::new()];
+
+    if events.is_empty() {
+        lines.push("No todo activity in this period.".to_string());
+        return lines.join("\n");
+    }
+
+    lines.push(format!("{opened} opened, {closed} closed in this period."));
+    if opened > closed {
+        lines.push(String::new());
+        if steers.is_empty() {
+            lines.push(format!(
+                "**Churn note:** {} opened vs {} closed in this period — starting new \
+                 things without finishing old ones may be causing churn. Recent \
+                 steers: none on record in this session.",
+                plural(opened, "item"),
+                plural(closed, "item")
+            ));
+        } else {
+            lines.push(format!(
+                "**Churn note:** {} opened vs {} closed in this period — starting new \
+                 things without finishing old ones may be causing churn. Recent steers:",
+                plural(opened, "item"),
+                plural(closed, "item")
+            ));
+            for steer in steers {
+                lines.push(format!("- \"{steer}\""));
+            }
+        }
+    }
+
+    let render = |e: &crate::todo_history::TodoEditEvent| {
+        let status = e.status.clone().unwrap_or_else(|| e.action.clone());
+        format!("{} — {} ({})", e.ts, e.todo, status)
+    };
+
+    let opened_events: Vec<String> = events
+        .iter()
+        .filter(|e| e.action == "added")
+        .map(&render)
+        .collect();
+    let closed_events: Vec<String> = events
+        .iter()
+        .filter(|e| crate::todo_history::is_terminal_action(&e.action))
+        .map(&render)
+        .collect();
+
+    lines.push(String::new());
+    let (opened_lines, opened_held) = capped_recent(opened_events, TODO_LOG_LIST_CAP);
+    lines.push(format!("Opened ({}):", opened_lines.len()));
+    for line in &opened_lines {
+        lines.push(format!("- {line}"));
+    }
+    if opened_held > 0 {
+        lines.push(format!("- ({opened_held} older opened items not shown)"));
+    }
+
+    lines.push(String::new());
+    let (closed_lines, closed_held) = capped_recent(closed_events, TODO_LOG_LIST_CAP);
+    lines.push(format!("Closed ({}):", closed_lines.len()));
+    for line in &closed_lines {
+        lines.push(format!("- {line}"));
+    }
+    if closed_held > 0 {
+        lines.push(format!("- ({closed_held} older closed items not shown)"));
+    }
+
+    lines.push(String::new());
+    let transitions: Vec<String> = events
+        .iter()
+        .map(|e| format!("{} — {}: {}", e.ts, e.action, e.todo))
+        .collect();
+    let (transition_lines, transitions_held) = capped_recent(transitions, TODO_LOG_LIST_CAP);
+    let held = if transitions_held > 0 {
+        format!(", {} held back", transitions_held)
+    } else {
+        String::new()
+    };
+    lines.push(format!(
+        "State transitions ({} events{held}):",
+        transition_lines.len()
+    ));
+    for line in &transition_lines {
+        lines.push(format!("- {line}"));
+    }
+
+    lines.join("\n")
+}
+
+/// The todo log section on a harness whose todowrite flushes cannot be read.
+/// Never a silent empty list that reads as "no todos": the section names the
+/// harness, states why the log is unavailable, and names the record that
+/// remains.
+pub fn build_todo_log_unavailable(harness: &str, reason: &str) -> String {
+    format!(
+        "## Todo Log (this period)\n\nUnavailable on the {harness} harness: \
+         {reason} The plan/todo files above and the commit history are the \
+         record."
+    )
+}
+
+/// Build the commits section: the git commit tool calls of the period, with
+/// their timestamps. The detection matches the profile's `GitCommit` events:
+/// a tool-call summary line containing `git commit`.
+pub fn build_commits_section(messages: &[RolloutMessage]) -> String {
+    let mut lines = vec!["## Commits in this Period".to_string(), String::new()];
+    let mut commits: Vec<String> = Vec::new();
+    for msg in messages {
+        for tc in &msg.tool_calls_summary {
+            if tc.contains("git commit") {
+                let ts = msg.timestamp.as_deref().unwrap_or("unknown time");
+                commits.push(format!(
+                    "{ts} — {}",
+                    crate::rollout::truncate_chars(tc, LINE_TRUNCATE)
+                ));
+            }
+        }
+    }
+    if commits.is_empty() {
+        lines.push("No commits in this period.".to_string());
+    } else {
+        for c in &commits {
+            lines.push(format!("- {c}"));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Build the compaction-points FYI footer: the timestamps of the last few
+/// compaction points with the message and line counts since each. `full`
+/// names the period the summary covers — the whole session (the `/new`-drop
+/// flow) or the slice since the last compaction point (the `/compact` flow).
+pub fn build_compaction_footer(full_messages: &[RolloutMessage], full: bool) -> String {
+    let mut lines = vec!["## Compaction Points (FYI)".to_string(), String::new()];
+    lines.push(if full {
+        "Period: the whole session up to now — the `/new`-drop flow (`full: true`).".to_string()
+    } else {
+        "Period: since the last compaction point — the `/compact` flow (`full: false`).".to_string()
+    });
+
+    let markers: Vec<usize> = full_messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.content.contains("context compaction"))
+        .map(|(i, _)| i)
+        .collect();
+
+    if markers.is_empty() {
+        lines.push(String::new());
+        lines.push(
+            "No compaction points in this session — the period is the whole session.".to_string(),
+        );
+        lines.push(String::new());
+        lines.push(
+            "FYI only — nothing here is summarised; mine the logs for anything deeper.".to_string(),
+        );
+        return lines.join("\n");
+    }
+
+    let shown = &markers[markers.len().saturating_sub(COMPACTION_FOOTER_CAP)..];
+    let held_back = markers.len() - shown.len();
+    lines.push(String::new());
+    for (j, &idx) in shown.iter().enumerate() {
+        let msg = &full_messages[idx];
+        let ts = msg.timestamp.as_deref().unwrap_or("unknown time");
+        let since = &full_messages[idx + 1..];
+        let messages_since = since.len();
+        let lines_since: usize = since.iter().map(|m| m.content.lines().count()).sum();
+        let annotation = if !full && j + 1 == shown.len() {
+            " (the current period starts here)"
+        } else {
+            ""
+        };
+        lines.push(format!(
+            "- {ts} — {}, {} since{annotation}",
+            plural(messages_since, "message"),
+            plural(lines_since, "line")
+        ));
+    }
+    if held_back > 0 {
+        lines.push(format!("- ({held_back} older compaction points not shown)"));
+    }
+    lines.push(String::new());
+    lines.push(
+        "FYI only — nothing here is summarised; mine the logs for anything deeper.".to_string(),
+    );
+    lines.join("\n")
+}
+
+/// Assemble the full prior-period summary from its parts.
+///
+/// Ordering is deliberate for autoregressive LLMs:
+/// 1. Recent Rollouts table (metadata -- sets the scene, reference data)
+/// 2. Plan Files (metadata -- anchors the current plan)
+/// 3. Todo Log (ground truth -- what was in flight, with timings)
+/// 4. Commits (ground truth -- what actually landed)
+/// 5. Current State (LLM summary -- untrusted; see the warning)
+/// 6. User Goals/Tasks/Steers (LLM summary -- the steering signal)
+/// 7. Compaction Points FYI footer (metadata -- the period's boundaries)
+/// 8. Instructions (call to action)
+/// 9. Orientation Warning (fixed, last -- re-orientation is the model's job)
+///
+/// The ground truth comes before the LLM summaries so the model reads the
+/// authoritative record first; the warning is appended last because the
+/// final tokens have the strongest influence on what the model does next.
+#[allow(clippy::too_many_arguments)]
+pub fn build_prior_period_output(
+    state_summary: &str,
+    goals_summary: &str,
+    rollouts_table: &str,
+    plan_files: &str,
+    todo_log: &str,
+    commits: &str,
+    compaction_footer: &str,
+) -> String {
+    let sections = vec![
+        // 1. Metadata: recent rollouts (sets the scene)
+        rollouts_table.to_string(),
+        String::new(),
+        // 2. Metadata: plan/todo files (anchors current plan)
+        plan_files.to_string(),
+        String::new(),
+        // 3. Ground truth: the period's todo log
+        todo_log.to_string(),
+        String::new(),
+        // 4. Ground truth: the period's commits
+        commits.to_string(),
+        String::new(),
+        // 5. Substance: current state (what just happened)
+        "## Current State".to_string(),
+        String::new(),
+        state_summary.to_string(),
+        String::new(),
+        // 6. Substance: user goals/tasks/steers (steering signal)
+        "## User Goals, Tasks, and Steers".to_string(),
+        String::new(),
+        goals_summary.to_string(),
+        String::new(),
+        // 7. Metadata: compaction points (the period's boundaries)
+        compaction_footer.to_string(),
+        String::new(),
+        // 8. Call to action (last, strongest influence on next token)
+        INSTRUCTIONS.to_string(),
+        String::new(),
+        // 9. The fixed orientation warning, appended to every output
+        ORIENTATION_WARNING.to_string(),
+    ];
+
+    sections.join("\n")
+}
+
 /// Assemble the full recall output from its parts.
 ///
 /// Ordering is deliberate for autoregressive LLMs:

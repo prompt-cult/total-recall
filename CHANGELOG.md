@@ -5,6 +5,41 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- New `prior_period_summary` MCP tool and `prior-period-summary` CLI
+  subcommand: a voluntary summary of a prior period — not a compaction. The
+  harness owns compaction; this tool is only ever invoked voluntarily, so
+  the output is named for what it covers. Two flows, two correct answers:
+  after a `/compact`, `full: false` (the default) summarises since that
+  compaction point — the last period between compactions; before a `/new`
+  drop, `full: true` summarises the whole session up to the point of the
+  drop, including what earlier compactions folded away. On top of the old
+  tool's output (recent rollouts, plan/todo files, the two parallel Mercury
+  2.5 summaries, instructions) it folds in the period's todo log — items
+  opened and closed with timings, the state-change history (opened →
+  in_progress → completed/cancelled transitions), and a churn note when
+  items open faster than they close, with the human's recent steers read
+  into it — and the commits made in the period, appends a compaction-points
+  FYI footer (the last few compaction points with message and line counts
+  since each), and ends with a fixed orientation warning: the summary does
+  not attempt to show what was in-flight or the next steps — those are known
+  from the todo list, the user's most recent inputs, and the commit history
+  — so take stock and get your bearings before picking up the work. The
+  todo log is opencode-only (todowrite flushes are only readable there); on
+  every other harness the section says so instead of failing or silently
+  reading as "no todos".
+
+### Deprecated
+
+- `total_recall` MCP tool and `recall` CLI subcommand: superseded by
+  `prior_period_summary` / `prior-period-summary`. Unchanged in behaviour
+  and kept only for comparison; the deprecation is stated at the boundary
+  (the served tool description and the CLI help) and the tool will be
+  removed once the new one is adopted.
+
 ## [0.13.0] - 2026-10-14
 
 ### Added
