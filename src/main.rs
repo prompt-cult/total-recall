@@ -120,12 +120,11 @@ pub enum Command {
     },
     /// Compact a rollout using the configured LLM provider (`--provider`)
     Compact,
-    /// A voluntary summary of a prior period, not a compaction: state
+    /// An orientation summary of a prior period of work: state
     /// summary, user goals, the period's todo log, commits, the rollouts
     /// table and plan files, plus a compaction-points FYI and an orientation
     /// warning. `--full` covers the whole session up to now (the
     /// `/new`-drop flow); the default covers since the last compaction point
-    /// (the `/compact` flow)
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
     /// She-said/he-said/they-did: matched dialogue and tool actions

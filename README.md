@@ -345,16 +345,13 @@ exceeding any of them returns HTTP 429:
 These contracts are asserted against a local mock server in
 `tests/mercury_guardrails.rs`; no test ever calls the real API.
 
-### `prior-period-summary` — a voluntary summary of a prior period
+### `prior-period-summary` — a summary of a prior period
 
-A voluntary summary of a prior period, not a compaction: the harness owns
-compaction, and this tool is only ever invoked voluntarily. Two flows, two
-correct answers — after a `/compact`, summarise since that compaction point
-(the default); before a `/new` drop, summarise the whole session up to the
-point of the drop (`--full`), including what earlier compactions folded
-away. (The deleted `recall` subcommand of pre-0.14 versions is this tool's
-predecessor.) On opencode the compaction boundary is the typed compaction
-part, which prose quoting the marker text cannot forge.
+An orientation summary of a prior period of work. The default summarises
+since the session's last compaction point; `--full` summarises the whole
+session up to now, including what earlier compactions folded away — the
+flow for a `/new` drop. On opencode the compaction boundary is the typed
+compaction part, which prose quoting the marker text cannot forge.
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED

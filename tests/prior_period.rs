@@ -1,5 +1,5 @@
-//! #31: `prior_period_summary` — a voluntary summary of a prior period, not
-//! a compaction. The pure builders (todo log with the churn note, the
+//! #31: `prior_period_summary` — an orientation summary of a prior period
+//! of work. The pure builders (todo log with the churn note, the
 //! period's commits, the compaction-points FYI footer, the orientation
 //! warning, the assembly) and the boundary behaviour of the period
 //! selection. Written RED, before the implementation existed.
@@ -669,9 +669,13 @@ mod served {
             .expect("prior_period_summary is registered");
         let description = new["description"].as_str().unwrap_or("");
         assert!(
-            description.contains("voluntary summary of a prior period")
-                && description.contains("not a compaction"),
-            "the new tool presents itself as a voluntary summary of a prior period: {description}"
+            description.contains("orientation summary of a prior period"),
+            "the tool presents itself as an orientation summary of a prior period: {description}"
+        );
+        assert!(
+            !description.contains("not a compaction")
+                && !description.contains("voluntary"),
+            "the description does not define the tool against the deleted compaction method: {description}"
         );
         reap(&mut mcp);
     }

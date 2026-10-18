@@ -421,16 +421,11 @@ CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mis
 
 ### `prior_period_summary`
 
-A voluntary summary of a prior period — not a compaction. The harness owns
-compaction (an unattended agent gets the built-in default when it hits the
-context limit); this tool is only ever invoked voluntarily, so calling its
-output a "compaction" sets the wrong expectation about what it covers. Two
-flows, two correct answers:
-
-- after a `/compact`, summarise **since that compaction point** — the last
-  period between compactions (`full: false`, the default)
-- before a `/new` drop, summarise **the whole session up to the point of the
-  drop**, including what earlier compactions folded away (`full: true`)
+An orientation summary of a prior period of work. The default (`full:
+false`) summarises **since the session's last compaction point** — the most
+recent period; `full: true` summarises **the whole session up to now**,
+including what earlier compactions folded away — the flow for a `/new`
+drop, handing the work to a fresh session.
 
 The output carries, in deliberate ordering for autoregressive LLMs (metadata
 first, ground truth next, LLM summaries middle, action last):

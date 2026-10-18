@@ -60,7 +60,7 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | `index_sessions` | builds or refreshes a tantivy full-text index per session |
 | `do_android_dream_of_electric_sheep` | full-text search across those indexes, merged by score |
 | `compact_session` | a structured summary of a session: Accomplished, Current Work, Files, Next Steps, Key Decisions |
-| `prior_period_summary` | voluntary summary of a prior period: state summary + user goals + todo log + commits + a recent-rollouts table + plan files + orientation warning |
+| `prior_period_summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + a recent-rollouts table + plan files + orientation warning |
 
 Full parameter tables and the CLI equivalent of each tool (with the MCP-only
 exceptions named): [Tools](tools.md).
