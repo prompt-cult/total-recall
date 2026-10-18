@@ -25,7 +25,8 @@ Two regimes, one parameter:
 
 - **session tools** — `profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`,
-  `prior_period_summary`, `todo_history`: `session_id` (partial match; empty = the
+  `prior_period_summary`, `todo_history`, `summary_cache`,
+  `summarise_from`, `cache_delete_latest`: `session_id` (partial match; empty = the
   most recent session). One session is the smallest useful scope, so it is
   the default.
 - **window tools** — `list_sessions`, `she_said_he_said_action`,
@@ -123,6 +124,13 @@ Each entry: `session_id`, `title`, `start_time`, `end_time`, `file_size`,
 `has_compaction`, `directory`, `parent_session_id`, `child_sessions`,
 `child_session_count`, `has_tantivy_index`, `aliases`, `alias_count`,
 `notice` and `read_error` when present.
+
+A row whose session has cached summary blocks also carries a
+`summary_cache` marker, `{through_id, through_ts}` — the message id and
+timestamp the cache covers through, the same field the [summary cache
+tools](#the-summary-cache-blocks) work with. The marker is absent when
+nothing is cached, so a listing alone tells the caller whether a
+`summarise_from` would start from id 1 or from the block edge.
 
 `child_sessions` and `aliases` are bounded per row to the 10 most recent child
 ids and the 10 first alias names, with `child_session_count` / `alias_count`
@@ -408,36 +416,108 @@ ses_f5a4ea5e | 0.5395 | 2026-09-19T10:02:00Z | ASSISTANT (thinking) | contemplat
 CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 --query 'shadow AND index' [--sessions <id>…] [--hours 48] [--directory <substr>]`.
 
-## LLM-backed tools
+## The summary cache (blocks)
 
-### `summarise_current_session`
+The summary cache makes what is cached an explicit, inspectable data
+structure: a per-session **range ledger** of blocks, each naming the exact
+message-id range it summarises. The ledger is
+`<shadow root>/tr_<session-id>_summary.csv`, one row per summarised part,
+11 columns:
+
+```
+from_id,from_ts,to_id,to_ts,user,assistant,tool,thinking,chars,tokens_est,part_file
+```
+
+The ids are 1-based message sequence numbers in the session stream — stable
+for append-only stores, computed by enumerating the messages at read time,
+so they work on every harness. The type counts, `chars` and `tokens_est`
+describe the block's message slice; the part text lives in
+`tr_<session-id>_summary_parts/`. There is no backward compatibility with
+the v0.15.0 3-column ledger (alpha): a malformed or short row invalidates
+the ledger — it is treated as empty and the file is dropped, and any
+orphaned part files may be clobbered later.
+
+### `summary_cache`
+
+Read-only introspection: resolve the session, read the ledger, and return
+
+```json
+{
+  "session_id": "ses_…",
+  "blocks": [
+    {"from_id": 1, "from_ts": "…", "to_id": 4, "to_ts": "…", "user": 2,
+     "assistant": 2, "tool": 0, "thinking": 0, "chars": 1200,
+     "tokens_est": 300, "part_file": "…/part_001_004.md"}
+  ],
+  "tail": {"from_id": 5, "from_ts": "…", "count": 2, "user": 1,
+           "assistant": 1, "tool": 0, "thinking": 0, "chars": 400,
+           "tokens_est": 100}
+}
+```
+
+`tail` is the first unsummarised id (the last block's `to_id + 1`, or 1 with
+no blocks) plus the count, type counts, chars and token estimate over the
+messages from there to the session's end — what a summarise would cost.
+`tail` is `null` when every message is already covered. The tool never
+calls the LLM and never writes.
+
+CLI: `total-recall --harness <h> --session <id> summary-cache`.
+
+### `summarise_from`
+
+Summarise from an explicit id: `session_id` (partial match) and `from_id`.
+The guard: `from_id` must be the **first unsummarised id** — one past the
+last cached block's `to_id`, or `1` with no blocks. Anything else is an
+error in the house form naming the expected id, so a caller that has not
+seen `summary_cache` cannot guess. On success the messages from `from_id`
+to the session's end are summarised, stored as a new block (part file plus
+ledger row), and the tool returns the composed parts — each named
+`### part N: from_ts → to_ts (ids from_id..to_id)` — plus the
+`summary cache:` footer with the new block counted in.
+
+Rollback is explicit too: `cache_delete_latest` deletes the newest block
+(ledger row and part file) and returns the new cache status; call it twice
+to roll back two blocks, then `summarise_from` redoes the period whole.
+
+```bash
+total-recall --harness <h> --session <id> summarise-from --from-id 5 [--provider mistral]
+```
+
+### `cache_delete_latest`
+
+Roll the cache back one block: the newest ledger row is removed and its
+part file deleted, then the same status JSON as `summary_cache` is
+returned. With no blocks it is a house-form error, not a no-op.
+
+```bash
+total-recall --harness <h> --session <id> cache-delete-latest
+```
+
+### `summarise_current_session` — DEPRECATED
 
 A structured summary of a session **up to its current point**: Accomplished,
 Current Work, Files, Next Steps, Key Decisions. The session store is read at
 call time, so the tool works for a session the caller has just left — for
 example a `/new` drop — to prime a fresh context.
 
-The summary is cached by a **range ledger**, on by default: a per-session
-`tr_<session-id>_summary.csv` in the shadow root records each summarised part
-as `from_ts,to_ts,part_file`, with the part texts in
-`tr_<session-id>_summary_parts/`.
+**DEPRECATED** — use [`summary_cache`](#summary_cache) to see what is
+cached and [`summarise_from`](#summarise_from) to summarise an explicit
+range. The implicit tool cannot show its work: it silently decides
+delta-vs-whole, and one command trying to infer intent ("the prior period"
+vs "and now") is the confusion the explicit pair removes.
 
-- Session max timestamp unchanged since the last summarise → the cached parts
-  are composed and served, **with no LLM call** (a vendor-free build serves a
-  covered session).
-- Max moved → only the delta is summarised, stored as a new part, and the
-  ledger row appended. The output composes all parts, each named
-  `### part N: from → to`, with a `summary cache:` footer stating the range
-  and whether it was served cached.
-
-A summary is a summary of the slice it names — the parts compose honestly,
-with no compaction-style "next steps" noise across re-runs.
+Behaviour is unchanged, re-wired over the id-based ledger: a session whose
+messages are all covered by the last block returns the cached parts with
+**no LLM call**; a moved session summarises from the first unsummarised id
+— the same guard `summarise_from` enforces — and appends the new block.
 `cache: false` (MCP) / `--no-cache` (CLI) forces a full re-summarise and
 touches no files.
 
 ```bash
 total-recall --harness <h> --session <id> summarise-current-session [--no-cache] [--provider mistral]
 ```
+
+## LLM-backed tools
 
 ### `prior_period_summary`
 

@@ -3,8 +3,9 @@
 //! fail with "missing field `session_id`". Written RED.
 
 use total_recall::mcp::{
-    ExtractByTypeParams, ExtractParams, PriorPeriodSummaryParams, ProfileParams,
-    SummariseCurrentSessionParams, TodoHistoryParams, UserMessagesParams,
+    CacheDeleteLatestParams, ExtractByTypeParams, ExtractParams, PriorPeriodSummaryParams,
+    ProfileParams, SummariseCurrentSessionParams, SummariseFromParams, SummaryCacheParams,
+    TodoHistoryParams, UserMessagesParams,
 };
 
 fn de<T: serde::de::DeserializeOwned>(body: &str) -> T {
@@ -38,6 +39,14 @@ fn an_omitted_session_id_defaults_to_empty_everywhere() {
     let p: PriorPeriodSummaryParams = de(r#"{"hours_back": 72}"#);
     assert_eq!(p.session_id, "");
     assert_eq!(p.hours_back, 72);
+    // #39: the summary cache tools are session tools too.
+    let p: SummaryCacheParams = de("{}");
+    assert_eq!(p.session_id, "");
+    let p: CacheDeleteLatestParams = de("{}");
+    assert_eq!(p.session_id, "");
+    let p: SummariseFromParams = de(r#"{"from_id": 3}"#);
+    assert_eq!(p.session_id, "");
+    assert_eq!(p.from_id, 3, "from_id travels with the call");
 }
 
 #[test]

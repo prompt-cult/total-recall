@@ -635,6 +635,11 @@ pub struct ListingRow {
     #[serde(skip_serializing_if = "is_zero_count")]
     pub child_session_count: usize,
     pub has_tantivy_index: bool,
+    /// What the session's summary cache covers through, set by the render
+    /// layer (never by the adapters): the last block's `to_id`/`to_ts`. Absent
+    /// when nothing is cached — a lean row carries no weight.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_cache: Option<crate::summary_cache::CacheThrough>,
     /// The alias names, at most [`IDS_PER_LISTING_ROW`] of them.
     pub aliases: Vec<String>,
     /// How many alias names the row's session actually has. Absent when the
@@ -690,6 +695,7 @@ impl ListingRow {
             child_sessions,
             child_session_count,
             has_tantivy_index: summary.has_tantivy_index,
+            summary_cache: None,
             aliases,
             alias_count,
             read_error: summary.read_error.clone(),

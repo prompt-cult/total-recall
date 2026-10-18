@@ -226,7 +226,7 @@ fn reap(mcp: &mut Mcp) {
 
 /// Every tool that takes parameters, with the arguments that get it past its
 /// required fields.
-fn tools() -> [(&'static str, Value); 12] {
+fn tools() -> [(&'static str, Value); 15] {
     [
         ("list_sessions", json!({})),
         ("profile_session", json!({})),
@@ -234,6 +234,9 @@ fn tools() -> [(&'static str, Value); 12] {
         ("extract_user_messages", json!({})),
         ("extract_by_type", json!({})),
         ("summarise_current_session", json!({})),
+        ("summary_cache", json!({})),
+        ("summarise_from", json!({"from_id": 1})),
+        ("cache_delete_latest", json!({})),
         ("prior_period_summary", json!({})), // #31: the deleted total_recall tool is gone
         ("she_said_he_said_action", json!({"words": ["release"]})),
         ("index_sessions", json!({})),
@@ -367,7 +370,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
         );
     }
     // The numeric bounds the handlers enforce.
-    let cases: [(&str, &str, Option<f64>, Option<f64>); 15] = [
+    let cases: [(&str, &str, Option<f64>, Option<f64>); 16] = [
         ("extract_messages", "limit", Some(0.0), Some(1000.0)),
         ("extract_messages", "offset", Some(0.0), None),
         (
@@ -405,6 +408,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
             Some(1.0),
             Some(8_388_608.0),
         ),
+        ("summarise_from", "from_id", Some(1.0), None),
         ("line_histogram", "line", Some(1.0), None),
         ("line_histogram", "start", Some(1.0), None),
         ("todo_history", "max_bytes", Some(1.0), Some(8_388_608.0)),
@@ -467,7 +471,7 @@ fn every_tool_rejects_an_unknown_field_by_name_and_lists_what_it_accepts() {
 fn every_numeric_input_out_of_range_returns_the_house_form() {
     let (mut mcp, dir) = spawn();
     // (tool, args, the field the error must name)
-    let cases: [(&str, Value, &str); 25] = [
+    let cases: [(&str, Value, &str); 27] = [
         ("list_sessions", json!({"hours_back": -1}), "hours_back"),
         ("list_sessions", json!({"max_bytes": -1}), "max_bytes"),
         (
@@ -528,6 +532,8 @@ fn every_numeric_input_out_of_range_returns_the_house_form() {
             json!({"max_bytes": 9_000_000}),
             "max_bytes",
         ),
+        ("summarise_from", json!({"from_id": 0}), "from_id"),
+        ("summarise_from", json!({"from_id": -1}), "from_id"),
         (
             "line_histogram",
             json!({"file_path": "{FILE}", "line": 0}),
@@ -619,5 +625,61 @@ fn line_histogram_validates_mode_and_the_line_selectors_as_a_set() {
         ),
     );
     assert!(!err, "a legal extract range still runs: {text}");
+    reap(&mut mcp);
+}
+
+/// #39: the listing row's `summary_cache` marker. One session has a seeded
+/// summary-cache ledger in the shadow root; the other has none. The rows are
+/// rendered by the server — the adapters never touch the marker.
+#[test]
+fn list_sessions_rows_carry_the_summary_cache_marker() {
+    let (mut mcp, dir) = spawn();
+    // Seed a valid 11-column ledger for ses_alpha only: the cache covers
+    // message ids 1..=2 through 2026-10-18T11:00:00Z. The opencode adapter's
+    // shadow root sits beside the fixture db.
+    let shadow = dir.join(".tantivy");
+    std::fs::create_dir_all(&shadow).unwrap();
+    std::fs::write(
+        shadow.join("tr_ses_alpha0000000000000000000000aa_summary.csv"),
+        "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,1,1,0,0,20,5,part_001_002.md\n",
+    )
+    .unwrap();
+
+    let (err, text) = mcp.call("list_sessions", json!({"all": true}));
+    assert!(!err, "the listing succeeds: {text}");
+    let listing: Value = serde_json::from_str(&text).expect("the listing is JSON");
+    let rows = listing["sessions"].as_array().expect("rows array");
+
+    let alpha = rows
+        .iter()
+        .find(|r| {
+            r["session_id"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("ses_alpha"))
+        })
+        .expect("the alpha row is listed");
+    assert_eq!(
+        alpha["summary_cache"]["through_id"].as_u64(),
+        Some(2),
+        "the marker names the id the cache covers through: {alpha}"
+    );
+    assert_eq!(
+        alpha["summary_cache"]["through_ts"].as_str(),
+        Some("2026-10-18T11:00:00Z"),
+        "the marker names the ts the cache covers through: {alpha}"
+    );
+
+    let beta = rows
+        .iter()
+        .find(|r| {
+            r["session_id"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("ses_beta"))
+        })
+        .expect("the beta row is listed");
+    assert!(
+        beta.get("summary_cache").is_none(),
+        "no blocks, no marker — the key is absent, not null: {beta}"
+    );
     reap(&mut mcp);
 }

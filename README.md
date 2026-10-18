@@ -255,26 +255,53 @@ from the cache; stale, missing, or corrupt → recomputed as today and the
 cache is rewritten. With `--no-cache` (or `cache: false` on MCP), behaviour is
 byte-for-byte the recompute path and no cache file is created.
 
-### `summarise_current_session` cache — the range ledger
+### The summary cache — blocks
 
 The summary cache is the same shadow-root discipline with a different freshness
-key: not wall-clock staleness but the session's **content bounds**. A ledger
-per session, `<shadow root>/tr_<session-id>_summary.csv`, records one row per
-summarised part: `from_ts,to_ts,part_file`; the part texts live beside it in
-`tr_<session-id>_summary_parts/`. On each call:
+key: not wall-clock staleness but the session's **message-id coverage**. A
+ledger per session, `<shadow root>/tr_<session-id>_summary.csv`, records one
+row per summarised **block** — 11 columns,
+`from_id,from_ts,to_id,to_ts,user,assistant,tool,thinking,chars,tokens_est,part_file`
+— where the ids are 1-based message sequence numbers in the session stream and
+the part texts live beside it in `tr_<session-id>_summary_parts/`. There is no
+backward compatibility with the v0.15.0 3-column ledger (alpha): a malformed or
+short row invalidates the ledger — it is treated as empty and the file is
+dropped; orphaned part files may be clobbered later.
 
-- the session's max timestamp is unchanged → the cached parts are composed and
-  served — **no LLM call at all** (a vendor-free build serves a covered session
-  happily);
-- the max has moved → only the delta (previous max → new max) is summarised,
-  stored as a new part, and the ledger row appended.
+The cache is an explicit, inspectable data structure with three tools around
+it (each also a CLI subcommand: `summary-cache`, `summarise-from`,
+`cache-delete-latest`):
 
-The served summary names its coverage — `### part N: from → to` headers, then a
-`summary cache: N part(s), first → last` footer stating whether it was served
-cached. A summary is a summary of the slice it names — the parts compose
-honestly, with no compaction-style "next steps" living-document noise. Cache is
-on by default; `cache: false` (MCP) / `--no-cache` (CLI) forces a full
-re-summarise and touches no files.
+- **`summary_cache`** — read-only introspection: the cached blocks with their
+  id ranges, type counts, chars and token estimates, plus the **tail** (the
+  first unsummarised id and what a summarise from there would cost), or
+  `tail: null` when everything is covered. Never calls the LLM, never writes.
+- **`summarise_from`** (`session_id` + `from_id`) — summarise from an explicit
+  id. The guard: `from_id` must be the first unsummarised id (one past the
+  last block's `to_id`, or `1` with no blocks) — anything else is an error
+  naming the expected id. On success: the composed parts
+  (`### part N: from_ts → to_ts (ids from_id..to_id)`) plus the
+  `summary cache:` footer, and the new block stored.
+- **`cache_delete_latest`** — roll the cache back one block: the newest ledger
+  row and its part file are deleted and the new cache status is returned. No
+  blocks → an error, not a no-op.
+
+`list_sessions` rows carry a `summary_cache` marker
+(`{through_id, through_ts}`, absent when nothing is cached), so a listing
+alone shows what each session's cache covers through.
+
+`summarise_current_session` is **DEPRECATED** in favour of the explicit pair —
+use `summary_cache` to see what is cached and `summarise_from` to summarise an
+explicit range — but still works, re-wired over the id-based ledger: a session
+fully covered by its last block serves the cached parts with **no LLM call at
+all** (a vendor-free build serves a covered session happily); a moved session
+summarises from the first unsummarised id (the same guard `summarise_from`
+enforces) and appends the new block. The served summary names its coverage —
+`### part N: …` headers, then a `summary cache: N part(s), first → last`
+footer stating whether it was served cached. A summary is a summary of the
+slice it names — the parts compose honestly, with no compaction-style "next
+steps" living-document noise. Cache is on by default; `cache: false` (MCP) /
+`--no-cache` (CLI) forces a full re-summarise and touches no files.
 
 The cached JSON is validated on read through a
 [RFC 8927 JSON Type Definition](https://www.rfc-editor.org/rfc/rfc8927)
@@ -433,8 +460,9 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
-| `summarise_current_session` (MCP), `summarise-current-session` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest` | works | works |
+| `summarise_current_session` (MCP), `summarise-current-session` (CLI) — DEPRECATED | registered; a covered session serves the cache with no LLM call, a miss returns an error naming the missing feature | calls Mercury only on a cache miss, or `--provider mistral` |
+| `summarise_from` (MCP), `summarise-from` (CLI) | registered; the guard and a covered tail serve the cache with no LLM call, a real summarise returns an error naming the missing feature | calls Mercury only when there is something new to summarise, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
 The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients
@@ -483,6 +511,12 @@ $B --harness vibe --session 4836855e extract --limit 100 --offset 0
 # Todo-list edits as a JSONL event stream (one {ts,action,todo} object per line)
 $B --harness opencode --session ses_ee8e8f72 todo-history
 
+# The summary cache as an explicit data structure: inspect it, summarise an
+# explicit range, roll it back one block
+$B --harness vibe --session 4836855e summary-cache
+$B --harness vibe --session 4836855e summarise-from --from-id 5
+$B --harness vibe --session 4836855e cache-delete-latest
+
 # Total recall: state summary + user goals/steers + rollouts table + plan files
 $B --harness vibe --session 4836855e recall
 
@@ -530,7 +564,8 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session` (the on-by-default cache; `cache: false` to recompute), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
-`summarise_current_session`, `she_said_he_said_action`, `index_sessions`,
+`summarise_current_session`, `summary_cache`, `summarise_from`,
+`cache_delete_latest`, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
 and `line_histogram`:
 

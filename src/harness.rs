@@ -54,6 +54,29 @@ pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option
     }
 }
 
+/// Resolve a session id to the CANONICAL id the listing reports — the id
+/// every listing row carries and the shadow-root artefacts keyed by it (the
+/// summary-cache ledger, the `summary_cache` marker) agree on. Empty = most
+/// recent; a partial resolves through the listing, most recent match wins,
+/// the same resolution `index_sessions` applies to its `sessions` list. An
+/// id nothing matches is handed back as given, so the adapter's read produces
+/// its own precise "no session matching … under …" error.
+pub fn canonical_session_id(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
+    if session_id.is_empty() {
+        return adapter.most_recent_session_id().unwrap_or_default();
+    }
+    let (selected, _) = crate::index::select_sessions(
+        adapter,
+        std::slice::from_ref(&session_id.to_string()),
+        0,
+        None,
+    );
+    match selected.into_iter().next() {
+        Some(found) => found.session_id,
+        None => session_id.to_string(),
+    }
+}
+
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
     let adapter: Box<dyn RolloutAdapter> = match harness {
         "vibe" => Box::new(VibeAdapter::new()),
