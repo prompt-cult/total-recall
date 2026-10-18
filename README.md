@@ -290,19 +290,6 @@ it (each also a CLI subcommand: `summary-cache`, `summarise-from`,
 (`{through_id, through_ts}`, absent when nothing is cached), so a listing
 alone shows what each session's cache covers through.
 
-`summarise_current_session` is **DEPRECATED** in favour of the explicit pair —
-use `summary_cache` to see what is cached and `summarise_from` to summarise an
-explicit range — but still works, re-wired over the id-based ledger: a session
-fully covered by its last block serves the cached parts with **no LLM call at
-all** (a vendor-free build serves a covered session happily); a moved session
-summarises from the first unsummarised id (the same guard `summarise_from`
-enforces) and appends the new block. The served summary names its coverage —
-`### part N: …` headers, then a `summary cache: N part(s), first → last`
-footer stating whether it was served cached. A summary is a summary of the
-slice it names — the parts compose honestly, with no compaction-style "next
-steps" living-document noise. Cache is on by default; `cache: false` (MCP) /
-`--no-cache` (CLI) forces a full re-summarise and touches no files.
-
 The cached JSON is validated on read through a
 [RFC 8927 JSON Type Definition](https://www.rfc-editor.org/rfc/rfc8927)
 schema, `schemas/profile-cache.jtd`: `jtd-codegen` compiles it into the
@@ -461,7 +448,6 @@ file.
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
 | `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest` | works | works |
-| `summarise_current_session` (MCP), `summarise-current-session` (CLI) — DEPRECATED | registered; a covered session serves the cache with no LLM call, a miss returns an error naming the missing feature | calls Mercury only on a cache miss, or `--provider mistral` |
 | `summarise_from` (MCP), `summarise-from` (CLI) | registered; the guard and a covered tail serve the cache with no LLM call, a real summarise returns an error naming the missing feature | calls Mercury only when there is something new to summarise, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -564,7 +550,7 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session` (the on-by-default cache; `cache: false` to recompute), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
-`summarise_current_session`, `summary_cache`, `summarise_from`,
+`summary_cache`, `summarise_from`,
 `cache_delete_latest`, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
 and `line_histogram`:
@@ -657,7 +643,7 @@ launches the client; the server inherits it.
   Rebuild with `cargo build --release --features mercury`, or keep the
   vendor-free build and use the log-mining tools, which need no key.
 
-- **401 "Incorrect API key" from `summarise_current_session`/`prior_period_summary`** — the MCP
+- **401 "Incorrect API key" from `prior_period_summary`** — the MCP
   server's environment block is missing `INCEPTION_API_KEY`. List/profile
   work without it (no LLM call); Mercury calls fail. Add the key to the
   snippet's environment (see MCP server above) or export it in the launching
@@ -669,8 +655,8 @@ launches the client; the server inherits it.
 2. Copy `.env.template` to `.env` and fill in your key (build-from-source CLI path; MCP servers get the key from their registration snippet's environment instead)
 3. `cargo build --release` and use the CLI above
 
-Steps 1–2 are only needed for the LLM-backed tools (`summarise-current-session`,
-`prior-period-summary`). Every log-mining tool works from a
+Steps 1–2 are only needed for the LLM-backed tools (`prior-period-summary`).
+Every log-mining tool works from a
 vendor-free build with no key at all.
 
 <!-- BEGIN: distribution (ticket 452) -->

@@ -84,7 +84,7 @@ Accepted before the subcommand:
 | `--provider <name>` | `mercury` (default) or `mistral`, for the LLM-backed subcommands only |
 | `--limit` / `--offset` / `--max-bytes` / `--max-record-bytes` | extraction bounds; see [Bounded output](#bounded-output) |
 | `--include-injected` | include synthetic (injected) user records in `extract-by-type` |
-| `--no-cache` | skip the on-disk cache for `profile` / `summarise-current-session` |
+| `--no-cache` | skip the on-disk cache for `profile` |
 
 Output format per subcommand, with no flag given: `list` and `profile` print a
 human-readable summary, `extract` prints one JSON object per line,
@@ -491,30 +491,6 @@ returned. With no blocks it is a house-form error, not a no-op.
 
 ```bash
 total-recall --harness <h> --session <id> cache-delete-latest
-```
-
-### `summarise_current_session` — DEPRECATED
-
-A structured summary of a session **up to its current point**: Accomplished,
-Current Work, Files, Next Steps, Key Decisions. The session store is read at
-call time, so the tool works for a session the caller has just left — for
-example a `/new` drop — to prime a fresh context.
-
-**DEPRECATED** — use [`summary_cache`](#summary_cache) to see what is
-cached and [`summarise_from`](#summarise_from) to summarise an explicit
-range. The implicit tool cannot show its work: it silently decides
-delta-vs-whole, and one command trying to infer intent ("the prior period"
-vs "and now") is the confusion the explicit pair removes.
-
-Behaviour is unchanged, re-wired over the id-based ledger: a session whose
-messages are all covered by the last block returns the cached parts with
-**no LLM call**; a moved session summarises from the first unsummarised id
-— the same guard `summarise_from` enforces — and appends the new block.
-`cache: false` (MCP) / `--no-cache` (CLI) forces a full re-summarise and
-touches no files.
-
-```bash
-total-recall --harness <h> --session <id> summarise-current-session [--no-cache] [--provider mistral]
 ```
 
 ## LLM-backed tools

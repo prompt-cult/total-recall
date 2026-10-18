@@ -42,8 +42,8 @@ The registration snippet's environment block carries two entries:
 
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
 tools, `she_said_he_said_action`, `index_sessions`,
-`do_android_dream_of_electric_sheep`) need no key. Only `summarise_current_session`
-and `prior_period_summary` read it.
+`do_android_dream_of_electric_sheep`) need no key. Only `prior_period_summary`
+reads it.
 
 ### Mistral Vibe
 

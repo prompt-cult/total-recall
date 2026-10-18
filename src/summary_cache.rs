@@ -350,61 +350,8 @@ pub fn through_marker(shadow_root: &Path, session_id: &str) -> Option<CacheThrou
         })
 }
 
-/// The summarise_current_session flow, MCP and CLI: read the session, consult
-/// the ledger, and either return the cached composition (no LLM call) or
-/// summarise from the first unsummarised id and store the block. `use_cache =
-/// false` summarises the whole session and touches no files.
-///
-/// A cache hit needs no vendor at all — a vendor-free build can still serve
-/// what was already summarised. Only a cache miss constructs the provider, so
-/// a vendor-free build errors there with the usual rebuild message.
-pub async fn summarise_session(
-    adapter: &dyn crate::RolloutAdapter,
-    session_id: &str,
-    use_cache: bool,
-    requested_provider: Option<&str>,
-) -> Result<String, String> {
-    let messages = adapter
-        .read_session_mmap(session_id)
-        .map_err(|e| e.to_string())?;
-    if messages.is_empty() {
-        return Err("No messages found in session".to_string());
-    }
-
-    let Some((first_ts, last_ts)) = bounds(&messages) else {
-        // Untimestamped sessions cannot key a ledger: summarise whole,
-        // cache nothing.
-        return summarise_whole(requested_provider, messages).await;
-    };
-    if !use_cache {
-        return summarise_whole(requested_provider, messages).await;
-    }
-
-    let shadow_root = adapter.shadow_index_root();
-    let ledger = read_ledger(&ledger_path(&shadow_root, session_id));
-    let expected = expected_from_id(&ledger);
-
-    // Fully covered by the last block: nothing new to summarise.
-    if expected > messages.len() as u64 {
-        let mut out = compose(&ledger);
-        out.push_str(&format!(
-            "\n\n---\nsummary cache: {} part(s), {first_ts} → {last_ts} (cached; nothing new since the last summarise)",
-            ledger.len()
-        ));
-        return Ok(out);
-    }
-    summarise_delta(
-        &shadow_root,
-        session_id,
-        &messages,
-        expected,
-        requested_provider,
-    )
-    .await
-}
-
-/// The explicit `summarise_from` flow, MCP and CLI: the same machinery, but
-/// the caller names the id to start from and the guard refuses anything that
+/// The explicit `summarise_from` flow, MCP and CLI: the caller names the id
+/// to start from and the guard refuses anything that
 /// is not exactly the first unsummarised id — one past the last block's
 /// `to_id`, or 1 with no blocks — in the house form naming the expected id.
 pub async fn summarise_from_id(
@@ -439,7 +386,7 @@ pub async fn summarise_from_id(
     .await
 }
 
-/// The shared delta path behind `summarise_session` and `summarise_from`:
+/// The shared delta path behind `summarise_from`:
 /// summarise messages `from_id..=max id`, store the block, return the
 /// composed parts plus the footer. A tail with no timestamps cannot key a
 /// block, so it falls back to a whole-session summarise that touches no

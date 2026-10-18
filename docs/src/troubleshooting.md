@@ -21,11 +21,11 @@ The server prints the reason to stdout and stderr and exits 2, because a
 server that starts with an unknown harness would bind every tool to a
 nonsense store.
 
-## 401 "Incorrect API key" from `summarise_current_session` / `prior_period_summary`
+## 401 "Incorrect API key" from `prior_period_summary`
 
 The MCP server's environment block is missing `INCEPTION_API_KEY`. List,
 profile, extract, index and search all work without a key — no LLM call — and
-the two LLM-backed tools fail with the vendor's 401.
+the LLM-backed tool fails with the vendor's 401.
 
 Add the key to the snippet's environment block, per
 [MCP setup](mcp-setup.md#the-environment-block), or export it in the shell
