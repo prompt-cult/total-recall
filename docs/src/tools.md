@@ -24,7 +24,7 @@ what it asks for, not what the store holds.
 Two regimes, one parameter:
 
 - **session tools** — `profile_session`, `extract_messages`,
-  `extract_user_messages`, `extract_by_type`, `compact_session`,
+  `extract_user_messages`, `extract_by_type`,
   `prior_period_summary`, `todo_history`: `session_id` (partial match; empty = the
   most recent session). One session is the smallest useful scope, so it is
   the default.
@@ -409,23 +409,25 @@ CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 
 ## LLM-backed tools
 
-### `compact_session`
+### `summarise_current_session`
 
+A structured summary of a session **up to its current point**: Accomplished,
+Current Work, Files, Next Steps, Key Decisions. The session store is read at
+call time, so the tool works for a session the caller has just left — for
+example a `/new` drop — to prime a fresh context. Takes only `session_id`
+(partial match; empty = most recent); there is no period selection: the whole
+session up to now is the product.
 
-1. Reads the session (whole, or from the last compaction point)
-2. Builds a structured prompt
-3. Streams it to Mercury 2.5
-4. Returns a structured summary: Accomplished, Current Work, Files, Next Steps, Key Decisions
-
-CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mistral]`.
+```bash
+total-recall --harness <h> --session <id> summarise-current-session [--provider mistral]
+```
 
 ### `prior_period_summary`
 
-An orientation summary of a prior period of work. The default (`full:
-false`) summarises **since the session's last compaction point** — the most
-recent period; `full: true` summarises **the whole session up to now**,
-including what earlier compactions folded away — the flow for a `/new`
-drop, handing the work to a fresh session.
+An orientation summary of a prior period of work. The period is the work
+**up to the session's last compaction boundary** — the context a compaction
+consumed. A session with no compaction points has no earlier period, so the
+summary covers the whole session up to now.
 
 The output carries, in deliberate ordering for autoregressive LLMs (metadata
 first, ground truth next, LLM summaries middle, action last):
@@ -452,7 +454,7 @@ first, ground truth next, LLM summaries middle, action last):
    a moral hazard — the model would trust the summary and not double-check —
    so the warning makes re-orientation the model's job.
 
-CLI: `total-recall --harness <h> --session <id> [--full] prior-period-summary [--provider mistral]`.
+CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider mistral]`.
 
 ## Flood control
 

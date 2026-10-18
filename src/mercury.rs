@@ -224,7 +224,7 @@ impl MercuryProvider {
         ))
     }
 
-    /// Send the conversation text to Mercury for compaction.
+    /// Send one prompt through the guarded request path.
     pub async fn compact(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         self.send_guarded(system_prompt, user_prompt).await
     }

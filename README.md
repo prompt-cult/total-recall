@@ -1,21 +1,14 @@
 # total-recall
 
-Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Uses [Inception Mercury 2.5](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,100 tokens/sec — to compact long agent sessions and mine them for goals, tasks, and steers.
+Total-recall MCP tool for log mining of session rollouts as a long-term memory store. Uses [Inception Mercury 2.5](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,100 tokens/sec — to summarise agent sessions and mine them for goals, tasks, and steers.
 
 ## Why
 
-Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions. Their built-in compaction is slow and uses expensive frontier models. Mercury 2.5 does the same job at 1,100 tok/s for $0.04/M input and $0.15/M output (launch pricing).
+Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 2.5 summarises at 1,100 tok/s for $0.04/M input and $0.15/M output (launch pricing).
 
-Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool does the same for your CLI agent sessions.
+Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool brings the same engine to mining your CLI agent sessions.
 
 ## What it does
-
-### `compact` — fast compaction
-
-1. Detects the session format (JSONL or SQLite) — works across all tools
-2. Finds the last compaction point in the session
-3. Streams messages since that point to Mercury 2.5
-4. Returns a structured summary (Accomplished, Current Work, Files, Next Steps, Key Decisions)
 
 ### `list_sessions` — rollout index
 
@@ -287,7 +280,7 @@ the store holds), and breadth is an explicit opt-in — never a default, never
 a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
-  `extract_user_messages`, `extract_by_type`, `compact_session`,
+  `extract_user_messages`, `extract_by_type`,
   `prior_period_summary`, `todo_history`): `session_id` partial match; empty = the
   most recent session.
 - **Window tools** (`list_sessions`, `she_said_he_said_action`,
@@ -347,11 +340,12 @@ These contracts are asserted against a local mock server in
 
 ### `prior-period-summary` — a summary of a prior period
 
-An orientation summary of a prior period of work. The default summarises
-since the session's last compaction point; `--full` summarises the whole
-session up to now, including what earlier compactions folded away — the
-flow for a `/new` drop. On opencode the compaction boundary is the typed
-compaction part, which prose quoting the marker text cannot forge.
+An orientation summary of a prior period of work. The period is the work up
+to the session's last compaction boundary — the context a compaction
+consumed. A session with no compaction points has no earlier period, so the
+summary covers the whole session up to now. On opencode the compaction
+boundary is the typed compaction part, which prose quoting the marker text
+cannot forge.
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
@@ -368,7 +362,7 @@ compaction part, which prose quoting the marker text cannot forge.
    before picking up the work
 6. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, ground truth next, substance middle, action last
 
-CLI: `total-recall --harness <h> --session <id> [--full] prior-period-summary [--provider mistral]`.
+CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider mistral]`.
 
 ## Supported tools
 
@@ -417,7 +411,7 @@ file.
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
 | `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
-| `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
+| `summarise_current_session` (MCP), `summarise-current-session` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
 The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients
@@ -468,10 +462,6 @@ $B --harness vibe --session 4836855e extract --limit 100 --offset 0
 # Todo-list edits as a JSONL event stream (one {ts,action,todo} object per line)
 $B --harness opencode --session ses_ee8e8f72 todo-history
 
-# Compact from the last compaction point (default) or the full rollout
-$B --harness vibe --session 4836855e compact
-$B --harness vibe --session 4836855e --full compact
-
 # Total recall: state summary + user goals/steers + rollouts table + plan files
 $B --harness vibe --session 4836855e recall
 
@@ -519,7 +509,7 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
-`compact_session`, `she_said_he_said_action`, `index_sessions`,
+`summarise_current_session`, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
 and `line_histogram`:
 
@@ -611,7 +601,7 @@ launches the client; the server inherits it.
   Rebuild with `cargo build --release --features mercury`, or keep the
   vendor-free build and use the log-mining tools, which need no key.
 
-- **401 "Incorrect API key" from `compact`/`prior_period_summary`** — the MCP
+- **401 "Incorrect API key" from `summarise_current_session`/`prior_period_summary`** — the MCP
   server's environment block is missing `INCEPTION_API_KEY`. List/profile
   work without it (no LLM call); Mercury calls fail. Add the key to the
   snippet's environment (see MCP server above) or export it in the launching
@@ -623,8 +613,8 @@ launches the client; the server inherits it.
 2. Copy `.env.template` to `.env` and fill in your key (build-from-source CLI path; MCP servers get the key from their registration snippet's environment instead)
 3. `cargo build --release` and use the CLI above
 
-Steps 1–2 are only needed for the LLM-backed tools (`compact`,
-`prior-period-summary`, `compact_session`). Every log-mining tool works from a
+Steps 1–2 are only needed for the LLM-backed tools (`summarise-current-session`,
+`prior-period-summary`). Every log-mining tool works from a
 vendor-free build with no key at all.
 
 <!-- BEGIN: distribution (ticket 452) -->
