@@ -363,9 +363,9 @@ These contracts are asserted against a local mock server in
 
 ### `prior-period-summary` — a summary of a prior period
 
-An orientation summary of a prior period of work. The period is the work up
-to the session's last compaction boundary — the context a compaction
-consumed. A session with no compaction points has no earlier period, so the
+An orientation summary of a prior period of work. The period is the work
+since the session's last compaction boundary — the work after that boundary.
+A session with no compaction points has no earlier period, so the
 summary covers the whole session up to now. On opencode the compaction
 boundary is the typed compaction part, which prose quoting the marker text
 cannot forge.

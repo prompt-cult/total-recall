@@ -442,8 +442,8 @@ total-recall --harness <h> --session <id> summarise-current-session [--no-cache]
 ### `prior_period_summary`
 
 An orientation summary of a prior period of work. The period is the work
-**up to the session's last compaction boundary** — the context a compaction
-consumed. A session with no compaction points has no earlier period, so the
+**since the session's last compaction boundary** — the work after that
+boundary. A session with no compaction points has no earlier period, so the
 summary covers the whole session up to now.
 
 The output carries, in deliberate ordering for autoregressive LLMs (metadata

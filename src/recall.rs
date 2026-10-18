@@ -640,8 +640,8 @@ pub fn build_commits_section(messages: &[RolloutMessage]) -> String {
 
 /// Build the compaction-points FYI footer: the timestamps of the last few
 /// compaction points with the message and line counts since each. The
-/// summary's period is the work up to the last compaction boundary — the
-/// context a compaction consumed; a session with no compaction points has no
+/// summary's period is the work since the last compaction boundary — the
+/// work after that boundary; a session with no compaction points has no
 /// earlier period, so the period is the whole session. `markers` are the
 /// boundary indices of the full session, from
 /// [`RolloutAdapter::compaction_markers`] — the adapter decides what a real
@@ -649,7 +649,7 @@ pub fn build_commits_section(messages: &[RolloutMessage]) -> String {
 pub fn build_compaction_footer(full_messages: &[RolloutMessage], markers: &[usize]) -> String {
     let mut lines = vec!["## Compaction Points (FYI)".to_string(), String::new()];
     lines.push(
-        "Period: the work up to the last compaction boundary — the context a compaction consumed."
+        "Period: the work since the last compaction boundary — the work after that boundary."
             .to_string(),
     );
 
