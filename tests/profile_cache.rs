@@ -193,8 +193,12 @@ fn test_cli_no_cache_flag_parses_on_profile() {
     assert!(cli.no_cache);
     assert!(matches!(cli.command, cli::Command::Profile));
 
-    let cli = Cli::try_parse_from(["bin", "profile"]).expect("profile must parse without --no-cache");
-    assert!(!cli.no_cache, "the cache must default to on: --no-cache is the opt-out");
+    let cli =
+        Cli::try_parse_from(["bin", "profile"]).expect("profile must parse without --no-cache");
+    assert!(
+        !cli.no_cache,
+        "the cache must default to on: --no-cache is the opt-out"
+    );
 }
 
 #[test]

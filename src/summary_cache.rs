@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 /// ISO-8601 timestamps sort lexicographically, so string comparison is a
 /// total order over the session's messages.
 pub fn bounds(messages: &[crate::RolloutMessage]) -> Option<(String, String)> {
-    let ts: Vec<&str> = messages.iter().filter_map(|m| m.timestamp.as_deref()).collect();
+    let ts: Vec<&str> = messages
+        .iter()
+        .filter_map(|m| m.timestamp.as_deref())
+        .collect();
     let first = ts.first()?.to_string();
     let last = ts.last()?.to_string();
     Some((first, last))
@@ -60,7 +63,11 @@ pub fn read_ledger(path: &Path) -> Vec<Part> {
             let from_ts = f.next()?.to_string();
             let to_ts = f.next()?.to_string();
             let part_file = PathBuf::from(f.next()?);
-            Some(Part { from_ts, to_ts, part_file })
+            Some(Part {
+                from_ts,
+                to_ts,
+                part_file,
+            })
         })
         .collect()
 }
@@ -80,7 +87,11 @@ pub fn append_part(
     let n = read_ledger(&ledger_path(shadow_root, session_id)).len() + 1;
     let file = dir.join(format!("part_{n:03}_{}.md", to_ts.replace(':', "")));
     std::fs::write(&file, summary)?;
-    let part = Part { from_ts: from_ts.to_string(), to_ts: to_ts.to_string(), part_file: file };
+    let part = Part {
+        from_ts: from_ts.to_string(),
+        to_ts: to_ts.to_string(),
+        part_file: file,
+    };
     use std::io::Write;
     let mut ledger = std::fs::OpenOptions::new()
         .create(true)
@@ -97,7 +108,13 @@ pub fn compose(parts: &[Part]) -> String {
         .enumerate()
         .map(|(i, p)| {
             let text = std::fs::read_to_string(&p.part_file).unwrap_or_default();
-            format!("### part {}: {} → {}\n\n{}", i + 1, p.from_ts, p.to_ts, text.trim())
+            format!(
+                "### part {}: {} → {}\n\n{}",
+                i + 1,
+                p.from_ts,
+                p.to_ts,
+                text.trim()
+            )
         })
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -159,10 +176,18 @@ pub async fn summarise_session(
     let delta_msgs = delta(&messages, &from_ts);
     // A moved max with an empty delta (timestamped bounds, untimestamped tail)
     // falls back to the whole session rather than summarising nothing.
-    let slice = if delta_msgs.is_empty() { &messages } else { &delta_msgs };
+    let slice = if delta_msgs.is_empty() {
+        &messages
+    } else {
+        &delta_msgs
+    };
 
     let text = llm_summary(requested_provider, slice).await?;
-    let part_from = if ledger.is_empty() { first_ts.clone() } else { from_ts.clone() };
+    let part_from = if ledger.is_empty() {
+        first_ts.clone()
+    } else {
+        from_ts.clone()
+    };
     append_part(&shadow_root, session_id, &part_from, &last_ts, &text)
         .map_err(|e| format!("summary cache write failed: {e}"))?;
 
@@ -180,8 +205,7 @@ async fn llm_summary(
     messages: &[crate::RolloutMessage],
 ) -> Result<String, String> {
     let prompt = crate::build_structured_prompt(messages);
-    let provider = crate::provider_for(requested_provider)
-        .map_err(|e| format!("{e:#}"))?;
+    let provider = crate::provider_for(requested_provider).map_err(|e| format!("{e:#}"))?;
     provider
         .compact(crate::SYSTEM_PROMPT, &prompt)
         .await
@@ -212,7 +236,8 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tr_summary_cache_{name}_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("tr_summary_cache_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -226,7 +251,10 @@ mod tests {
             msg(Some("2026-10-18T12:00:00Z"), "c"),
         ];
         let b = bounds(&msgs).unwrap();
-        assert_eq!(b, ("2026-10-18T10:00:00Z".into(), "2026-10-18T12:00:00Z".into()));
+        assert_eq!(
+            b,
+            ("2026-10-18T10:00:00Z".into(), "2026-10-18T12:00:00Z".into())
+        );
     }
 
     #[test]
@@ -251,8 +279,22 @@ mod tests {
         let dir = scratch("ledger");
         let path = ledger_path(&dir, "ses_x");
         assert!(read_ledger(&path).is_empty(), "missing ledger is empty");
-        let p1 = append_part(&dir, "ses_x", "2026-10-18T10:00:00Z", "2026-10-18T11:00:00Z", "first summary").unwrap();
-        let p2 = append_part(&dir, "ses_x", "2026-10-18T11:00:00Z", "2026-10-18T12:00:00Z", "delta summary").unwrap();
+        let p1 = append_part(
+            &dir,
+            "ses_x",
+            "2026-10-18T10:00:00Z",
+            "2026-10-18T11:00:00Z",
+            "first summary",
+        )
+        .unwrap();
+        let p2 = append_part(
+            &dir,
+            "ses_x",
+            "2026-10-18T11:00:00Z",
+            "2026-10-18T12:00:00Z",
+            "delta summary",
+        )
+        .unwrap();
         let ledger = read_ledger(&path);
         assert_eq!(ledger.len(), 2);
         assert_eq!(ledger[1].to_ts, "2026-10-18T12:00:00Z");
@@ -261,7 +303,10 @@ mod tests {
         assert!(composed.contains("### part 1: 2026-10-18T10:00:00Z → 2026-10-18T11:00:00Z"));
         assert!(composed.contains("first summary"));
         assert!(composed.contains("delta summary"));
-        assert_eq!(p2.part_file.file_name().unwrap(), "part_002_2026-10-18T120000Z.md");
+        assert_eq!(
+            p2.part_file.file_name().unwrap(),
+            "part_002_2026-10-18T120000Z.md"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

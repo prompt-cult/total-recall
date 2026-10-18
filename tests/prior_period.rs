@@ -412,10 +412,7 @@ fn the_footer_names_the_period_it_covers() {
         footer.contains("the context a compaction consumed"),
         "{footer}"
     );
-    assert!(
-        footer.contains("1 message, 1 line since"),
-        "{footer}"
-    );
+    assert!(footer.contains("1 message, 1 line since"), "{footer}");
 }
 
 #[test]
@@ -676,8 +673,7 @@ mod served {
             "the tool presents itself as an orientation summary of a prior period: {description}"
         );
         assert!(
-            !description.contains("not a compaction")
-                && !description.contains("voluntary"),
+            !description.contains("not a compaction") && !description.contains("voluntary"),
             "the description does not define the tool against the deleted compaction method: {description}"
         );
         reap(&mut mcp);
@@ -689,10 +685,7 @@ mod served {
         let schema = mcp.schema("prior_period_summary");
         let mut fields: Vec<&str> = schema.keys().map(String::as_str).collect();
         fields.sort_unstable();
-        assert_eq!(
-            fields,
-            vec!["hours_back", "max_bytes", "session_id"]
-        );
+        assert_eq!(fields, vec!["hours_back", "max_bytes", "session_id"]);
         reap(&mut mcp);
     }
 

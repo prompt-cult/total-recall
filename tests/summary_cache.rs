@@ -13,8 +13,8 @@
 mod common;
 
 use total_recall::RolloutAdapter;
-use total_recall::summary_cache;
 use total_recall::rollout::mock::MockAdapter;
+use total_recall::summary_cache;
 
 use common::scratch::{ScratchRoot, scratch};
 
@@ -73,10 +73,7 @@ async fn a_session_whose_max_ts_is_covered_by_the_ledger_serves_the_cache_withou
 
 #[test]
 fn the_ledger_lives_in_the_shadow_root_next_to_the_profile_cache() {
-    let (_dir, adapter) = fixture(
-        "layout",
-        &[msg("user", "hello", "2026-10-18T10:00:00Z")],
-    );
+    let (_dir, adapter) = fixture("layout", &[msg("user", "hello", "2026-10-18T10:00:00Z")]);
     let root = adapter.shadow_index_root();
     assert_eq!(
         summary_cache::ledger_path(&root, "mock"),
