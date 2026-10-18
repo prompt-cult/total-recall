@@ -59,7 +59,9 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | `she_said_he_said_action` | per session: HE SAID (user text), SHE SAID (assistant text), THEY DID (tool calls) matching your terms |
 | `index_sessions` | builds or refreshes a tantivy full-text index per session |
 | `do_android_dream_of_electric_sheep` | full-text search across those indexes, merged by score |
-| `summarise_current_session` | a structured summary of a session up to its current point: Accomplished, Current Work, Files, Next Steps, Key Decisions |
+| `summary_cache` | the per-session summary cache blocks: from/to ids and timestamps, message-type counts, size, part file — plus the unsummarised tail |
+| `summarise_from` | a structured summary of a session from an explicit unsummarised id: Accomplished, Current Work, Files, Next Steps, Key Decisions; guard: the id must be the first unsummarised one |
+| `cache_delete_latest` | roll the summary-cache high watermark back one block (rm ledger row + part file); returns the new cache status |
 | `prior_period_summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + a recent-rollouts table + plan files + orientation warning |
 Full parameter tables and the CLI equivalent of each tool (with the MCP-only
 exceptions named): [Tools](tools.md).

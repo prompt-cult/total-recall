@@ -40,7 +40,7 @@ cannot read the live store by any route.
 
 | Variable | Vendor | Read by | Needed for |
 |----------|--------|---------|------------|
-| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` | `summarise_current_session` / `summarise-current-session`, `prior_period_summary` / `prior-period-summary` |
+| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` | `summarise_from` / `summarise-from`, `prior_period_summary` / `prior-period-summary` |
 | `MISTRAL_API_KEY` | Mistral (`--provider mistral`) | `src/mercury.rs` | the same, on the Mistral vendor |
 
 A key reaches the binary one of two ways:
@@ -108,7 +108,8 @@ Vendor identity (endpoint, model, key variable) is the gated part. The
 OpenAI-compatible chat transport itself compiles in every build but is
 unreachable without a vendor constructor.
 
-`--provider` applies to the CLI's `compact` and `recall` subcommands. The
+`--provider` applies to the CLI's `summarise-from`, `summarise-current-session`
+and `prior-period-summary` subcommands. The
 `mcp` subcommand constructs the default provider; see
 [MCP setup](mcp-setup.md#which-vendor-the-server-calls).
 

@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use total_recall::{
-    LISTING_ROW_CAP, RolloutAdapter, RolloutMessage, SessionListing,
+    LISTING_ROW_CAP, ListingRow, RolloutAdapter, RolloutMessage,
     harness::{make_adapter, resolve_harness, resolve_session},
     index,
     mercury::provider_for,
@@ -122,6 +122,26 @@ pub enum Command {
     /// (Accomplished, Current Work, Files, Next Steps, Key Decisions)
     #[command(name = "summarise-current-session")]
     SummariseCurrentSession,
+    /// Introspect a rollout's summary cache: the cached blocks (id ranges,
+    /// type counts, chars, token estimates) plus the unsummarised tail.
+    /// Read-only — never calls the LLM
+    #[command(name = "summary-cache")]
+    SummaryCache,
+    /// Summarise a rollout from an explicit 1-based message id. The guard:
+    /// the id must be the first unsummarised id (one past the last cached
+    /// block's to_id, or 1 with no blocks); anything else is an error naming
+    /// the expected id
+    #[command(name = "summarise-from")]
+    SummariseFrom {
+        /// 1-based message id to summarise from (summary-cache reports it
+        /// as tail.from_id)
+        #[arg(long)]
+        from_id: u64,
+    },
+    /// Roll the summary cache back one block: delete the newest ledger row
+    /// and its part file, then print the new cache status
+    #[command(name = "cache-delete-latest")]
+    CacheDeleteLatest,
     /// An orientation summary of a prior period of work: state
     /// summary, user goals, the period's todo log, commits, the rollouts
     /// table and plan files, plus a compaction-points FYI and an orientation
@@ -397,14 +417,27 @@ async fn main() -> Result<()> {
                     );
                 }
             } else if cli.json {
+                // The JSON rows are rendered ListingRows with the
+                // summary_cache marker set by this render pass (reading each
+                // session's ledger's last row — the adapters stay untouched).
+                let root = adapter.shadow_index_root();
+                let rows: Vec<ListingRow> = sessions
+                    .iter()
+                    .map(|s| {
+                        let mut row = ListingRow::new(s);
+                        row.summary_cache =
+                            total_recall::summary_cache::through_marker(&root, &s.session_id);
+                        row
+                    })
+                    .collect();
                 let json = match window_count {
-                    Some(window) => serde_json::to_string_pretty(&SessionListing {
-                        sessions,
-                        window_count: window,
-                    })?,
-                    None => serde_json::to_string_pretty(&sessions)?,
+                    Some(window) => serde_json::to_string_pretty(&serde_json::json!({
+                        "sessions": rows,
+                        "window_count": window,
+                    }))?,
+                    None => serde_json::to_string_pretty(&rows)?,
                 };
-                println!("{}", json);
+                println!("{json}");
             } else {
                 for s in &sessions {
                     println!(
@@ -607,6 +640,11 @@ async fn main() -> Result<()> {
         }
 
         Command::SummariseCurrentSession => {
+            // The ledger is keyed by the canonical id the listing rows carry,
+            // so the CLI and the `summary_cache` marker describe the same
+            // cache however the caller spells the id.
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
             let text = total_recall::summary_cache::summarise_session(
                 adapter.as_ref(),
                 &session_id,
@@ -617,6 +655,55 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow::anyhow!(e))?;
             print!("{text}");
             let _ = std::io::stdout().flush();
+        }
+
+        Command::SummaryCache => {
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
+            let messages = read_messages(adapter.as_ref(), &session_id, true);
+            let status = total_recall::summary_cache::status(
+                &adapter.shadow_index_root(),
+                &session_id,
+                &messages,
+            );
+            println!("{}", serde_json::to_string_pretty(&status)?);
+        }
+
+        Command::SummariseFrom { from_id } => {
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
+            let text = total_recall::summary_cache::summarise_from_id(
+                adapter.as_ref(),
+                &session_id,
+                from_id,
+                cli.provider.as_deref(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+            print!("{text}");
+            let _ = std::io::stdout().flush();
+        }
+
+        Command::CacheDeleteLatest => {
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
+            let root = adapter.shadow_index_root();
+            let blocks = total_recall::summary_cache::read_ledger(
+                &total_recall::summary_cache::ledger_path(&root, &session_id),
+            );
+            if blocks.is_empty() {
+                eprintln!(
+                    "cache-delete-latest: no cached blocks to delete — nothing has been summarised for this session (summary-cache shows what is cached)"
+                );
+                std::process::exit(1);
+            }
+            if let Err(e) = total_recall::summary_cache::delete_latest(&root, &session_id) {
+                eprintln!("error: cache-delete-latest: {e}");
+                std::process::exit(2);
+            }
+            let messages = read_messages(adapter.as_ref(), &session_id, true);
+            let status = total_recall::summary_cache::status(&root, &session_id, &messages);
+            println!("{}", serde_json::to_string_pretty(&status)?);
         }
 
         Command::PriorPeriodSummary => {

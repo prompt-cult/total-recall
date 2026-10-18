@@ -12,7 +12,7 @@ use rmcp::{
 
 use crate::{
     RolloutAdapter,
-    harness::make_adapter,
+    harness::{canonical_session_id, make_adapter},
     mercury::provider_for,
     recall::{
         CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
@@ -244,6 +244,35 @@ pub struct SummariseCurrentSessionParams {
     )]
     #[serde(default = "default_true")]
     pub cache: bool,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SummaryCacheParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SummariseFromParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "1-based message id to summarise from. Must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks; summary_cache reports it as tail.from_id.",
+        range(min = 1)
+    )]
+    pub from_id: i64,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheDeleteLatestParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -511,6 +540,7 @@ const MAX_RECORD_BYTES_CHEAP: &str =
 const LINE_CHEAP: &str = "pass line >= 1 (1-based), or mode: extract with start and end";
 const START_CHEAP: &str = "pass start >= 1 (1-based) with end, or mode: extract with line";
 const END_CHEAP: &str = "pass end >= 1 (1-based) with start";
+const FROM_ID_CHEAP: &str = "pass from_id >= 1 (1-based message id) — the first unsummarised id, which summary_cache reports as tail.from_id";
 
 /// The bounded-extraction bounds of `extract_messages`,
 /// `extract_user_messages` and `extract_by_type`, validated in the house form
@@ -631,7 +661,12 @@ impl TotalRecallServer {
         let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
         let mut sessions = listing.sessions;
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
-        let json = listing_json(&sessions, listing.window_count, max_bytes);
+        let json = listing_json(
+            &sessions,
+            listing.window_count,
+            max_bytes,
+            &adapter.shadow_index_root(),
+        );
         Ok(capped_text("list_sessions", "list", json, max_bytes))
     }
 
@@ -1146,15 +1181,134 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: a structured summary of a session up to its current point — Accomplished, Current Work, Files, Next Steps, and Key Decisions — read from the session store at call time, so it works for a session the caller has just left (for example after a /new drop) to prime a fresh context. Takes session_id (partial match; empty = most recent) and cache (on by default: a per-session range ledger in the shadow root records what was summarised; an unchanged session returns the cached parts with no LLM call, a moved session summarises only the delta and appends it; pass false to force a full re-summarise). Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
+        name = "summary_cache",
+        description = "Total-recall MCP tool: inspect a session's summary cache — the cached blocks (from_id/from_ts/to_id/to_ts id ranges, user/assistant/tool/thinking counts, chars, token estimate, part file) plus the unsummarised tail (the first uncovered id and what a summarise from there would cost), or tail: null when everything is covered. Read-only: never calls the LLM, never writes. The session_id (partial match; empty = most recent) resolves first; an invalid or short legacy ledger is dropped as empty."
+    )]
+    async fn summary_cache(
+        &self,
+        Parameters(params): Parameters<SummaryCacheParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let status =
+            crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
+        let json = serde_json::to_string_pretty(&status)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(capped_text(
+            "summary_cache",
+            &session_id,
+            json,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
+    }
+
+    #[tool(
+        name = "summarise_from",
+        description = "Total-recall MCP tool: summarise a session from an explicit 1-based message id. The guard: from_id must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks — anything else is an error naming the expected id, so run summary_cache first. On success the messages from from_id to the session's end are summarised, stored as a new block, and the composed parts plus the cache footer are returned. Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
+    )]
+    async fn summarise_from(
+        &self,
+        Parameters(params): Parameters<SummariseFromParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let from_id = match number(
+            "summarise_from",
+            "from_id",
+            params.from_id,
+            1,
+            i64::MAX,
+            FROM_ID_CHEAP,
+        ) {
+            Ok(v) => v as u64,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        match crate::summary_cache::summarise_from_id(adapter.as_ref(), &session_id, from_id, None)
+            .await
+        {
+            Ok(text) => Ok(capped_text(
+                "summarise_from",
+                &session_id,
+                text,
+                crate::report_cap::DEFAULT_MAX_BYTES,
+            )),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[tool(
+        name = "cache_delete_latest",
+        description = "Total-recall MCP tool: roll the summary cache back one block — the newest ledger row and its part file are deleted, then the same status JSON as summary_cache is returned. Call repeatedly to roll back several blocks. No blocks is a house-form error, not a no-op."
+    )]
+    async fn cache_delete_latest(
+        &self,
+        Parameters(params): Parameters<CacheDeleteLatestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let root = adapter.shadow_index_root();
+        let blocks = crate::summary_cache::read_ledger(&crate::summary_cache::ledger_path(
+            &root,
+            &session_id,
+        ));
+        if blocks.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "cache_delete_latest: no cached blocks to delete — nothing has been summarised for this session (summary_cache shows what is cached)".to_string(),
+            )]));
+        }
+        if let Err(e) = crate::summary_cache::delete_latest(&root, &session_id) {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "cache_delete_latest: {e}"
+            ))]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let status = crate::summary_cache::status(&root, &session_id, &messages);
+        let json = serde_json::to_string_pretty(&status)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(capped_text(
+            "cache_delete_latest",
+            &session_id,
+            json,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
+    }
+
+    #[tool(
+        description = "DEPRECATED — use summary_cache to see what is cached and summarise_from to summarise an explicit range: this tool silently decides delta-vs-whole, which the explicit pair shows instead. Total-recall MCP tool: a structured summary of a session up to its current point — Accomplished, Current Work, Files, Next Steps, and Key Decisions — read from the session store at call time, so it works for a session the caller has just left (for example after a /new drop) to prime a fresh context. Takes session_id (partial match; empty = most recent) and cache (on by default: the per-session block ledger in the shadow root records what was summarised; a fully covered session returns the cached parts with no LLM call, a moved session summarises from the first unsummarised id and appends the block; pass false to force a full re-summarise). Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
     )]
     async fn summarise_current_session(
         &self,
         Parameters(params): Parameters<SummariseCurrentSessionParams>,
     ) -> Result<CallToolResult, McpError> {
         let adapter = self.adapter()?;
-        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-            .unwrap_or_default();
+        // The ledger is keyed by the canonical id the listing rows carry, so
+        // this tool and the `summary_cache` marker describe the same cache
+        // however the caller spells the id.
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
         if session_id.is_empty() {
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "No sessions found".to_string(),
@@ -1630,12 +1784,24 @@ fn line_selectors(
 /// writes it to the overflow file and returns the marker with its histogram —
 /// the escape hatch every other report has. Answering with an empty table
 /// instead would hide the store behind a bound.
+///
+/// The `summary_cache` marker is set here, in the render layer, by a cheap
+/// post-pass that reads each session's ledger's last row — the adapters never
+/// touch it, the same way `has_tantivy_index` is set by the server.
 fn listing_json(
     sessions: &[crate::SessionSummary],
     window_count: usize,
     max_bytes: usize,
+    shadow_root: &std::path::Path,
 ) -> String {
-    let rows: Vec<crate::ListingRow> = sessions.iter().map(crate::ListingRow::new).collect();
+    let rows: Vec<crate::ListingRow> = sessions
+        .iter()
+        .map(|s| {
+            let mut row = crate::ListingRow::new(s);
+            row.summary_cache = crate::summary_cache::through_marker(shadow_root, &s.session_id);
+            row
+        })
+        .collect();
     let mut rendered: Vec<&crate::ListingRow> = Vec::new();
     let mut json = listing_envelope(&rendered, window_count, max_bytes);
     for row in &rows {
