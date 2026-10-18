@@ -11,10 +11,9 @@ use rmcp::{
 };
 
 use crate::{
-    RolloutAdapter, build_structured_prompt,
+    RolloutAdapter,
     harness::make_adapter,
     mercury::provider_for,
-    prompt::SYSTEM_PROMPT,
     recall::{
         CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
         STATE_SYSTEM_PROMPT, build_commits_section, build_compaction_footer,
@@ -64,9 +63,9 @@ pub struct ProfileParams {
     #[serde(default)]
     pub session_id: String,
     #[schemars(
-        description = "Opt-in on-disk profile cache: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Default false."
+        description = "On-disk profile cache, on by default: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Pass false to force a recompute without touching the cache."
     )]
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub cache: bool,
 }
 
@@ -240,6 +239,11 @@ pub struct SummariseCurrentSessionParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
     pub session_id: String,
+    #[schemars(
+        description = "On-disk range-ledger cache, on by default: an unchanged session returns the cached parts with no LLM call; a moved session summarises only the delta. Pass false to force a full re-summarise."
+    )]
+    #[serde(default = "default_true")]
+    pub cache: bool,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -1142,7 +1146,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: a structured summary of a session up to its current point — Accomplished, Current Work, Files, Next Steps, and Key Decisions — read from the session store at call time, so it works for a session the caller has just left (for example after a /new drop) to prime a fresh context. Takes only session_id (partial match; empty = most recent). Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
+        description = "Total-recall MCP tool: a structured summary of a session up to its current point — Accomplished, Current Work, Files, Next Steps, and Key Decisions — read from the session store at call time, so it works for a session the caller has just left (for example after a /new drop) to prime a fresh context. Takes session_id (partial match; empty = most recent) and cache (on by default: a per-session range ledger in the shadow root records what was summarised; an unchanged session returns the cached parts with no LLM call, a moved session summarises only the delta and appends it; pass false to force a full re-summarise). Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
     )]
     async fn summarise_current_session(
         &self,
@@ -1156,41 +1160,22 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        let messages = match read_window(adapter.as_ref(), &session_id, true) {
-            Ok(m) => m,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-
-        if messages.is_empty() {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(
-                "No messages found in session".to_string(),
-            )]));
-        }
-
-        let prompt = build_structured_prompt(&messages);
-
-        // A vendor-free build keeps this tool registered (clients bind by
-        // name) and reports the missing feature as a tool error.
-        let provider = match provider_for(None) {
-            Ok(provider) => provider,
-            Err(e) => {
-                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-                    "{e:#}"
-                ))]));
-            }
-        };
-
-        let summary = provider
-            .compact(SYSTEM_PROMPT, &prompt)
-            .await
-            .map_err(|e| McpError::internal_error(format!("Mercury API error: {}", e), None))?;
-
-        Ok(capped_text(
-            "summarise_current_session",
+        match crate::summary_cache::summarise_session(
+            adapter.as_ref(),
             &session_id,
-            summary,
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+            params.cache,
+            None,
+        )
+        .await
+        {
+            Ok(text) => Ok(capped_text(
+                "summarise_current_session",
+                &session_id,
+                text,
+                crate::report_cap::DEFAULT_MAX_BYTES,
+            )),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
     }
 
     #[tool(

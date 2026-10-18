@@ -10,6 +10,7 @@ pub mod recall;
 pub mod redact;
 pub mod report_cap;
 pub mod rollout;
+pub mod summary_cache;
 pub mod todo_history;
 
 pub use mercury::{
