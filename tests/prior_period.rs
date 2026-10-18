@@ -118,9 +118,16 @@ fn the_todo_log_lists_opened_and_closed_items_with_timings() {
     let (opened, closed) = opened_closed_counts(&writes, false);
     assert_eq!((opened, closed), (2, 1), "two adds, one completion");
 
-    let section = build_todo_log_section(&events, opened, closed, &[]);
+    let section = build_todo_log_section(&events, opened, closed, 0, &[]);
     assert!(section.contains("## Todo Log"), "{section}");
-    assert!(section.contains("2 opened, 1 closed"), "{section}");
+    // No opened/closed summary line: the lists carry the counts, and a
+    // contradicting headline above them is exactly the repetition that
+    // misled (the count can exclude a carried-in baseline the list shows).
+    assert!(
+        !section.contains("opened, "),
+        "the summary headline is gone; the lists speak: {section}"
+    );
+    assert!(section.contains("Opened (2):"), "{section}");
     assert!(
         section.contains("2026-10-16T09:00:00Z — item00: first (pending)"),
         "{section}"
@@ -129,11 +136,63 @@ fn the_todo_log_lists_opened_and_closed_items_with_timings() {
         section.contains("2026-10-16T09:10:00Z — item00: first (completed)"),
         "{section}"
     );
+    assert!(section.contains("Closed (1):"), "{section}");
     assert!(section.contains("State transitions"), "{section}");
     assert!(
         section.contains("2026-10-16T09:05:00Z — in_progress: item00: first"),
         "{section}"
     );
+}
+
+#[test]
+fn the_opened_list_excludes_the_restated_baseline_so_the_counts_agree() {
+    // On a sliced period the first flush restates the carried-in list; the
+    // churn counts already exclude it, so the Opened list must exclude it
+    // too — a headline count over a contradicting list was the defect.
+    let writes = vec![
+        write(
+            "2026-10-16T09:00:00Z",
+            vec![
+                item("item00: carried a", "pending"),
+                item("item01: carried b", "pending"),
+            ],
+        ),
+        write(
+            "2026-10-16T09:05:00Z",
+            vec![
+                item("item00: carried a", "pending"),
+                item("item01: carried b", "pending"),
+                item("item02: new c", "pending"),
+                item("item03: new d", "pending"),
+            ],
+        ),
+        write(
+            "2026-10-16T09:10:00Z",
+            vec![
+                item("item00: carried a", "completed"),
+                item("item01: carried b", "pending"),
+                item("item02: new c", "pending"),
+                item("item03: new d", "pending"),
+            ],
+        ),
+    ];
+    let events = diff_todo_states(&writes);
+    let (opened, closed) = opened_closed_counts(&writes, true);
+    assert_eq!((opened, closed), (2, 1), "two genuine opens, one close");
+
+    let section = build_todo_log_section(&events, opened, closed, 2, &[]);
+    assert!(section.contains("Opened (2):"), "{section}");
+    assert!(
+        !section.contains("item00: carried a (pending)"),
+        "the carried-in items are not counted as opened: {section}"
+    );
+    assert!(
+        section.contains("item02: new c (pending)"),
+        "the genuine opens are listed: {section}"
+    );
+    assert!(section.contains("Closed (1):"), "{section}");
+    // The transitions remain the complete record, baseline included.
+    assert!(section.contains("added: item00: carried a"), "{section}");
 }
 
 #[test]
@@ -151,7 +210,7 @@ fn the_churn_note_fires_when_items_open_faster_than_they_close() {
     assert_eq!((opened, closed), (3, 0));
 
     let steers = vec!["stop starting new things".to_string()];
-    let section = build_todo_log_section(&events, opened, closed, &steers);
+    let section = build_todo_log_section(&events, opened, closed, 0, &steers);
     assert!(section.contains("Churn note"), "{section}");
     assert!(
         section.contains("starting new things without finishing old ones may be causing churn"),
@@ -179,7 +238,7 @@ fn the_churn_note_stays_silent_when_closes_keep_up() {
     let (opened, closed) = opened_closed_counts(&writes, false);
     assert_eq!((opened, closed), (2, 2));
 
-    let section = build_todo_log_section(&events, opened, closed, &[]);
+    let section = build_todo_log_section(&events, opened, closed, 0, &[]);
     assert!(!section.contains("Churn note"), "{section}");
 }
 
@@ -236,7 +295,7 @@ fn a_restated_first_flush_is_the_baseline_not_new_opens() {
 
 #[test]
 fn an_empty_period_has_no_churn_note_and_says_so() {
-    let section = build_todo_log_section(&[], 0, 0, &[]);
+    let section = build_todo_log_section(&[], 0, 0, 0, &[]);
     assert!(
         section.contains("No todo activity in this period"),
         "{section}"
@@ -317,7 +376,7 @@ fn the_footer_names_the_last_few_compaction_points_with_counts_since() {
         message("assistant", "nine", Some("2026-10-16T10:00:00Z"), &[]),
         message("user", "ten", Some("2026-10-16T11:00:00Z"), &[]),
     ];
-    let footer = build_compaction_footer(&messages, false);
+    let footer = build_compaction_footer(&messages, false, &[3, 7]);
     assert!(footer.contains("## Compaction Points"), "{footer}");
     assert!(
         footer.contains("2026-10-15T09:00:00Z — 6 messages"),
@@ -349,7 +408,7 @@ fn the_footer_holds_back_nothing_when_full_and_says_the_period_is_the_whole_sess
         ),
         message("assistant", "three", Some("2026-10-16T09:00:00Z"), &[]),
     ];
-    let footer = build_compaction_footer(&messages, true);
+    let footer = build_compaction_footer(&messages, true, &[1]);
     assert!(footer.contains("the `/new`-drop flow"), "{footer}");
     assert!(
         !footer.contains("the current period starts here"),
@@ -361,7 +420,7 @@ fn the_footer_holds_back_nothing_when_full_and_says_the_period_is_the_whole_sess
 #[test]
 fn a_session_without_compaction_points_says_the_period_is_the_whole_session() {
     let messages = vec![message("user", "only", Some("2026-10-16T09:00:00Z"), &[])];
-    let footer = build_compaction_footer(&messages, false);
+    let footer = build_compaction_footer(&messages, false, &[]);
     assert!(
         footer.contains("No compaction points in this session"),
         "{footer}"
@@ -488,7 +547,10 @@ mod served {
             let result = self.read_until_id(id)["result"].clone();
             (
                 result["isError"].as_bool().unwrap_or(false),
-                result["content"][0]["text"].as_str().unwrap_or("").to_string(),
+                result["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
             )
         }
 
@@ -589,10 +651,17 @@ mod served {
     }
 
     #[test]
-    fn the_new_tool_is_registered_with_the_old_one_deprecated_at_the_boundary() {
+    fn the_deleted_tool_is_gone_and_the_new_tool_registered() {
         let (mut mcp, _db) = spawn();
         let tools = mcp.tools_list();
         let array = tools.as_array().expect("tools array");
+
+        assert!(
+            array
+                .iter()
+                .all(|t| t["name"].as_str() != Some("total_recall")),
+            "the deprecated tool is deleted, not listed: {tools}"
+        );
 
         let new = array
             .iter()
@@ -604,17 +673,6 @@ mod served {
                 && description.contains("not a compaction"),
             "the new tool presents itself as a voluntary summary of a prior period: {description}"
         );
-
-        let old = array
-            .iter()
-            .find(|t| t["name"].as_str() == Some("total_recall"))
-            .expect("total_recall is registered");
-        let description = old["description"].as_str().unwrap_or("");
-        assert!(
-            description.starts_with("DEPRECATED")
-                && description.contains("prior_period_summary"),
-            "the old tool's served description carries the deprecation pointer: {description}"
-        );
         reap(&mut mcp);
     }
 
@@ -624,8 +682,11 @@ mod served {
         let schema = mcp.schema("prior_period_summary");
         let mut fields: Vec<&str> = schema.keys().map(String::as_str).collect();
         fields.sort_unstable();
-        assert_eq!(fields, vec!["full", "hours_back", "max_bytes", "session_id"]);
-        assert_eq!(schema["full"]["description"].is_null(), false);
+        assert_eq!(
+            fields,
+            vec!["full", "hours_back", "max_bytes", "session_id"]
+        );
+        assert!(schema["full"]["description"].is_string());
         assert!(
             schema["full"]["description"]
                 .as_str()
@@ -639,12 +700,13 @@ mod served {
     #[test]
     fn an_unknown_field_and_an_out_of_bound_are_answered_in_the_house_form() {
         let (mut mcp, _db) = spawn();
-        let (err, text) = mcp.call(
-            "prior_period_summary",
-            json!({"fulls": true}),
+        let (err, text) = mcp.call("prior_period_summary", json!({"fulls": true}));
+        assert!(err && text.contains("unrecognised field `fulls`"), "{text}",);
+        assert!(
+            text.contains("session_id|full|hours_back|max_bytes")
+                || text.contains("full|hours_back|max_bytes|session_id"),
+            "{text}"
         );
-        assert!(err && text.contains("unrecognised field `fulls`"), "{text}", );
-        assert!(text.contains("session_id|full|hours_back|max_bytes") || text.contains("full|hours_back|max_bytes|session_id"), "{text}");
 
         let (err, text) = mcp.call("prior_period_summary", json!({"max_bytes": 0}));
         assert!(err, "{text}");

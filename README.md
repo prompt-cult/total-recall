@@ -288,7 +288,7 @@ a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`, `compact_session`,
-  `total_recall`, `todo_history`): `session_id` partial match; empty = the
+  `prior_period_summary`, `todo_history`): `session_id` partial match; empty = the
   most recent session.
 - **Window tools** (`list_sessions`, `she_said_he_said_action`,
   `extract_qa_pairs`, `index_sessions`,
@@ -345,24 +345,16 @@ exceeding any of them returns HTTP 429:
 These contracts are asserted against a local mock server in
 `tests/mercury_guardrails.rs`; no test ever calls the real API.
 
-### `recall` — total recall (deprecated)
-
-DEPRECATED — superseded by `prior-period-summary` below. Kept unchanged for
-comparison; it will be removed once the new tool is adopted.
-
-1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
-2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
-3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
-4. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, substance middle, instructions last
-
 ### `prior-period-summary` — a voluntary summary of a prior period
 
-`recall`, renamed and amended. It is a voluntary summary of a prior period,
-not a compaction: the harness owns compaction, and this tool is only ever
-invoked voluntarily. Two flows, two correct answers — after a `/compact`,
-summarise since that compaction point (the default); before a `/new` drop,
-summarise the whole session up to the point of the drop (`--full`), including
-what earlier compactions folded away.
+A voluntary summary of a prior period, not a compaction: the harness owns
+compaction, and this tool is only ever invoked voluntarily. Two flows, two
+correct answers — after a `/compact`, summarise since that compaction point
+(the default); before a `/new` drop, summarise the whole session up to the
+point of the drop (`--full`), including what earlier compactions folded
+away. (The deleted `recall` subcommand of pre-0.14 versions is this tool's
+predecessor.) On opencode the compaction boundary is the typed compaction
+part, which prose quoting the marker text cannot forge.
 
 1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
@@ -429,7 +421,7 @@ file.
 |------|-------------------|---------------|
 | `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history` | works | works |
 | `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
-| `total_recall` (MCP), `recall` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
+| `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
 The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients
 bind by name — and the call itself returns the error:
@@ -531,7 +523,7 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
 `compact_session`, `she_said_he_said_action`, `index_sessions`,
-`do_android_dream_of_electric_sheep`, `total_recall`, `todo_history`,
+`do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
 and `line_histogram`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
@@ -571,7 +563,7 @@ unset or unknown the server refuses to start: it prints the reason to stdout
 and stderr and exits 2.
 
 Keep the server key/name as `total-recall`: the MCP tool names derive from
-it (`total-recall_total_recall`, …), so a renamed server shows up in the
+it (`total-recall_prior_period_summary`, …), so a renamed server shows up in the
 agent's tool surface under the wrong identity.
 
 Register it in Mistral Vibe (`~/.vibe/config.toml`):
@@ -622,7 +614,7 @@ launches the client; the server inherits it.
   Rebuild with `cargo build --release --features mercury`, or keep the
   vendor-free build and use the log-mining tools, which need no key.
 
-- **401 "Incorrect API key" from `compact`/`total_recall`** — the MCP
+- **401 "Incorrect API key" from `compact`/`prior_period_summary`** — the MCP
   server's environment block is missing `INCEPTION_API_KEY`. List/profile
   work without it (no LLM call); Mercury calls fail. Add the key to the
   snippet's environment (see MCP server above) or export it in the launching
@@ -634,8 +626,8 @@ launches the client; the server inherits it.
 2. Copy `.env.template` to `.env` and fill in your key (build-from-source CLI path; MCP servers get the key from their registration snippet's environment instead)
 3. `cargo build --release` and use the CLI above
 
-Steps 1–2 are only needed for the LLM-backed tools (`compact`, `recall`,
-`total_recall`, `compact_session`). Every log-mining tool works from a
+Steps 1–2 are only needed for the LLM-backed tools (`compact`,
+`prior-period-summary`, `compact_session`). Every log-mining tool works from a
 vendor-free build with no key at all.
 
 <!-- BEGIN: distribution (ticket 452) -->

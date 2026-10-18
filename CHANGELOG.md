@@ -5,7 +5,7 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-10-17
 
 ### Added
 
@@ -16,29 +16,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after a `/compact`, `full: false` (the default) summarises since that
   compaction point — the last period between compactions; before a `/new`
   drop, `full: true` summarises the whole session up to the point of the
-  drop, including what earlier compactions folded away. On top of the old
-  tool's output (recent rollouts, plan/todo files, the two parallel Mercury
-  2.5 summaries, instructions) it folds in the period's todo log — items
-  opened and closed with timings, the state-change history (opened →
-  in_progress → completed/cancelled transitions), and a churn note when
-  items open faster than they close, with the human's recent steers read
-  into it — and the commits made in the period, appends a compaction-points
-  FYI footer (the last few compaction points with message and line counts
-  since each), and ends with a fixed orientation warning: the summary does
-  not attempt to show what was in-flight or the next steps — those are known
-  from the todo list, the user's most recent inputs, and the commit history
-  — so take stock and get your bearings before picking up the work. The
-  todo log is opencode-only (todowrite flushes are only readable there); on
-  every other harness the section says so instead of failing or silently
-  reading as "no todos".
+  drop, including what earlier compactions folded away. On top of the
+  metadata (recent rollouts, plan/todo files, instructions) it folds in the
+  period's todo log — items opened and closed with timings, the
+  state-change history (opened → in_progress → completed/cancelled
+  transitions), and a churn note when items open faster than they close,
+  with the human's recent steers read into it — the commits made in the
+  period, a compaction-points FYI footer (the last few compaction points
+  with message and line counts since each), and a fixed orientation warning
+  appended last: the summary does not attempt to show what was in-flight or
+  the next steps — those are known from the todo list, the user's most
+  recent inputs, and the commit history — so take stock and get your
+  bearings before picking up the work. The todo log is opencode-only
+  (todowrite flushes are only readable there); on every other harness the
+  section says so instead of failing or silently reading as "no todos".
 
-### Deprecated
+### Fixed
 
-- `total_recall` MCP tool and `recall` CLI subcommand: superseded by
-  `prior_period_summary` / `prior-period-summary`. Unchanged in behaviour
-  and kept only for comparison; the deprecation is stated at the boundary
-  (the served tool description and the CLI help) and the tool will be
-  removed once the new one is adopted.
+- The opencode compaction boundary is the typed compaction part, not a
+  substring match. The old rule matched ANY message whose text contains
+  "context compaction" — and the live store is full of prose and tool
+  payloads that quote it (code the session read, discussion of the boundary
+  itself) — so one such forgery silently shrank a 430-message session's
+  `full: false` read to a 9-message sliver. The boundary is now discovered
+  from the typed compaction part's normalized marker (`compaction_markers`),
+  which prose cannot forge; every other harness keeps the text heuristic.
+  Every `full: false` path on opencode reads the corrected slice: the
+  summary prompts, the commits and the churn counts share it.
+- The prior-period todo log no longer contradicts itself: the opened and
+  closed summary headline is gone (the lists carry the counts), and the
+  Opened list excludes a restated first flush exactly as the churn counts
+  did, so a carried-in item is counted neither as opened nor shown.
+
+### Removed
+
+- `total_recall` MCP tool and `recall` CLI subcommand: deleted after their
+  live comparison against `prior_period_summary`. On the same rollout the
+  old tool's Mercury call on a 204 KB bounded prompt returned a raw
+  transcript echo with none of the structured sections, while the todo log
+  and commits carried the true record — the comparison the tool was kept
+  for concluded. `prior_period_summary` / `prior-period-summary` is the one
+  tool.
 
 ## [0.13.0] - 2026-10-14
 

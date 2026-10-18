@@ -259,7 +259,11 @@ fn extract_by_type_works_without_any_vendor() {
 fn vendor_free_recall_explains_the_build() {
     let root = scratch("recall");
     make_session(&root);
-    let out = run_cli("recall", &root, &["--harness", "vibe", "recall"]);
+    let out = run_cli(
+        "recall",
+        &root,
+        &["--harness", "vibe", "prior-period-summary"],
+    );
     assert!(!out.status.success(), "recall must exit non-zero");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -288,10 +292,14 @@ fn vendor_free_compact_explains_the_build() {
 
 #[cfg(feature = "mercury")]
 #[test]
-fn default_build_recall_reports_the_missing_key() {
+fn default_build_prior_period_reports_the_missing_key() {
     let root = scratch("keyed");
     make_session(&root);
-    let out = run_cli("keyed", &root, &["--harness", "vibe", "recall"]);
+    let out = run_cli(
+        "keyed",
+        &root,
+        &["--harness", "vibe", "prior-period-summary"],
+    );
     assert!(!out.status.success(), "recall must exit non-zero");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -446,7 +454,7 @@ fn llm_tool_names_are_registered_in_every_build() {
     // rather than breaking the client's tool inventory.
     for expected in [
         "compact_session",
-        "total_recall",
+        "prior_period_summary",
         "list_sessions",
         "she_said_he_said_action",
     ] {
@@ -500,7 +508,7 @@ fn vendor_free_mcp_call_reports_the_build() {
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
-    let resp = call_tool(&mut reader, &mut stdin, 2, "total_recall");
+    let resp = call_tool(&mut reader, &mut stdin, 2, "prior_period_summary");
     reap_mcp(&mut child, &cwd);
     let text = serde_json::to_string(&resp).unwrap();
     assert!(
@@ -521,7 +529,7 @@ fn vendor_build_mcp_call_reports_the_missing_key() {
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
-    let resp = call_tool(&mut reader, &mut stdin, 2, "total_recall");
+    let resp = call_tool(&mut reader, &mut stdin, 2, "prior_period_summary");
     reap_mcp(&mut child, &cwd);
     let text = serde_json::to_string(&resp).unwrap();
     assert!(

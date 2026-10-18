@@ -19,8 +19,8 @@ use crate::{
         CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
         STATE_SYSTEM_PROMPT, build_commits_section, build_compaction_footer,
         build_goals_prompt_bounded, build_plan_files_section, build_prior_period_output,
-        build_recall_output, build_recent_rollouts_table, build_state_prompt_bounded,
-        build_todo_log_section, build_todo_log_unavailable, recent_steers,
+        build_recent_rollouts_table, build_state_prompt_bounded, build_todo_log_section,
+        build_todo_log_unavailable, recent_steers,
     },
 };
 
@@ -245,26 +245,6 @@ pub struct CompactParams {
     )]
     #[serde(default)]
     pub full: bool,
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TotalRecallParams {
-    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-    #[serde(default)]
-    pub session_id: String,
-    #[schemars(
-        description = "Hours back to include in the recent rollouts table. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24).",
-        range(min = 1)
-    )]
-    #[serde(default = "default_hours")]
-    pub hours_back: i64,
-    #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
-        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-    )]
-    #[serde(default = "default_max_bytes")]
-    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -1224,151 +1204,6 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        name = "total_recall",
-        description = "DEPRECATED — use prior_period_summary instead: the same voluntary summary with the period's todo log, the period's commits, a compaction-points FYI footer and an orientation warning folded in. This tool is unchanged and kept only for comparison; it will be removed once the new tool is adopted. Total-recall MCP tool: fast compaction and log mining of session rollouts as a long-term memory store. Summarises the current session state, extracts user goals/tasks/steers, lists recent rollouts, and lists plan/todo files. Makes two parallel LLM calls and assembles a combined output to supplement the shorter faster compactions."
-    )]
-    async fn total_recall(
-        &self,
-        Parameters(params): Parameters<TotalRecallParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let max_bytes = match number(
-            "total_recall",
-            "max_bytes",
-            params.max_bytes,
-            1,
-            crate::bound::MAX_BYTES_CEILING as i64,
-            REPORT_MAX_BYTES_CHEAP,
-        ) {
-            Ok(v) => v as usize,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        // The rollouts table works a window like every other tool, so `0` here
-        // means the default window and never the adapter's unbounded `0`.
-        let hours = match window_hours(
-            "total_recall",
-            Some(params.hours_back),
-            false,
-            default_hours() as u64,
-        ) {
-            Ok(h) => h,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let adapter = self.adapter()?;
-        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-            .unwrap_or_default();
-        if session_id.is_empty() {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(
-                "No sessions found".to_string(),
-            )]));
-        }
-
-        // Read messages from last compaction point
-        let messages = match adapter.read_session_from_compaction(&session_id) {
-            Ok(m) => m,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        if messages.is_empty() {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(
-                "No messages found in session".to_string(),
-            )]));
-        }
-
-        // Extract user messages from the full session
-        let user_messages = match adapter.extract_user_messages(&session_id) {
-            Ok(m) => m,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-
-        // Build prompts. Both are byte-bounded: the newest context is kept, the
-        // oldest dropped, and the drop reported in the timing comment below.
-        let state_prompt = build_state_prompt_bounded(&messages, MAX_STATE_BYTES);
-        let goals_prompt = build_goals_prompt_bounded(&user_messages, MAX_GOALS_BYTES);
-        let prompt_stats = serde_json::json!({
-            "state_prompt_bytes": state_prompt.bytes,
-            "state_prompt_dropped_bytes": state_prompt.dropped_bytes,
-            "state_prompt_dropped_messages": state_prompt.dropped_items,
-            "goals_prompt_bytes": goals_prompt.bytes,
-            "goals_prompt_dropped_bytes": goals_prompt.dropped_bytes,
-            "goals_prompt_dropped_messages": goals_prompt.dropped_items,
-        });
-        let prompt_stats = prompt_stats.as_object().cloned().unwrap_or_default();
-
-        // Create provider
-        let provider = match provider_for(None) {
-            Ok(provider) => provider,
-            Err(e) => {
-                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-                    "{e:#}"
-                ))]));
-            }
-        };
-
-        // One bounded-concurrency batch call for both LLM calls
-        let t0 = std::time::Instant::now();
-        let batch_results = provider
-            .compact_batch_pairs(vec![
-                (STATE_SYSTEM_PROMPT.to_string(), state_prompt.text),
-                (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt.text),
-            ])
-            .await;
-        let total_time = t0.elapsed();
-
-        let [state_summary, goals_summary] = batch_results
-            .map_err(|e| McpError::internal_error(format!("Mercury API error: {e:#}"), None))?
-            .try_into()
-            .expect("compact_batch_pairs returns one result per call");
-
-        // Build recent rollouts table from the scoped listing: the window is
-        // applied where the data lives and the table holds the listing's
-        // bounded rows plus the held-back count.
-        let listing = adapter.list_sessions_scoped(hours, None);
-        let rollouts_table = build_recent_rollouts_table(&listing, Some(&session_id), hours);
-        let table_rows = listing.sessions.len();
-
-        // Build plan files section
-        let plan_files = build_plan_files_section();
-
-        // Assemble output
-        let output =
-            build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
-
-        // Log timing info as JSON prefix (for debugging), carrying what the
-        // prompt byte budgets dropped so a bounded prompt is never silent.
-        let mut timing = serde_json::Map::from_iter([
-            (
-                "total_time_s".to_string(),
-                serde_json::json!(total_time.as_secs_f64()),
-            ),
-            (
-                "session_messages_count".to_string(),
-                serde_json::json!(messages.len()),
-            ),
-            (
-                "user_messages_count".to_string(),
-                serde_json::json!(user_messages.len()),
-            ),
-            (
-                "recent_sessions_count".to_string(),
-                serde_json::json!(listing.window_count),
-            ),
-            (
-                "rollout_table_rows".to_string(),
-                serde_json::json!(table_rows),
-            ),
-        ]);
-        timing.extend(prompt_stats);
-        let timing_str = serde_json::to_string_pretty(&serde_json::Value::Object(timing))
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(capped_text(
-            "total_recall",
-            &session_id,
-            format!("<!-- {} -->\n\n{}", timing_str, output),
-            max_bytes,
-        ))
-    }
-
-    #[tool(
         name = "prior_period_summary",
         description = "Total-recall MCP tool: a voluntary summary of a prior period — not a compaction (the harness owns compaction; this tool is only ever invoked voluntarily). Two flows, two correct answers: after a /compact, full=false (the default) summarises since that compaction point — the last period between compactions; before a /new drop, full=true summarises the whole session up to the point of the drop, including what earlier compactions folded away. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls."
     )]
@@ -1409,13 +1244,13 @@ impl TotalRecallServer {
             )]));
         }
 
-        // One read serves both views: the full session for the compaction
-        // footer, and the period — the whole session (`full: true`, the
-        // /new-drop flow) or the slice since the last compaction point
-        // (`full: false`, the /compact flow) — for the state summary, the
-        // commits and the todo log. The slice is byte-identical to
-        // `read_session_from_compaction`, which every adapter defines as
-        // exactly this.
+        // The full session feeds the compaction footer; the period — the
+        // whole session (`full: true`, the /new-drop flow) or the adapter's
+        // slice since its last compaction boundary (`full: false`, the
+        // /compact flow) — feeds the state summary, the commits and the todo
+        // log. The boundary is the adapter's own: on opencode that is the
+        // typed compaction part, which prose quoting the marker text cannot
+        // forge.
         let full_messages = match adapter.read_session_mmap(&session_id) {
             Ok(m) => m,
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
@@ -1425,15 +1260,17 @@ impl TotalRecallServer {
                 "No messages found in session".to_string(),
             )]));
         }
-        let compaction_footer = build_compaction_footer(&full_messages, params.full);
-        let has_compaction = full_messages
-            .iter()
-            .any(|m| m.content.contains("context compaction"));
+        let markers = adapter.compaction_markers(&full_messages);
+        let compaction_footer = build_compaction_footer(&full_messages, params.full, &markers);
+        let has_compaction = !markers.is_empty();
         let full_session_messages_count = full_messages.len();
         let period_messages = if params.full {
             full_messages
         } else {
-            crate::rollout::slice_from_compaction(full_messages)
+            match adapter.read_session_from_compaction(&session_id) {
+                Ok(m) => m,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+            }
         };
 
         // Extract user messages from the full session
@@ -1445,21 +1282,33 @@ impl TotalRecallServer {
         // The period's todo log, when the harness can read todowrite flushes.
         // A read failure degrades to a stated-unavailable section, never a
         // silent empty list that reads as "no todos" and never a failed call.
-        let (todo_log, todo_opens, todo_closes, todo_events, todo_writes) =
+        let (todo_log, todo_opens, todo_closes, todo_events, todo_writes, todo_baseline) =
             match adapter.read_todo_writes(&session_id, params.full) {
                 Ok(writes) => {
-                    let (opened, closed) = crate::todo_history::opened_closed_counts(
-                        &writes,
-                        !params.full && has_compaction,
-                    );
+                    let restatement = !params.full && has_compaction;
+                    let (opened, closed) =
+                        crate::todo_history::opened_closed_counts(&writes, restatement);
                     let events = crate::todo_history::diff_todo_states(&writes);
                     let steers = recent_steers(&user_messages, CHURN_STEER_COUNT);
-                    let section = build_todo_log_section(&events, opened, closed, &steers);
+                    let baseline = if restatement && !writes.is_empty() {
+                        writes[0].todos.len()
+                    } else {
+                        0
+                    };
+                    let section =
+                        build_todo_log_section(&events, opened, closed, baseline, &steers);
                     let n_events = events.len();
                     let n_writes = writes.len();
-                    (section, opened, closed, n_events, n_writes)
+                    (section, opened, closed, n_events, n_writes, baseline)
                 }
-                Err(e) => (build_todo_log_unavailable(adapter.name(), &e), 0, 0, 0, 0),
+                Err(e) => (
+                    build_todo_log_unavailable(adapter.name(), &e),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ),
             };
 
         // Build prompts. Both are byte-bounded: the newest context is kept, the
@@ -1553,6 +1402,10 @@ impl TotalRecallServer {
             ("todo_opens".to_string(), serde_json::json!(todo_opens)),
             ("todo_closes".to_string(), serde_json::json!(todo_closes)),
             ("todo_events".to_string(), serde_json::json!(todo_events)),
+            (
+                "todo_baseline".to_string(),
+                serde_json::json!(todo_baseline),
+            ),
             ("todo_writes".to_string(), serde_json::json!(todo_writes)),
             (
                 "commits_in_period".to_string(),

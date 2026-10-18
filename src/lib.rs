@@ -20,7 +20,7 @@ pub use mercury::{
 pub use prompt::{SYSTEM_PROMPT, build_structured_prompt};
 pub use recall::{
     BoundedPrompt, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES, STATE_SYSTEM_PROMPT,
-    build_goals_prompt, build_goals_prompt_bounded, build_plan_files_section, build_recall_output,
+    build_goals_prompt, build_goals_prompt_bounded, build_plan_files_section,
     build_recent_rollouts_table, build_state_prompt, build_state_prompt_bounded,
 };
 pub use redact::redact_secrets;

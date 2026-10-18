@@ -11,7 +11,7 @@ use super::{
     EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair, ReadResult,
     RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
     no_session_error, parse_questions_payload, parse_quoted_string, resolve_root,
-    slice_from_compaction, summarize_tool_call, truncate_chars,
+    summarize_tool_call, truncate_chars,
 };
 use crate::todo_history::{TodoItemState, TodoWrite};
 
@@ -441,7 +441,28 @@ impl RolloutAdapter for OpenCodeAdapter {
     }
 
     fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        Ok(slice_from_compaction(self.read_session_mmap(session_id)?))
+        let messages = self.read_session_mmap(session_id)?;
+        match self.compaction_markers(&messages).into_iter().next_back() {
+            Some(idx) => Ok(messages[idx..].to_vec()),
+            None => Ok(messages),
+        }
+    }
+
+    /// The typed compaction part is this store's only compaction record, and
+    /// its normalized rendering is exactly the injected marker message below.
+    /// Overriding the default substring match here is what the live dogfood
+    /// bought: prose and tool payloads quote the phrase "context compaction"
+    /// constantly (code the session read, discussion of the boundary itself),
+    /// and one such forgery silently shrank a 430-message session's
+    /// `full = false` read to a 9-message sliver while the substring rule
+    /// was in force.
+    fn compaction_markers(&self, messages: &[RolloutMessage]) -> Vec<usize> {
+        messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.injected && m.content == "context compaction")
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {

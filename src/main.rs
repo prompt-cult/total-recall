@@ -13,8 +13,8 @@ use total_recall::{
     recall::{
         CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, STATE_SYSTEM_PROMPT, build_commits_section,
         build_compaction_footer, build_goals_prompt, build_plan_files_section,
-        build_prior_period_output, build_recall_output, build_recent_rollouts_table,
-        build_state_prompt, build_todo_log_section, build_todo_log_unavailable, recent_steers,
+        build_prior_period_output, build_recent_rollouts_table, build_state_prompt,
+        build_todo_log_section, build_todo_log_unavailable, recent_steers,
     },
     todo_history::{diff_todo_states, opened_closed_counts},
 };
@@ -120,10 +120,6 @@ pub enum Command {
     },
     /// Compact a rollout using the configured LLM provider (`--provider`)
     Compact,
-    /// DEPRECATED — use prior-period-summary (the same voluntary summary with
-    /// the todo log, commits and an orientation warning folded in). Total
-    /// recall: state summary + user goals + rollouts table + plan files
-    Recall,
     /// A voluntary summary of a prior period, not a compaction: state
     /// summary, user goals, the period's todo log, commits, the rollouts
     /// table and plan files, plus a compaction-points FYI and an orientation
@@ -628,73 +624,26 @@ async fn main() -> Result<()> {
             let _ = std::io::stdout().flush();
         }
 
-        Command::Recall => {
-            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
-            tracing::info!("Read {} messages from {}", messages.len(), session_id);
-
-            if messages.is_empty() {
-                eprintln!("No messages found in session {}", session_id);
-                std::process::exit(1);
-            }
-
-            let user_messages = unwrap_read(adapter.extract_user_messages(&session_id));
-            tracing::info!("Extracted {} user messages", user_messages.len());
-
-            let state_prompt = build_state_prompt(&messages);
-            let goals_prompt = build_goals_prompt(&user_messages);
-
-            let provider = provider_for(cli.provider.as_deref())?;
-            let t0 = std::time::Instant::now();
-            let batch_results = provider
-                .compact_batch_pairs(vec![
-                    (STATE_SYSTEM_PROMPT.to_string(), state_prompt),
-                    (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt),
-                ])
-                .await?;
-            let total_time = t0.elapsed();
-
-            let [state_summary, goals_summary] = batch_results
-                .try_into()
-                .expect("compact_batch_pairs returns one result per call");
-
-            let hours_back: u64 = 24;
-            let listing = adapter.list_sessions_scoped(hours_back, None);
-            let rollouts_table =
-                build_recent_rollouts_table(&listing, Some(&session_id), hours_back);
-            let plan_files = build_plan_files_section();
-            let output =
-                build_recall_output(&state_summary, &goals_summary, &rollouts_table, &plan_files);
-
-            eprintln!(
-                "total_recall: {} messages, {} user msgs, {} recent sessions, {:.1}s",
-                messages.len(),
-                user_messages.len(),
-                listing.window_count,
-                total_time.as_secs_f64()
-            );
-            print!("{}", output);
-            let _ = std::io::stdout().flush();
-        }
-
         Command::PriorPeriodSummary => {
-            // One read serves both views: the full session for the
-            // compaction footer, and the period — the whole session
-            // (--full, the /new-drop flow) or the slice since the last
-            // compaction point (the default, the /compact flow) — for the
-            // state summary, the commits and the todo log.
+            // The full session feeds the compaction footer; the period — the
+            // whole session (--full, the /new-drop flow) or the adapter's
+            // slice since its last compaction boundary (the default, the
+            // /compact flow) — feeds the state summary, the commits and the
+            // todo log. The boundary is the adapter's own: on opencode that
+            // is the typed compaction part, which prose quoting the marker
+            // text cannot forge.
             let full_messages = unwrap_read(adapter.read_session_mmap(&session_id));
             if full_messages.is_empty() {
                 eprintln!("No messages found in session {}", session_id);
                 std::process::exit(1);
             }
-            let compaction_footer = build_compaction_footer(&full_messages, cli.full);
-            let has_compaction = full_messages
-                .iter()
-                .any(|m| m.content.contains("context compaction"));
+            let markers = adapter.compaction_markers(&full_messages);
+            let compaction_footer = build_compaction_footer(&full_messages, cli.full, &markers);
+            let has_compaction = !markers.is_empty();
             let messages = if cli.full {
                 full_messages
             } else {
-                total_recall::rollout::slice_from_compaction(full_messages)
+                unwrap_read(adapter.read_session_from_compaction(&session_id))
             };
             tracing::info!("Read {} period messages", messages.len());
 
@@ -721,12 +670,17 @@ async fn main() -> Result<()> {
             let (todo_log, todo_opens, todo_closes) =
                 match adapter.read_todo_writes(&session_id, cli.full) {
                     Ok(writes) => {
-                        let (opened, closed) =
-                            opened_closed_counts(&writes, !cli.full && has_compaction);
+                        let restatement = !cli.full && has_compaction;
+                        let (opened, closed) = opened_closed_counts(&writes, restatement);
                         let events = diff_todo_states(&writes);
                         let steers = recent_steers(&user_messages, CHURN_STEER_COUNT);
+                        let baseline = if restatement && !writes.is_empty() {
+                            writes[0].todos.len()
+                        } else {
+                            0
+                        };
                         (
-                            build_todo_log_section(&events, opened, closed, &steers),
+                            build_todo_log_section(&events, opened, closed, baseline, &steers),
                             opened,
                             closed,
                         )

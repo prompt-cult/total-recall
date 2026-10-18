@@ -21,7 +21,7 @@ The server prints the reason to stdout and stderr and exits 2, because a
 server that starts with an unknown harness would bind every tool to a
 nonsense store.
 
-## 401 "Incorrect API key" from `compact_session` / `total_recall`
+## 401 "Incorrect API key" from `compact_session` / `prior_period_summary`
 
 The MCP server's environment block is missing `INCEPTION_API_KEY`. List,
 profile, extract, index and search all work without a key — no LLM call — and
