@@ -17,7 +17,7 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | MCP tool | CLI | What it does |
 |---|---|---|
 | `total-recall_summarise_current_session` | `summarise-current-session` | Mercury 2.5 structured summary of a session up to its current point — works across a /new drop to prime a fresh context; cached by default via a per-session range ledger (unchanged session = no LLM call; moved session = delta summarise only) |
-| `total-recall_prior_period_summary` | `prior-period-summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + recent rollouts + plan files + orientation warning; the period is the work up to the session's last compaction boundary |
+| `total-recall_prior_period_summary` | `prior-period-summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + recent rollouts + plan files + orientation warning; the period is the work since the session's last compaction boundary |
 | `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events (cached by default; `--no-cache` to recompute) |
 | `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
 | `total-recall_extract_messages` | `extract` | all messages as JSON |

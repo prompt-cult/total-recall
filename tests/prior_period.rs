@@ -408,10 +408,7 @@ fn the_footer_names_the_period_it_covers() {
         message("assistant", "three", Some("2026-10-16T09:00:00Z"), &[]),
     ];
     let footer = build_compaction_footer(&messages, &[1]);
-    assert!(
-        footer.contains("the context a compaction consumed"),
-        "{footer}"
-    );
+    assert!(footer.contains("the work after that boundary"), "{footer}");
     assert!(footer.contains("1 message, 1 line since"), "{footer}");
 }
 

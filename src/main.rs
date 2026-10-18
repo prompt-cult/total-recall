@@ -125,8 +125,8 @@ pub enum Command {
     /// An orientation summary of a prior period of work: state
     /// summary, user goals, the period's todo log, commits, the rollouts
     /// table and plan files, plus a compaction-points FYI and an orientation
-    /// warning. The period is the work up to the last compaction boundary —
-    /// the context a compaction consumed
+    /// warning. The period is the work since the last compaction boundary —
+    /// the work after that boundary
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
     /// She-said/he-said/they-did: matched dialogue and tool actions
