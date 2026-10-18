@@ -315,12 +315,13 @@ exceeding any of them returns HTTP 429:
 - **The binding limit is ~1M input tokens/minute** (the documented input
   cap). Requests/min (1,000) and output tokens/min (100,000) never bind for
   compaction workloads.
-- **Per-call input cap: 1M tokens** (~4 chars/token). A 100MiB rollout is
-  never slung in one call. Note Mercury 2.5's documented context window is
-  260K tokens, so practical calls stay well below the cap — tool results
-  are snipped to 500 chars in prompt assembly, and a prompt built from a whole
-  session is held to a byte budget, so an over-cap prompt is never assembled in
-  the first place.
+- **Per-call input cap: 234,000 tokens — 90% of Mercury 2.5's 260K context
+  window** (~4 chars/token), leaving the rest for the completion. A 100MiB
+  rollout is never slung in one call; an over-cap prompt is rejected with an
+  error, never truncated. Practical calls stay far below the cap — tool
+  results are snipped to 500 chars in prompt assembly, and a prompt built
+  from a whole session is held to a byte budget, so an over-cap prompt is
+  never assembled in the first place.
 - **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
   sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
   (latency is flat across payload sizes and concurrency). Beyond

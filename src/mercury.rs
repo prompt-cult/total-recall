@@ -82,16 +82,16 @@ pub fn provider_for(name: Option<&str>) -> Result<MercuryProvider> {
     }
 }
 
+/// Mercury 2.5's documented context window, in tokens.
+pub const CONTEXT_WINDOW_TOKENS: usize = 260_000;
+
 /// Per-call input cap, in tokens (estimated at ~4 chars/token, the FAQ's own
-/// ratio). This is a user-set outer guard against slinging a 100MiB rollout
-/// in one call: over-cap prompts are rejected with an error, never truncated.
-///
-/// Note the cap is deliberately larger than Mercury 2.5's documented 260K
-/// token context window (the constant is set by user instruction, not by the
-/// context window), so practical calls sit far below the cap: tool results
-/// are already snipped to 500 chars in prompt assembly (`messages_to_text`),
-/// which keeps prompts small.
-pub const MAX_INPUT_TOKENS_PER_CALL: usize = 1_000_000;
+/// ratio): 90% of [`CONTEXT_WINDOW_TOKENS`]. The remaining ~26K tokens are the
+/// model's room for the completion. Over-cap prompts are rejected with an
+/// error naming the cap, never truncated — prompt assembly already bounds
+/// prompts below this (tool results snipped to 500 chars in
+/// `messages_to_text`), so the cap is an outer guard, not the working size.
+pub const MAX_INPUT_TOKENS_PER_CALL: usize = CONTEXT_WINDOW_TOKENS * 90 / 100;
 
 /// Maximum in-flight requests. Benchmarked sweet spot from the ingestion
 /// probe of 2026-09-15 (real rollout payloads of 5k/10k/20k tokens,
