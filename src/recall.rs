@@ -501,12 +501,15 @@ pub fn recent_steers(user_messages: &[String], count: usize) -> Vec<String> {
 /// Build the todo log section of a prior-period summary: items opened and
 /// closed in the period with timings, the state-change history, and the
 /// churn note. `opened`/`closed` come from
-/// [`crate::todo_history::opened_closed_counts`]; `recent_steers` feed the
-/// churn note.
+/// [`crate::todo_history::opened_closed_counts`]; `baseline` is the size of
+/// a restated first flush the counts excluded — the Opened list excludes it
+/// too, so the headwords and the churn note never contradict the list.
+/// `recent_steers` feed the churn note.
 pub fn build_todo_log_section(
     events: &[crate::todo_history::TodoEditEvent],
     opened: usize,
     closed: usize,
+    baseline: usize,
     steers: &[String],
 ) -> String {
     let mut lines = vec!["## Todo Log (this period)".to_string(), String::new()];
@@ -516,9 +519,7 @@ pub fn build_todo_log_section(
         return lines.join("\n");
     }
 
-    lines.push(format!("{opened} opened, {closed} closed in this period."));
     if opened > closed {
-        lines.push(String::new());
         if steers.is_empty() {
             lines.push(format!(
                 "**Churn note:** {} opened vs {} closed in this period — starting new \
@@ -548,6 +549,7 @@ pub fn build_todo_log_section(
     let opened_events: Vec<String> = events
         .iter()
         .filter(|e| e.action == "added")
+        .skip(baseline)
         .map(&render)
         .collect();
     let closed_events: Vec<String> = events
@@ -556,7 +558,6 @@ pub fn build_todo_log_section(
         .map(&render)
         .collect();
 
-    lines.push(String::new());
     let (opened_lines, opened_held) = capped_recent(opened_events, TODO_LOG_LIST_CAP);
     lines.push(format!("Opened ({}):", opened_lines.len()));
     for line in &opened_lines {
@@ -641,20 +642,20 @@ pub fn build_commits_section(messages: &[RolloutMessage]) -> String {
 /// compaction points with the message and line counts since each. `full`
 /// names the period the summary covers — the whole session (the `/new`-drop
 /// flow) or the slice since the last compaction point (the `/compact` flow).
-pub fn build_compaction_footer(full_messages: &[RolloutMessage], full: bool) -> String {
+/// `markers` are the boundary indices of the full session, from
+/// [`RolloutAdapter::compaction_markers`] — the adapter decides what a real
+/// boundary is, and prose cannot forge one.
+pub fn build_compaction_footer(
+    full_messages: &[RolloutMessage],
+    full: bool,
+    markers: &[usize],
+) -> String {
     let mut lines = vec!["## Compaction Points (FYI)".to_string(), String::new()];
     lines.push(if full {
         "Period: the whole session up to now — the `/new`-drop flow (`full: true`).".to_string()
     } else {
         "Period: since the last compaction point — the `/compact` flow (`full: false`).".to_string()
     });
-
-    let markers: Vec<usize> = full_messages
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| m.content.contains("context compaction"))
-        .map(|(i, _)| i)
-        .collect();
 
     if markers.is_empty() {
         lines.push(String::new());
@@ -758,65 +759,4 @@ pub fn build_prior_period_output(
     ];
 
     sections.join("\n")
-}
-
-/// Assemble the full recall output from its parts.
-///
-/// Ordering is deliberate for autoregressive LLMs:
-/// 1. Recent Rollouts table (metadata -- sets the scene, reference data)
-/// 2. Plan Files (metadata -- anchors the current plan)
-/// 3. Current State (LLM summary -- what just happened)
-/// 4. User Goals/Tasks/Steers (LLM summary -- the steering signal, fresh before instructions)
-/// 5. Instructions (call to action -- last, strongest influence on next token)
-///
-/// Metadata goes first because it is reference data the model will look back at,
-/// not generate from. The LLM summaries are the substance. Instructions go last
-/// because the final tokens have the strongest influence on what the model does next.
-pub fn build_recall_output(
-    state_summary: &str,
-    goals_summary: &str,
-    rollouts_table: &str,
-    plan_files: &str,
-) -> String {
-    let sections = vec![
-        // 1. Metadata: recent rollouts (sets the scene)
-        rollouts_table.to_string(),
-        String::new(),
-        // 2. Metadata: plan/todo files (anchors current plan)
-        plan_files.to_string(),
-        String::new(),
-        // 3. Substance: current state (what just happened)
-        "## Current State".to_string(),
-        String::new(),
-        state_summary.to_string(),
-        String::new(),
-        // 4. Substance: user goals/tasks/steers (steering signal, fresh before instructions)
-        "## User Goals, Tasks, and Steers".to_string(),
-        String::new(),
-        goals_summary.to_string(),
-        String::new(),
-        // 5. Call to action (last, strongest influence on next token)
-        INSTRUCTIONS.to_string(),
-    ];
-
-    sections.join("\n")
-}
-
-/// The result of a total-recall operation.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RecallOutput {
-    /// The full assembled markdown output.
-    pub output: String,
-    /// Time taken for the state summary LLM call (seconds).
-    pub state_time_s: f64,
-    /// Time taken for the goals summary LLM call (seconds).
-    pub goals_time_s: f64,
-    /// Total wall-clock time (seconds).
-    pub total_time_s: f64,
-    /// Number of sessions in the rollouts table.
-    pub sessions_count: usize,
-    /// Number of user messages extracted.
-    pub user_messages_count: usize,
-    /// Number of messages in the session (from compaction point).
-    pub session_messages_count: usize,
 }

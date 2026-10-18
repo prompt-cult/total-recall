@@ -436,6 +436,21 @@ pub trait RolloutAdapter: Send + Sync {
     /// If no compaction marker exists, returns all messages.
     fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>>;
 
+    /// Indices into the normalized message stream of the real compaction
+    /// boundaries, oldest-first — what the prior-period footer and its
+    /// boundary reasoning read. The default finds the marker text with a
+    /// substring match, for harnesses whose stores have no typed compaction
+    /// record; adapters whose store types it override this, so prose quoting
+    /// the marker text cannot forge a boundary.
+    fn compaction_markers(&self, messages: &[RolloutMessage]) -> Vec<usize> {
+        messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.content.contains("context compaction"))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Profile a session: file size, line count, role counts, interesting events
     fn profile_session(&self, session_id: &str) -> ReadResult<SessionProfile> {
         self.profile_session_opts(session_id, false)

@@ -675,3 +675,138 @@ fn test_opencode_scoped_listing_ignores_three_thousand_out_of_window_sessions() 
         "none of the 3,000 out-of-window sessions may appear"
     );
 }
+
+// --- The typed compaction boundary (#31 dogfood) -----------------------------
+//
+// The old boundary matched ANY message whose text contains the phrase
+// "context compaction" — and the live store is full of prose and tool
+// payloads that quote it (code the session read, discussion of the boundary
+// itself), so a false boundary silently shrank every full=false read. The
+// opencode store has a TYPED compaction part; only its normalized marker —
+// the exact injected message below — may define the boundary.
+
+fn create_prose_fixture(path: &std::path::Path) {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+         VALUES ('ses_prose000000000000000000aa', NULL, '/tmp/prose', 'prose fixture', 1, 1)",
+        [],
+    )
+    .unwrap();
+    let messages: Vec<(&str, i64, &str)> = vec![
+        ("m1", 1000, r#"{"role":"user","time":{"created":1000}}"#),
+        ("m2", 2000, r#"{"role":"user","time":{"created":2000}}"#),
+        ("m3", 3000, r#"{"role":"user","time":{"created":3000}}"#),
+        ("m4", 4000, r#"{"role":"user","time":{"created":4000}}"#),
+    ];
+    for (id, t, data) in messages {
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, 'ses_prose000000000000000000aa', ?2, ?2, ?3)",
+            rusqlite::params![id, t, data],
+        )
+        .unwrap();
+    }
+    // m1: pre-compaction text. m2: a REAL compaction part. m3: prose that
+    // quotes the marker phrase — a text part, not a compaction part. m4:
+    // post-compaction text.
+    let parts: Vec<(&str, &str, i64, &str)> = vec![
+        (
+            "p1",
+            "m1",
+            1000,
+            r#"{"type":"text","text":"before the compaction"}"#,
+        ),
+        ("p2", "m2", 2000, r#"{"type":"compaction","auto":false}"#),
+        (
+            "p3",
+            "m3",
+            3000,
+            r#"{"type":"text","text":"slice_from_compaction matches any message containing the literal context compaction string"}"#,
+        ),
+        (
+            "p4",
+            "m4",
+            4000,
+            r#"{"type":"text","text":"after everything"}"#,
+        ),
+    ];
+    for (id, mid, t, data) in parts {
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, 'ses_prose000000000000000000aa', ?3, ?3, ?4)",
+            rusqlite::params![id, mid, t, data],
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn the_typed_compaction_boundary_ignores_prose_forgeries() {
+    let dir = scratch("opencode_prose");
+    let path = dir.join("fixture.db");
+    create_prose_fixture(&path);
+    let adapter = OpenCodeAdapter::with_root(&path);
+
+    let full = adapter
+        .read_session_mmap("ses_prose")
+        .expect("healthy fixture mmap read");
+    let period = adapter
+        .read_session_from_compaction("ses_prose")
+        .expect("healthy fixture compaction read");
+
+    assert_eq!(full.len(), 4, "the mmap read is the whole session");
+    // The boundary is the typed part at m2, not the prose at m3: the slice
+    // starts at the marker and keeps the prose message and everything after.
+    assert!(
+        period[0].content == "context compaction" && period[0].injected,
+        "the slice starts at the typed marker: {:?}",
+        period.first()
+    );
+    assert!(
+        period.iter().any(|m| m
+            .content
+            .contains("slice_from_compaction matches any message")),
+        "the prose message must be KEPT — it is not a boundary: {period:?}"
+    );
+    assert!(
+        period.iter().any(|m| m.content == "after everything"),
+        "post-compaction content kept: {period:?}"
+    );
+    assert!(
+        period.len() == full.len() - 1,
+        "exactly the pre-compaction message is sliced off: {period:?}"
+    );
+}
+
+#[test]
+fn the_typed_compaction_markers_are_the_typed_parts() {
+    let dir = scratch("opencode_markers");
+    let path = dir.join("fixture.db");
+    create_prose_fixture(&path);
+    let adapter = OpenCodeAdapter::with_root(&path);
+    let full = adapter
+        .read_session_mmap("ses_prose")
+        .expect("healthy fixture mmap read");
+
+    let markers = adapter.compaction_markers(&full);
+    assert_eq!(
+        markers,
+        vec![1],
+        "exactly the one typed compaction part, never the prose index 2: {markers:?}"
+    );
+}

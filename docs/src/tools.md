@@ -25,7 +25,7 @@ Two regimes, one parameter:
 
 - **session tools** — `profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`, `compact_session`,
-  `total_recall`, `todo_history`: `session_id` (partial match; empty = the
+  `prior_period_summary`, `todo_history`: `session_id` (partial match; empty = the
   most recent session). One session is the smallest useful scope, so it is
   the default.
 - **window tools** — `list_sessions`, `she_said_he_said_action`,
@@ -418,23 +418,6 @@ CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 4. Returns a structured summary: Accomplished, Current Work, Files, Next Steps, Key Decisions
 
 CLI: `total-recall --harness <h> --session <id> [--full] compact [--provider mistral]`.
-
-### `total_recall` (deprecated)
-
-DEPRECATED — superseded by `prior_period_summary`, which is the same
-voluntary summary with the period's todo log, the period's commits, a
-compaction-points FYI footer and an orientation warning folded in. Kept
-unchanged for comparison; it will be removed once the new tool is adopted.
-
-1. Makes two parallel Mercury 2.5 calls: a current-state summary, and the
-   user's goals / tasks / steers
-2. Lists recent rollouts within `hours_back`, with the current session marked
-   SUMMARISED
-3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
-4. Assembles the output in deliberate ordering for autoregressive LLMs:
-   metadata first, substance middle, instructions last
-
-CLI: `total-recall --harness <h> --session <id> recall [--provider mistral]`.
 
 ### `prior_period_summary`
 

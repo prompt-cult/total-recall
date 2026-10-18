@@ -234,7 +234,7 @@ fn tools() -> [(&'static str, Value); 12] {
         ("extract_user_messages", json!({})),
         ("extract_by_type", json!({})),
         ("compact_session", json!({})),
-        ("total_recall", json!({})),
+        ("prior_period_summary", json!({})), // #31: the deleted total_recall tool is gone
         ("she_said_he_said_action", json!({"words": ["release"]})),
         ("index_sessions", json!({})),
         (
@@ -349,7 +349,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
     // Every window tool states minimum 1 on hours_back, so a schema-honouring
     // client cannot send the 0 that the handler reads as "omitted".
     let mut window_tools = WINDOW_TOOLS.to_vec();
-    window_tools.push("total_recall");
+    window_tools.push("prior_period_summary");
     for tool in window_tools {
         let props = mcp.schema(tool);
         let hours = &props["hours_back"];
@@ -399,7 +399,12 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
             Some(1.0),
             Some(8_388_608.0),
         ),
-        ("total_recall", "max_bytes", Some(1.0), Some(8_388_608.0)),
+        (
+            "prior_period_summary",
+            "max_bytes",
+            Some(1.0),
+            Some(8_388_608.0),
+        ),
         ("line_histogram", "line", Some(1.0), None),
         ("line_histogram", "start", Some(1.0), None),
         ("todo_history", "max_bytes", Some(1.0), Some(8_388_608.0)),
@@ -513,8 +518,16 @@ fn every_numeric_input_out_of_range_returns_the_house_form() {
         ("extract_user_messages", json!({"offset": -5}), "offset"),
         ("extract_by_type", json!({"limit": -2}), "limit"),
         ("extract_by_type", json!({"limit": 5000}), "limit"),
-        ("total_recall", json!({"hours_back": -1}), "hours_back"),
-        ("total_recall", json!({"max_bytes": 9_000_000}), "max_bytes"),
+        (
+            "prior_period_summary",
+            json!({"hours_back": -1}),
+            "hours_back",
+        ),
+        (
+            "prior_period_summary",
+            json!({"max_bytes": 9_000_000}),
+            "max_bytes",
+        ),
         (
             "line_histogram",
             json!({"file_path": "{FILE}", "line": 0}),

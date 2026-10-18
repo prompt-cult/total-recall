@@ -26,7 +26,7 @@ and exits 2.
 
 ## Keep the server key as `total-recall`
 
-The MCP tool names derive from the server key — `total-recall_total_recall`,
+The MCP tool names derive from the server key — `total-recall_prior_period_summary`,
 `total-recall_list_sessions`, … — so a renamed server shows up in the agent's
 tool surface under the wrong identity.
 
@@ -43,7 +43,7 @@ The registration snippet's environment block carries two entries:
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
 tools, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`) need no key. Only `compact_session` and
-`total_recall` read it.
+`prior_period_summary` read it.
 
 ### Mistral Vibe
 

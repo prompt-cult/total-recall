@@ -18,7 +18,6 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 |---|---|---|
 | `total-recall_compact_session` | `compact` | Mercury 2.5 structured summary |
 | `total-recall_prior_period_summary` | `prior-period-summary` | voluntary summary of a prior period: state summary + user goals + todo log + commits + recent rollouts + plan files + orientation warning (`full` = whole session, the `/new`-drop flow) |
-| `total-recall_total_recall` | `recall` | DEPRECATED — use `prior_period_summary`; state summary + user goals + recent rollouts + plan files |
 | `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events |
 | `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
 | `total-recall_extract_messages` | `extract` | all messages as JSON |
