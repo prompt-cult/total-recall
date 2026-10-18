@@ -453,7 +453,7 @@ fn llm_tool_names_are_registered_in_every_build() {
     // whatever the features are, so a vendor-free build degrades on call
     // rather than breaking the client's tool inventory.
     for expected in [
-        "compact_session",
+        "summarise_current_session",
         "prior_period_summary",
         "list_sessions",
         "she_said_he_said_action",

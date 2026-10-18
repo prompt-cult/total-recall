@@ -22,9 +22,9 @@ use total_recall::{
 #[derive(Parser)]
 #[command(name = "total-recall")]
 #[command(version)]
-#[command(about = "Total-recall MCP tool for fast compaction and log mining of session rollouts")]
+#[command(about = "Total-recall MCP tool for log mining of session rollouts")]
 pub struct Cli {
-    /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages/compact; optional for mcp (falls back to HARNESS env var).
+    /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
     pub harness: Option<String>,
 
@@ -118,13 +118,15 @@ pub enum Command {
         #[arg(long = "no-full")]
         no_full: bool,
     },
-    /// Compact a rollout using the configured LLM provider (`--provider`)
-    Compact,
+    /// Structured summary of a rollout up to its current point
+    /// (Accomplished, Current Work, Files, Next Steps, Key Decisions)
+    #[command(name = "summarise-current-session")]
+    SummariseCurrentSession,
     /// An orientation summary of a prior period of work: state
     /// summary, user goals, the period's todo log, commits, the rollouts
     /// table and plan files, plus a compaction-points FYI and an orientation
-    /// warning. `--full` covers the whole session up to now (the
-    /// `/new`-drop flow); the default covers since the last compaction point
+    /// warning. The period is the work up to the last compaction boundary —
+    /// the context a compaction consumed
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
     /// She-said/he-said/they-did: matched dialogue and tool actions
@@ -604,8 +606,8 @@ async fn main() -> Result<()> {
             let _ = std::io::stdout().flush();
         }
 
-        Command::Compact => {
-            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
+        Command::SummariseCurrentSession => {
+            let messages = read_messages(adapter.as_ref(), &session_id, true);
             tracing::info!("Read {} messages from {}", messages.len(), session_id);
 
             let t0 = std::time::Instant::now();
@@ -624,26 +626,21 @@ async fn main() -> Result<()> {
         }
 
         Command::PriorPeriodSummary => {
-            // The full session feeds the compaction footer; the period — the
-            // whole session (--full, the /new-drop flow) or the adapter's
-            // slice since its last compaction boundary (the default, the
-            // /compact flow) — feeds the state summary, the commits and the
-            // todo log. The boundary is the adapter's own: on opencode that
-            // is the typed compaction part, which prose quoting the marker
-            // text cannot forge.
+            // The full session feeds the compaction footer; the slice since
+            // the session's last compaction boundary — the context a
+            // compaction consumed — feeds the state summary, the commits and
+            // the todo log. The boundary is the adapter's own: on opencode
+            // that is the typed compaction part, which prose quoting the
+            // marker text cannot forge.
             let full_messages = unwrap_read(adapter.read_session_mmap(&session_id));
             if full_messages.is_empty() {
                 eprintln!("No messages found in session {}", session_id);
                 std::process::exit(1);
             }
             let markers = adapter.compaction_markers(&full_messages);
-            let compaction_footer = build_compaction_footer(&full_messages, cli.full, &markers);
+            let compaction_footer = build_compaction_footer(&full_messages, &markers);
             let has_compaction = !markers.is_empty();
-            let messages = if cli.full {
-                full_messages
-            } else {
-                unwrap_read(adapter.read_session_from_compaction(&session_id))
-            };
+            let messages = unwrap_read(adapter.read_session_from_compaction(&session_id));
             tracing::info!("Read {} period messages", messages.len());
 
             let user_messages = unwrap_read(adapter.extract_user_messages(&session_id));
@@ -667,9 +664,9 @@ async fn main() -> Result<()> {
                 .expect("compact_batch_pairs returns one result per call");
 
             let (todo_log, todo_opens, todo_closes) =
-                match adapter.read_todo_writes(&session_id, cli.full) {
+                match adapter.read_todo_writes(&session_id, false) {
                     Ok(writes) => {
-                        let restatement = !cli.full && has_compaction;
+                        let restatement = has_compaction;
                         let (opened, closed) = opened_closed_counts(&writes, restatement);
                         let events = diff_todo_states(&writes);
                         let steers = recent_steers(&user_messages, CHURN_STEER_COUNT);

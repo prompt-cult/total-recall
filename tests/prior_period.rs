@@ -376,7 +376,7 @@ fn the_footer_names_the_last_few_compaction_points_with_counts_since() {
         message("assistant", "nine", Some("2026-10-16T10:00:00Z"), &[]),
         message("user", "ten", Some("2026-10-16T11:00:00Z"), &[]),
     ];
-    let footer = build_compaction_footer(&messages, false, &[3, 7]);
+    let footer = build_compaction_footer(&messages, &[3, 7]);
     assert!(footer.contains("## Compaction Points"), "{footer}");
     assert!(
         footer.contains("2026-10-15T09:00:00Z — 6 messages"),
@@ -393,11 +393,10 @@ fn the_footer_names_the_last_few_compaction_points_with_counts_since() {
         "{footer}"
     );
     assert!(footer.contains("FYI only"), "{footer}");
-    assert!(footer.contains("the `/compact` flow"), "{footer}");
 }
 
 #[test]
-fn the_footer_holds_back_nothing_when_full_and_says_the_period_is_the_whole_session() {
+fn the_footer_names_the_period_it_covers() {
     let messages = vec![
         message("user", "one", Some("2026-10-14T09:00:00Z"), &[]),
         message(
@@ -408,19 +407,21 @@ fn the_footer_holds_back_nothing_when_full_and_says_the_period_is_the_whole_sess
         ),
         message("assistant", "three", Some("2026-10-16T09:00:00Z"), &[]),
     ];
-    let footer = build_compaction_footer(&messages, true, &[1]);
-    assert!(footer.contains("the `/new`-drop flow"), "{footer}");
+    let footer = build_compaction_footer(&messages, &[1]);
     assert!(
-        !footer.contains("the current period starts here"),
-        "with full=true the period is not bounded by a compaction point: {footer}"
+        footer.contains("the context a compaction consumed"),
+        "{footer}"
     );
-    assert!(footer.contains("1 message, 1 line since"), "{footer}");
+    assert!(
+        footer.contains("1 message, 1 line since"),
+        "{footer}"
+    );
 }
 
 #[test]
 fn a_session_without_compaction_points_says_the_period_is_the_whole_session() {
     let messages = vec![message("user", "only", Some("2026-10-16T09:00:00Z"), &[])];
-    let footer = build_compaction_footer(&messages, false, &[]);
+    let footer = build_compaction_footer(&messages, &[]);
     assert!(
         footer.contains("No compaction points in this session"),
         "{footer}"
@@ -465,7 +466,6 @@ fn the_period_is_the_whole_session_or_the_post_compaction_slice() {
         .expect("healthy fixture mmap read");
     assert_eq!(full_messages.len(), 8);
 
-    let period_full = full_messages.clone();
     let period_from_compaction = slice_from_compaction(full_messages);
     assert_eq!(period_from_compaction.len(), 4);
     assert!(
@@ -473,9 +473,6 @@ fn the_period_is_the_whole_session_or_the_post_compaction_slice() {
             .content
             .contains("context compaction")
     );
-    // The two views the tool serves: full=true covers everything up to the
-    // drop; full=false starts at the last compaction point.
-    assert_ne!(period_full.len(), period_from_compaction.len());
 }
 
 #[test]
@@ -662,6 +659,12 @@ mod served {
                 .all(|t| t["name"].as_str() != Some("total_recall")),
             "the deprecated tool is deleted, not listed: {tools}"
         );
+        assert!(
+            array
+                .iter()
+                .all(|t| t["name"].as_str() != Some("compact_session")),
+            "the deprecated compaction tool is deleted, not listed: {tools}"
+        );
 
         let new = array
             .iter()
@@ -688,15 +691,7 @@ mod served {
         fields.sort_unstable();
         assert_eq!(
             fields,
-            vec!["full", "hours_back", "max_bytes", "session_id"]
-        );
-        assert!(schema["full"]["description"].is_string());
-        assert!(
-            schema["full"]["description"]
-                .as_str()
-                .unwrap_or("")
-                .contains("/new"),
-            "the schema states both flows"
+            vec!["hours_back", "max_bytes", "session_id"]
         );
         reap(&mut mcp);
     }
@@ -707,8 +702,8 @@ mod served {
         let (err, text) = mcp.call("prior_period_summary", json!({"fulls": true}));
         assert!(err && text.contains("unrecognised field `fulls`"), "{text}",);
         assert!(
-            text.contains("session_id|full|hours_back|max_bytes")
-                || text.contains("full|hours_back|max_bytes|session_id"),
+            text.contains("session_id|hours_back|max_bytes")
+                || text.contains("hours_back|max_bytes|session_id"),
             "{text}"
         );
 

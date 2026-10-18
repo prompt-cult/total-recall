@@ -639,23 +639,19 @@ pub fn build_commits_section(messages: &[RolloutMessage]) -> String {
 }
 
 /// Build the compaction-points FYI footer: the timestamps of the last few
-/// compaction points with the message and line counts since each. `full`
-/// names the period the summary covers — the whole session (the `/new`-drop
-/// flow) or the slice since the last compaction point (the `/compact` flow).
-/// `markers` are the boundary indices of the full session, from
+/// compaction points with the message and line counts since each. The
+/// summary's period is the work up to the last compaction boundary — the
+/// context a compaction consumed; a session with no compaction points has no
+/// earlier period, so the period is the whole session. `markers` are the
+/// boundary indices of the full session, from
 /// [`RolloutAdapter::compaction_markers`] — the adapter decides what a real
 /// boundary is, and prose cannot forge one.
-pub fn build_compaction_footer(
-    full_messages: &[RolloutMessage],
-    full: bool,
-    markers: &[usize],
-) -> String {
+pub fn build_compaction_footer(full_messages: &[RolloutMessage], markers: &[usize]) -> String {
     let mut lines = vec!["## Compaction Points (FYI)".to_string(), String::new()];
-    lines.push(if full {
-        "Period: the whole session up to now — the `/new`-drop flow (`full: true`).".to_string()
-    } else {
-        "Period: since the last compaction point — the `/compact` flow (`full: false`).".to_string()
-    });
+    lines.push(
+        "Period: the work up to the last compaction boundary — the context a compaction consumed."
+            .to_string(),
+    );
 
     if markers.is_empty() {
         lines.push(String::new());
@@ -678,7 +674,7 @@ pub fn build_compaction_footer(
         let since = &full_messages[idx + 1..];
         let messages_since = since.len();
         let lines_since: usize = since.iter().map(|m| m.content.lines().count()).sum();
-        let annotation = if !full && j + 1 == shown.len() {
+        let annotation = if j + 1 == shown.len() {
             " (the current period starts here)"
         } else {
             ""

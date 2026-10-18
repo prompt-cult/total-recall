@@ -40,7 +40,7 @@ cannot read the live store by any route.
 
 | Variable | Vendor | Read by | Needed for |
 |----------|--------|---------|------------|
-| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` | `compact_session` / `compact`, `prior_period_summary` / `prior-period-summary` |
+| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` | `summarise_current_session` / `summarise-current-session`, `prior_period_summary` / `prior-period-summary` |
 | `MISTRAL_API_KEY` | Mistral (`--provider mistral`) | `src/mercury.rs` | the same, on the Mistral vendor |
 
 A key reaches the binary one of two ways:
@@ -80,7 +80,6 @@ file.
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
 | `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `harness` | works | works |
-| `compact_session` (MCP), `compact` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
 The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients

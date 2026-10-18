@@ -233,7 +233,7 @@ fn tools() -> [(&'static str, Value); 12] {
         ("extract_messages", json!({})),
         ("extract_user_messages", json!({})),
         ("extract_by_type", json!({})),
-        ("compact_session", json!({})),
+        ("summarise_current_session", json!({})),
         ("prior_period_summary", json!({})), // #31: the deleted total_recall tool is gone
         ("she_said_he_said_action", json!({"words": ["release"]})),
         ("index_sessions", json!({})),
