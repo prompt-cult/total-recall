@@ -15,6 +15,7 @@ fn de<T: serde::de::DeserializeOwned>(body: &str) -> T {
 fn an_omitted_session_id_defaults_to_empty_everywhere() {
     let p: ProfileParams = de("{}");
     assert_eq!(p.session_id, "");
+    assert!(p.cache, "#37: the profile cache is on by default");
     let p: ExtractParams = de("{}");
     assert_eq!(p.session_id, "");
     let p: UserMessagesParams = de("{}");
@@ -23,6 +24,7 @@ fn an_omitted_session_id_defaults_to_empty_everywhere() {
     assert_eq!(p.session_id, "");
     let p: SummariseCurrentSessionParams = de("{}");
     assert_eq!(p.session_id, "");
+    assert!(p.cache, "#36: the summary range-ledger cache is on by default");
     let p: TodoHistoryParams = de("{}");
     assert_eq!(p.session_id, "");
     assert!(

@@ -237,10 +237,11 @@ for parameters — `tools/list` for the MCP tools, `total-recall --help` for
 the CLI. `list_sessions` and `profile_session` carry a `has_tantivy_index`
 flag, set by the server, not by the adapters.
 
-### `profile_session` cache — opt-in, staleness-checked
+### `profile_session` cache — on by default, staleness-checked
 
-`profile --cache` (CLI global flag) and the MCP `profile_session` tool
-(`cache: bool`, default false) serve the profile from an on-disk cache inside
+`profile --no-cache` (CLI global flag) and the MCP `profile_session` tool
+(`cache: false`) turn the cache off for a call; by default the profile is
+served from an on-disk cache inside
 the adapter's shadow root: `<shadow root>/tr_<session-id>_meta.json`. One
 flat JSON file per session, sibling of the per-session index folders, same
 disposable rules as the shadow indexes: never inside the session store,
@@ -251,8 +252,29 @@ single `SELECT time_updated` row (never the full `list_sessions` aggregates);
 for the file-based harnesses the source file's mtime. The cache is fresh when
 `time_updated_ms <= cache_mtime_ms + 15_000` (15 s tolerance). Fresh → served
 from the cache; stale, missing, or corrupt → recomputed as today and the
-cache is rewritten. With the flag off, behaviour is byte-for-byte the
-pre-cache path and no cache file is created.
+cache is rewritten. With `--no-cache` (or `cache: false` on MCP), behaviour is
+byte-for-byte the recompute path and no cache file is created.
+
+### `summarise_current_session` cache — the range ledger
+
+The summary cache is the same shadow-root discipline with a different freshness
+key: not wall-clock staleness but the session's **content bounds**. A ledger
+per session, `<shadow root>/tr_<session-id>_summary.csv`, records one row per
+summarised part: `from_ts,to_ts,part_file`; the part texts live beside it in
+`tr_<session-id>_summary_parts/`. On each call:
+
+- the session's max timestamp is unchanged → the cached parts are composed and
+  served — **no LLM call at all** (a vendor-free build serves a covered session
+  happily);
+- the max has moved → only the delta (previous max → new max) is summarised,
+  stored as a new part, and the ledger row appended.
+
+The served summary names its coverage — `### part N: from → to` headers, then a
+`summary cache: N part(s), first → last` footer stating whether it was served
+cached. A summary is a summary of the slice it names — the parts compose
+honestly, with no compaction-style "next steps" living-document noise. Cache is
+on by default; `cache: false` (MCP) / `--no-cache` (CLI) forces a full
+re-summarise and touches no files.
 
 The cached JSON is validated on read through a
 [RFC 8927 JSON Type Definition](https://www.rfc-editor.org/rfc/rfc8927)
@@ -445,11 +467,9 @@ $B --version
 # List rollouts for a harness (--harness is required; vibe | codex | claude | opencode)
 $B --harness vibe list
 
-# Profile a rollout (counts, compaction markers, interesting events)
+# Profile: counts, compaction markers, interesting events (cache is on by default)
 $B --harness vibe --session 4836855e profile
-
-# Same, served from the opt-in on-disk profile cache (15 s staleness tolerance)
-$B --harness vibe --session 4836855e --cache profile
+$B --harness vibe --session 4836855e --no-cache profile
 
 # Extract what the user said verbatim
 $B --harness vibe --session 4836855e user-messages --markdown
@@ -508,7 +528,7 @@ live sessions.
 
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
-flag), `profile_session` (with the opt-in `cache` flag), `extract_messages`,
+flag), `profile_session` (the on-by-default cache; `cache: false` to recompute), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
 `summarise_current_session`, `she_said_he_said_action`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,

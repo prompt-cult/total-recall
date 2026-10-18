@@ -5,8 +5,7 @@ use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
 use total_recall::{
-    LISTING_ROW_CAP, RolloutAdapter, RolloutMessage, SYSTEM_PROMPT, SessionListing,
-    build_structured_prompt,
+    LISTING_ROW_CAP, RolloutAdapter, RolloutMessage, SessionListing,
     harness::{make_adapter, resolve_harness, resolve_session},
     index,
     mercury::provider_for,
@@ -74,11 +73,12 @@ pub struct Cli {
     #[arg(long, global = true, default_value_t = false)]
     pub include_injected: bool,
 
-    /// Opt-in on-disk profile cache for `profile`: serve from
+    /// On-disk profile cache for `profile`, on by default: serve from
     /// <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness
-    /// tolerance); recompute and rewrite otherwise. Default off.
-    #[arg(long, global = true, default_value_t = false)]
-    pub cache: bool,
+    /// tolerance); recompute and rewrite otherwise. --no-cache forces a
+    /// recompute without touching the cache.
+    #[arg(long = "no-cache", global = true)]
+    pub no_cache: bool,
 
     #[command(subcommand)]
     pub command: Command,
@@ -422,7 +422,7 @@ async fn main() -> Result<()> {
         }
 
         Command::Profile => {
-            let mut profile = match adapter.profile_session_opts(&session_id, cli.cache) {
+            let mut profile = match adapter.profile_session_opts(&session_id, !cli.no_cache) {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("error: {}", e);
@@ -607,21 +607,15 @@ async fn main() -> Result<()> {
         }
 
         Command::SummariseCurrentSession => {
-            let messages = read_messages(adapter.as_ref(), &session_id, true);
-            tracing::info!("Read {} messages from {}", messages.len(), session_id);
-
-            let t0 = std::time::Instant::now();
-            let prompt = build_structured_prompt(&messages);
-            let format_time = t0.elapsed();
-            tracing::info!("Prompt built in {:?}", format_time);
-
-            let provider = provider_for(cli.provider.as_deref())?;
-            let t1 = std::time::Instant::now();
-            let summary = provider.compact(SYSTEM_PROMPT, &prompt).await?;
-            let mercury_time = t1.elapsed();
-            tracing::info!("Mercury responded in {:?}", mercury_time);
-
-            print!("{}", summary);
+            let text = total_recall::summary_cache::summarise_session(
+                adapter.as_ref(),
+                &session_id,
+                !cli.no_cache,
+                cli.provider.as_deref(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+            print!("{text}");
             let _ = std::io::stdout().flush();
         }
 

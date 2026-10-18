@@ -83,7 +83,7 @@ Accepted before the subcommand:
 | `--provider <name>` | `mercury` (default) or `mistral`, for the LLM-backed subcommands only |
 | `--limit` / `--offset` / `--max-bytes` / `--max-record-bytes` | extraction bounds; see [Bounded output](#bounded-output) |
 | `--include-injected` | include synthetic (injected) user records in `extract-by-type` |
-| `--cache` | serve `profile` from the opt-in on-disk cache |
+| `--no-cache` | skip the on-disk cache for `profile` / `summarise-current-session` |
 
 Output format per subcommand, with no flag given: `list` and `profile` print a
 human-readable summary, `extract` prints one JSON object per line,
@@ -160,7 +160,7 @@ the store holds.
 ### `profile_session`
 
 
-CLI: `total-recall --harness <h> --session <id> profile [--cache]`.
+CLI: `total-recall --harness <h> --session <id> profile [--no-cache]`.
 
 Returns `session_id`, `file_size`, `line_count`, `first_ts`, `last_ts`,
 `role_counts`, `has_tantivy_index` and `interesting_events`. An interesting
@@ -170,8 +170,9 @@ event carries `line_number`, `gap_lines`, `event_type` and `summary`;
 
 #### The profile cache
 
-Opt-in, staleness-checked. With `cache` (or `--cache`), the profile is served
-from a flat JSON file inside the adapter's shadow root:
+On by default, staleness-checked; `cache: false` (MCP) or `--no-cache` (CLI)
+forces a recompute without touching the cache. The profile is served from a
+flat JSON file inside the adapter's shadow root:
 `<shadow root>/tr_<session-id>_meta.json`, sibling of the per-session index
 folders. The folder is disposable, can be deleted at any time, and MUST NOT be
 committed.
@@ -414,12 +415,28 @@ CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 A structured summary of a session **up to its current point**: Accomplished,
 Current Work, Files, Next Steps, Key Decisions. The session store is read at
 call time, so the tool works for a session the caller has just left — for
-example a `/new` drop — to prime a fresh context. Takes only `session_id`
-(partial match; empty = most recent); there is no period selection: the whole
-session up to now is the product.
+example a `/new` drop — to prime a fresh context.
+
+The summary is cached by a **range ledger**, on by default: a per-session
+`tr_<session-id>_summary.csv` in the shadow root records each summarised part
+as `from_ts,to_ts,part_file`, with the part texts in
+`tr_<session-id>_summary_parts/`.
+
+- Session max timestamp unchanged since the last summarise → the cached parts
+  are composed and served, **with no LLM call** (a vendor-free build serves a
+  covered session).
+- Max moved → only the delta is summarised, stored as a new part, and the
+  ledger row appended. The output composes all parts, each named
+  `### part N: from → to`, with a `summary cache:` footer stating the range
+  and whether it was served cached.
+
+A summary is a summary of the slice it names — the parts compose honestly,
+with no compaction-style "next steps" noise across re-runs.
+`cache: false` (MCP) / `--no-cache` (CLI) forces a full re-summarise and
+touches no files.
 
 ```bash
-total-recall --harness <h> --session <id> summarise-current-session [--provider mistral]
+total-recall --harness <h> --session <id> summarise-current-session [--no-cache] [--provider mistral]
 ```
 
 ### `prior_period_summary`
