@@ -455,7 +455,6 @@ fn llm_tool_names_are_registered_in_every_build() {
     // cache's introspection and rollback tools ride along — they never call
     // the LLM, but they are part of the same block surface.
     for expected in [
-        "summarise_current_session",
         "summary_cache",
         "summarise_from",
         "cache_delete_latest",

@@ -118,10 +118,6 @@ pub enum Command {
         #[arg(long = "no-full")]
         no_full: bool,
     },
-    /// Structured summary of a rollout up to its current point
-    /// (Accomplished, Current Work, Files, Next Steps, Key Decisions)
-    #[command(name = "summarise-current-session")]
-    SummariseCurrentSession,
     /// Introspect a rollout's summary cache: the cached blocks (id ranges,
     /// type counts, chars, token estimates) plus the unsummarised tail.
     /// Read-only — never calls the LLM
@@ -636,24 +632,6 @@ async fn main() -> Result<()> {
                 let line = serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string());
                 println!("{}", line);
             }
-            let _ = std::io::stdout().flush();
-        }
-
-        Command::SummariseCurrentSession => {
-            // The ledger is keyed by the canonical id the listing rows carry,
-            // so the CLI and the `summary_cache` marker describe the same
-            // cache however the caller spells the id.
-            let session_id =
-                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
-            let text = total_recall::summary_cache::summarise_session(
-                adapter.as_ref(),
-                &session_id,
-                !cli.no_cache,
-                cli.provider.as_deref(),
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-            print!("{text}");
             let _ = std::io::stdout().flush();
         }
 

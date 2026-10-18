@@ -49,42 +49,6 @@ fn four_messages() -> Vec<String> {
     ]
 }
 
-#[tokio::test]
-async fn a_session_whose_messages_are_covered_by_the_last_block_serves_the_cache_without_an_llm_call()
- {
-    let (_dir, adapter) = fixture(
-        "hit",
-        &[
-            msg("user", "early work", "2026-10-18T10:00:00Z"),
-            msg("assistant", "done", "2026-10-18T12:00:00Z"),
-        ],
-    );
-    // Seed the ledger as if this session had already been summarised through
-    // id 2 (all of it). The seeded marker text in the served output proves
-    // the text came from the cache, not from any provider.
-    let messages = adapter.read_session_mmap("mock").unwrap();
-    summary_cache::append_block(
-        &adapter.shadow_index_root(),
-        "mock",
-        1,
-        &messages,
-        "CACHED-TEXT the earlier work, summarised",
-    )
-    .unwrap();
-
-    let out = summary_cache::summarise_session(&adapter, "mock", true, None)
-        .await
-        .expect("a covered session is served from cache");
-    assert!(
-        out.contains("CACHED-TEXT the earlier work, summarised"),
-        "the cached part text is served: {out}"
-    );
-    assert!(
-        out.contains("(cached; nothing new since the last summarise"),
-        "the served summary states the cache hit: {out}"
-    );
-}
-
 #[test]
 fn the_ledger_lives_in_the_shadow_root_next_to_the_profile_cache() {
     let (_dir, adapter) = fixture("layout", &[msg("user", "hello", "2026-10-18T10:00:00Z")]);

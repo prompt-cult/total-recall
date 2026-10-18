@@ -89,8 +89,7 @@ cargo build --release --no-default-features
 
 ## API key
 
-The key is only needed by the LLM-backed tools (`summarise_current_session` /
-`summarise-current-session`, `prior_period_summary` /
+The key is only needed by the LLM-backed tools (`prior_period_summary` /
 `prior-period-summary`). Get one from
 [https://platform.inceptionlabs.ai](https://platform.inceptionlabs.ai), then
 either:

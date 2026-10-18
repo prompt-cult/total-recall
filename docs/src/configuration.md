@@ -108,7 +108,7 @@ Vendor identity (endpoint, model, key variable) is the gated part. The
 OpenAI-compatible chat transport itself compiles in every build but is
 unreachable without a vendor constructor.
 
-`--provider` applies to the CLI's `summarise-from`, `summarise-current-session`
+`--provider` applies to the CLI's `summarise-from`
 and `prior-period-summary` subcommands. The
 `mcp` subcommand constructs the default provider; see
 [MCP setup](mcp-setup.md#which-vendor-the-server-calls).

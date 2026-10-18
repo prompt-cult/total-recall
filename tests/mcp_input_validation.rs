@@ -226,14 +226,13 @@ fn reap(mcp: &mut Mcp) {
 
 /// Every tool that takes parameters, with the arguments that get it past its
 /// required fields.
-fn tools() -> [(&'static str, Value); 15] {
+fn tools() -> [(&'static str, Value); 14] {
     [
         ("list_sessions", json!({})),
         ("profile_session", json!({})),
         ("extract_messages", json!({})),
         ("extract_user_messages", json!({})),
         ("extract_by_type", json!({})),
-        ("summarise_current_session", json!({})),
         ("summary_cache", json!({})),
         ("summarise_from", json!({"from_id": 1})),
         ("cache_delete_latest", json!({})),
