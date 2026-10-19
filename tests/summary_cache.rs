@@ -340,3 +340,78 @@ fn the_list_marker_reports_what_the_cache_covers_through() {
     assert_eq!(marker_json["through_id"], 4);
     assert_eq!(marker_json["through_ts"], "2026-10-18T13:00:00Z");
 }
+
+/// #39 follow-up: canonical resolution is a cheap store-side match, never the
+/// full-store aggregate listing (a 45-second scan on the live opencode store
+/// timed the MCP calls out). Partial id in, canonical id out, and the cache
+/// keyed under the canonical id is served for the partial.
+#[test]
+fn an_opencode_partial_id_resolves_canonically_and_serves_the_cache() {
+    use rusqlite::Connection;
+    use total_recall::harness;
+    use total_recall::rollout::opencode::OpenCodeAdapter;
+
+    let dir = scratch("summary_cache_canonical");
+    let db = dir.join("fixture.db");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    let full = "ses_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    conn.execute(
+        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+         VALUES (?1, NULL, '/tmp/x', 'fixture', 1, 1)",
+        [full],
+    )
+    .unwrap();
+    for (i, (mid, pid, text)) in [("m1", "p1", "one"), ("m2", "p2", "two")]
+        .into_iter()
+        .enumerate()
+    {
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+            rusqlite::params![mid, full, i as i64],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            rusqlite::params![
+                pid,
+                mid,
+                full,
+                i as i64,
+                serde_json::json!({"type": "text", "text": text}).to_string()
+            ],
+        )
+        .unwrap();
+    }
+    drop(conn);
+
+    let adapter = OpenCodeAdapter::with_root(&db);
+    let canonical = harness::canonical_session_id(&adapter, "ses_bbbb");
+    assert_eq!(canonical, full, "the partial resolves to the canonical id");
+
+    // Seed the ledger under the CANONICAL id (as the list marker keys it),
+    // then serve the cache through the PARTIAL id.
+    let messages = adapter.read_session_mmap(&canonical).unwrap();
+    assert_eq!(messages.len(), 2);
+    let root = adapter.shadow_index_root();
+    summary_cache::append_block(&root, &canonical, 1, &messages, "CACHED-TEXT seeded").unwrap();
+
+    let status = summary_cache::status(&root, &canonical, &messages);
+    assert!(status.tail.is_none(), "fully covered: {status:?}");
+    assert_eq!(status.blocks.len(), 1);
+}

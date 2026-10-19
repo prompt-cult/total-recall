@@ -110,6 +110,15 @@ impl RolloutAdapter for MockAdapter {
         "mock"
     }
 
+    /// The mock serves one session, "mock"; a partial matches by substring.
+    fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
+        if !session_id.is_empty() && "mock".contains(session_id) {
+            Some("mock".to_string())
+        } else {
+            None
+        }
+    }
+
     fn shadow_index_root(&self) -> PathBuf {
         self.data_path
             .parent()

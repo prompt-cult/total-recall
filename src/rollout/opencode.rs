@@ -283,6 +283,12 @@ impl RolloutAdapter for OpenCodeAdapter {
         self.resolve_session_id(&conn, "")
     }
 
+    /// One indexed LIKE query — never the full-store aggregate listing.
+    fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
+        let conn = self.connect().ok()?;
+        self.resolve_session_id(&conn, session_id)
+    }
+
     fn shadow_index_root(&self) -> PathBuf {
         self.db_path
             .parent()

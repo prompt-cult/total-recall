@@ -465,6 +465,17 @@ pub trait RolloutAdapter: Send + Sync {
             .map(|s| s.session_id)
     }
 
+    /// Resolve a (possibly partial) session id to the canonical id the
+    /// listing rows carry — the id every shadow-root artefact is keyed by
+    /// (the summary-cache ledger, the `summary_cache` listing marker).
+    /// Adapters with a cheap store-side match override this (the opencode
+    /// store answers with one indexed LIKE query); the default returns None
+    /// and the caller passes the id through, exactly as `resolve_session`
+    /// does for every other tool.
+    fn resolve_canonical_id(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+
     /// `profile_session` with the opt-in on-disk profile cache. `cache = true`
     /// serves the profile from `<shadow_root>/tr_<session-id>_meta.json` when
     /// it is fresh (staleness checked against this adapter's cheap

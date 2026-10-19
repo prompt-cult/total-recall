@@ -65,16 +65,14 @@ pub fn canonical_session_id(adapter: &dyn RolloutAdapter, session_id: &str) -> S
     if session_id.is_empty() {
         return adapter.most_recent_session_id().unwrap_or_default();
     }
-    let (selected, _) = crate::index::select_sessions(
-        adapter,
-        std::slice::from_ref(&session_id.to_string()),
-        0,
-        None,
-    );
-    match selected.into_iter().next() {
-        Some(found) => found.session_id,
-        None => session_id.to_string(),
-    }
+    // The adapter's store-side match is one cheap indexed query (opencode) or
+    // a filename match (mock); an unresolved id passes through raw, so the
+    // adapter's read produces its own precise "no session matching …" error.
+    // Never a full-store aggregate listing — that was a 45-second scan on the
+    // live opencode store and timed the MCP calls out.
+    adapter
+        .resolve_canonical_id(session_id)
+        .unwrap_or_else(|| session_id.to_string())
 }
 
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
