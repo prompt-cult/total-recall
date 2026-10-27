@@ -17,7 +17,7 @@ Two API keys are read, both only by the LLM-backed tools
 
 | Variable | Vendor | Read by |
 |----------|--------|---------|
-| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` |
+| `INCEPTION_API_KEY` | Inception Mercury 3 (default) | `src/mercury.rs` |
 | `MISTRAL_API_KEY` | Mistral (`--provider mistral`) | `src/mercury.rs` |
 
 A key reaches the binary one of two ways:

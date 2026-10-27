@@ -1,6 +1,6 @@
 ---
 name: total-recall
-description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 2.5, list/profile/extract rollouts across harnesses (opencode, vibe, claude, codex), mine dialogue with she_said_he_said_action, and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
+description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 3, list/profile/extract rollouts across harnesses (opencode, vibe, claude, codex), mine dialogue with she_said_he_said_action, and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
 ---
 
 # Total Recall
@@ -17,7 +17,7 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | MCP tool | CLI | What it does |
 |---|---|---|
 | `total-recall_summary_cache` | `summary-cache` | read-only introspection of a session's summary cache: the cached blocks (id ranges, type counts, chars, token estimates) plus the unsummarised tail — what a summarise would cost. Never calls the LLM |
-| `total-recall_summarise_from` | `summarise-from` | Mercury 2.5 structured summary from an explicit 1-based message id; the guard requires the first unsummarised id (one past the last cached block's `to_id`, or 1) and errors naming it otherwise; returns the composed parts + cache footer |
+| `total-recall_summarise_from` | `summarise-from` | Mercury 3 structured summary from an explicit 1-based message id; the guard requires the first unsummarised id (one past the last cached block's `to_id`, or 1) and errors naming it otherwise; returns the composed parts + cache footer |
 | `total-recall_cache_delete_latest` | `cache-delete-latest` | roll the summary cache back one block (newest ledger row + part file deleted) and return the new cache status; no blocks = error |
 | `total-recall_prior_period_summary` | `prior-period-summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + recent rollouts + plan files + orientation warning; the period is the work since the session's last compaction boundary |
 | `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events (cached by default; `--no-cache` to recompute) |

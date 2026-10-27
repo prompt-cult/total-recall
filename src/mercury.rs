@@ -9,7 +9,7 @@ use tokio::sync::Semaphore;
 #[cfg(feature = "mercury")]
 const MERCURY_API_URL: &str = "https://api.inceptionlabs.ai/v1/chat/completions";
 #[cfg(feature = "mercury")]
-const MERCURY_MODEL: &str = "mercury-2.5";
+const MERCURY_MODEL: &str = "mercury-3";
 
 #[cfg(feature = "mistral")]
 const MISTRAL_API_URL: &str = "https://api.mistral.ai/v1/chat/completions";
@@ -82,15 +82,22 @@ pub fn provider_for(name: Option<&str>) -> Result<MercuryProvider> {
     }
 }
 
-/// Mercury 2.5's documented context window, in tokens.
-pub const CONTEXT_WINDOW_TOKENS: usize = 260_000;
+/// The context budget the guards are sized against: 500K tokens — HALF of
+/// Mercury 3's 1M context window, deliberately. Summarisation must be
+/// lossless, so we keep headroom and send more of the session intact rather
+/// than pruning harder.
+///
+/// The bytes→tokens formula used by the guard: ~4 chars/token (bytes ÷ 4),
+/// the ratio Inception's own FAQ gives — safe as a guard given the headroom.
+pub const CONTEXT_WINDOW_TOKENS: usize = 500_000;
 
 /// Per-call input cap, in tokens (estimated at ~4 chars/token, the FAQ's own
-/// ratio): 90% of [`CONTEXT_WINDOW_TOKENS`]. The remaining ~26K tokens are the
-/// model's room for the completion. Over-cap prompts are rejected with an
-/// error naming the cap, never truncated — prompt assembly already bounds
-/// prompts below this (tool results snipped to 500 chars in
-/// `messages_to_text`), so the cap is an outer guard, not the working size.
+/// ratio): 90% of [`CONTEXT_WINDOW_TOKENS`] — 450K of the 500K budget. The
+/// remaining ~50K tokens are the model's room for the completion. Over-cap
+/// prompts are rejected with an error naming the cap, never truncated —
+/// prompt assembly already bounds prompts below this (tool results snipped
+/// to 500 chars in `messages_to_text`), so the cap is an outer guard, not
+/// the working size.
 pub const MAX_INPUT_TOKENS_PER_CALL: usize = CONTEXT_WINDOW_TOKENS * 90 / 100;
 
 /// Maximum in-flight requests. Benchmarked sweet spot from the ingestion
@@ -156,7 +163,7 @@ struct ResponseMessage {
     content: Option<String>,
 }
 
-/// Mercury 2.5 provider for compaction.
+/// Mercury 3 provider for compaction.
 ///
 /// Guarded against flooding and oversized calls per the ingestion probe of
 /// 2026-09-15 (real rollout payloads 5k/10k/20k tokens, concurrency ramped

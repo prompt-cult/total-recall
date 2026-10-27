@@ -35,7 +35,7 @@ exclude = [
 # the LLM-backed tools fail with an explicit "not compiled into this build"
 # error instead. See README "Build features".
 default = ["mercury", "mistral"]
-# Inception Mercury 2.5 (`--provider mercury`, the default).
+# Inception Mercury 3 (`--provider mercury`, the default).
 mercury = ["dep:dotenvy"]
 # Mistral (`--provider mistral`), an OpenAI-compatible chat completions API.
 mistral = ["dep:dotenvy"]
