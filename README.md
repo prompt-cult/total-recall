@@ -4,7 +4,7 @@ Total-recall MCP tool for log mining of session rollouts as a long-term memory s
 
 ## Why
 
-Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 3 summarises at 1,068 tok/s for $0.10/M input and $0.35/M output (launch pricing).
+Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 3 summarises at 1,068 tok/s for $0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch, October 2026).
 
 Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool brings that same engine — now Mercury 3 — to mining your CLI agent sessions.
 
@@ -740,10 +740,12 @@ Building from source instead: `cargo build --release`.
 
 ## Mercury 3 pricing
 
+Prices as-at the Mercury 3 launch, October 2026.
+
 | | Launch (50% off) | Normal |
 |---|---|---|
 | Input | $0.10/M tokens | $0.20/M tokens |
-| Cached input | $0.02/M tokens | $0.02/M tokens |
+| Cached input | $0.01/M tokens | $0.02/M tokens |
 | Output | $0.35/M tokens | $0.70/M tokens |
 | Speed | 1,068 tokens/sec | same |
 | Context | 1M tokens | same |

@@ -16,7 +16,8 @@ loop.
 Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits
 context limits on long sessions. Their built-in compaction is slow and uses
 expensive frontier models. Mercury 3 does the same job at 1,068 tok/s for
-$0.10/M input and $0.35/M output (launch pricing). Augment Code
+$0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch,
+October 2026). Augment Code
 [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5)
 (150s to 27s) and costs 90%.
 

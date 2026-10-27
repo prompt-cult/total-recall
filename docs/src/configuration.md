@@ -137,12 +137,12 @@ root to move it. A shadow root inside a git repository MUST NOT be committed.
 
 ## Pricing
 
-Mercury 3, launch (50% off) versus normal:
+Prices as-at the Mercury 3 launch, October 2026. Launch (50% off) versus normal:
 
 | | Launch | Normal |
 |---|---|---|
 | Input | $0.10/M tokens | $0.20/M tokens |
-| Cached input | $0.02/M tokens | $0.02/M tokens |
+| Cached input | $0.01/M tokens | $0.02/M tokens |
 | Output | $0.35/M tokens | $0.70/M tokens |
 | Speed | 1,068 tokens/sec | same |
 | Context | 1M tokens | same |
