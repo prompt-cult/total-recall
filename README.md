@@ -1,12 +1,12 @@
 # total-recall
 
-Total-recall MCP tool for log mining of session rollouts as a long-term memory store. Uses [Inception Mercury 2.5](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,100 tokens/sec — to summarise agent sessions and mine them for goals, tasks, and steers.
+Total-recall MCP tool for log mining of session rollouts as a long-term memory store. Uses [Inception Mercury 3](https://www.inceptionlabs.ai) — a diffusion LLM running at 1,068 tokens/sec — to summarise agent sessions and mine them for goals, tasks, and steers.
 
 ## Why
 
-Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 2.5 summarises at 1,100 tok/s for $0.04/M input and $0.15/M output (launch pricing).
+Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 3 summarises at 1,068 tok/s for $0.10/M input and $0.35/M output (launch pricing).
 
-Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool brings the same engine to mining your CLI agent sessions.
+Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool brings that same engine — now Mercury 3 — to mining your CLI agent sessions.
 
 ## What it does
 
@@ -351,8 +351,10 @@ exceeding any of them returns HTTP 429:
 - **The binding limit is ~1M input tokens/minute** (the documented input
   cap). Requests/min (1,000) and output tokens/min (100,000) never bind for
   compaction workloads.
-- **Per-call input cap: 234,000 tokens — 90% of Mercury 2.5's 260K context
-  window** (~4 chars/token), leaving the rest for the completion. A 100MiB
+- **Per-call input cap: 450,000 tokens — 90% of Mercury 3's 500K context
+  window** (half of the model's 1M window, deliberately, so summarisation
+  keeps headroom and sends more of the session intact rather than pruning
+  harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
   rollout is never slung in one call; an over-cap prompt is rejected with an
   error, never truncated. Practical calls stay far below the cap — tool
   results are snipped to 500 chars in prompt assembly, and a prompt built
@@ -384,7 +386,7 @@ summary covers the whole session up to now. On opencode the compaction
 boundary is the typed compaction part, which prose quoting the marker text
 cannot forge.
 
-1. Makes two parallel Mercury 2.5 calls: current state summary + user goals/tasks/steers
+1. Makes two parallel Mercury 3 calls: current state summary + user goals/tasks/steers
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
 3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
 4. Folds in the period's todo log (opencode) — items opened and closed with
@@ -420,7 +422,7 @@ Key findings from that research:
 - OpenCode has a separate "prune" mechanism for tool outputs beyond 40k tokens
 - Amp uses manual "handoff" instead of auto-compaction
 
-This tool takes the best of each: it preserves recent messages, prunes large tool outputs, and uses Mercury 2.5 for fast summarization.
+This tool takes the best of each: it preserves recent messages, prunes large tool outputs, and uses Mercury 3 for fast summarization.
 
 ## Build features
 
@@ -432,7 +434,7 @@ build is a first-class artifact.
 ```toml
 [features]
 default = ["mercury", "mistral"]
-mercury = ["dep:dotenvy"]   # Inception Mercury 2.5 (the default provider)
+mercury = ["dep:dotenvy"]   # Inception Mercury 3 (the default provider)
 mistral = ["dep:dotenvy"]   # Mistral, selected with --provider mistral
 ```
 
@@ -736,14 +738,15 @@ Building from source instead: `cargo build --release`.
 - `INCEPTION_API_KEY` in environment or `.env` (default build only)
 - Optional: `MISTRAL_API_KEY` for `--provider mistral`
 
-## Mercury 2.5 pricing
+## Mercury 3 pricing
 
-| | Launch (80% off) | Normal |
+| | Launch (50% off) | Normal |
 |---|---|---|
-| Input | $0.04/M tokens | $0.20/M tokens |
-| Output | $0.15/M tokens | $0.75/M tokens |
-| Speed | 1,107 tokens/sec | same |
-| Context | 260K tokens | same |
+| Input | $0.10/M tokens | $0.20/M tokens |
+| Cached input | $0.02/M tokens | $0.02/M tokens |
+| Output | $0.35/M tokens | $0.70/M tokens |
+| Speed | 1,068 tokens/sec | same |
+| Context | 1M tokens | same |
 
 100M free tokens for new accounts.
 

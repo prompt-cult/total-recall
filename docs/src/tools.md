@@ -518,7 +518,7 @@ first, ground truth next, LLM summaries middle, action last):
 4. The **commits made in the period**: the git commit tool calls with their
    timestamps.
 5. The current-state summary and the user's goals / tasks / steers (two
-   parallel Mercury 2.5 calls).
+   parallel Mercury 3 calls).
 6. A **compaction-points FYI footer**: the timestamps of the last few
    compaction points with the message and line counts since each — FYI only;
    mine the logs for anything deeper.
@@ -583,8 +583,10 @@ them returns HTTP 429.
 
 - **The binding limit is ~1M input tokens/minute.** Requests/min (1,000) and
   output tokens/min (100,000) never bind for compaction workloads.
-- **Per-call input cap: 234,000 tokens — 90% of Mercury 2.5's 260K context
-  window** (~4 chars/token), leaving the rest for the completion. A 100MiB
+- **Per-call input cap: 450,000 tokens — 90% of Mercury 3's 500K context
+  window** (half of the model's 1M window, deliberately, so summarisation
+  keeps headroom and sends more of the session intact rather than pruning
+  harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
   rollout is never slung in one call; an over-cap prompt is rejected with an
   error, never truncated. Practical calls stay far below the cap — tool
   results are snipped to 500 chars in prompt assembly, and a prompt built
@@ -614,4 +616,4 @@ comparing Claude Code, Codex CLI, OpenCode, and Amp:
 - Amp uses manual "handoff" instead of auto-compaction
 
 This tool takes the best of each: it preserves recent messages, prunes large
-tool outputs, and uses Mercury 2.5 for fast summarization.
+tool outputs, and uses Mercury 3 for fast summarization.

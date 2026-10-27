@@ -64,7 +64,7 @@ Be concise but preserve the material facts of what the user asked for.
 ///
 /// 200 KB is ~50K tokens, which at the documented free-tier ceiling of
 /// 1,000,000 input tokens per minute is ~3 seconds of ingest — inside any
-/// client deadline, with the rest of the 260K-token context left for the
+/// client deadline, with the rest of the 500K-token context left for the
 /// answer. Unbounded, a single large session reached millions of tokens: past
 /// the provider's input ceiling it is a hard error, and under it the ingest
 /// alone outlived the deadline.

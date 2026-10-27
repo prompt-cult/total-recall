@@ -3,8 +3,8 @@
 Fast compaction and log mining of agent session rollouts, as an MCP server
 and a CLI. Reads the session store a CLI coding agent already writes on your
 machine, and turns it into a queryable long-term memory: compaction summaries
-through [Inception Mercury 2.5](https://www.inceptionlabs.ai), a diffusion LLM
-running at 1,100 tokens/sec.
+through [Inception Mercury 3](https://www.inceptionlabs.ai), a diffusion LLM
+running at 1,068 tokens/sec.
 
 Two surfaces, one binary. `total-recall mcp` is an MCP stdio server, so an
 agent calls the tools directly. `total-recall <subcommand>` is a CLI over the
@@ -15,8 +15,8 @@ loop.
 
 Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits
 context limits on long sessions. Their built-in compaction is slow and uses
-expensive frontier models. Mercury 2.5 does the same job at 1,100 tok/s for
-$0.04/M input and $0.15/M output (launch pricing). Augment Code
+expensive frontier models. Mercury 3 does the same job at 1,068 tok/s for
+$0.10/M input and $0.35/M output (launch pricing). Augment Code
 [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5)
 (150s to 27s) and costs 90%.
 

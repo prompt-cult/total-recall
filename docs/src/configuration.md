@@ -40,7 +40,7 @@ cannot read the live store by any route.
 
 | Variable | Vendor | Read by | Needed for |
 |----------|--------|---------|------------|
-| `INCEPTION_API_KEY` | Inception Mercury 2.5 (default) | `src/mercury.rs` | `summarise_from` / `summarise-from`, `prior_period_summary` / `prior-period-summary` |
+| `INCEPTION_API_KEY` | Inception Mercury 3 (default) | `src/mercury.rs` | `summarise_from` / `summarise-from`, `prior_period_summary` / `prior-period-summary` |
 | `MISTRAL_API_KEY` | Mistral (`--provider mistral`) | `src/mercury.rs` | the same, on the Mistral vendor |
 
 A key reaches the binary one of two ways:
@@ -64,7 +64,7 @@ build is a first-class artifact.
 ```toml
 [features]
 default = ["mercury", "mistral"]
-mercury = ["dep:dotenvy"]   # Inception Mercury 2.5 (the default provider)
+mercury = ["dep:dotenvy"]   # Inception Mercury 3 (the default provider)
 mistral = ["dep:dotenvy"]   # Mistral, selected with --provider mistral
 ```
 
@@ -137,13 +137,14 @@ root to move it. A shadow root inside a git repository MUST NOT be committed.
 
 ## Pricing
 
-Mercury 2.5, launch (80% off) versus normal:
+Mercury 3, launch (50% off) versus normal:
 
 | | Launch | Normal |
 |---|---|---|
-| Input | $0.04/M tokens | $0.20/M tokens |
-| Output | $0.15/M tokens | $0.75/M tokens |
-| Speed | 1,107 tokens/sec | same |
-| Context | 260K tokens | same |
+| Input | $0.10/M tokens | $0.20/M tokens |
+| Cached input | $0.02/M tokens | $0.02/M tokens |
+| Output | $0.35/M tokens | $0.70/M tokens |
+| Speed | 1,068 tokens/sec | same |
+| Context | 1M tokens | same |
 
 100M free tokens for new accounts.
