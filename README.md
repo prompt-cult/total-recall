@@ -540,6 +540,14 @@ resolves to nothing usable is an error, never a silent fall-back to `$HOME`.
 | codex | `TOTAL_RECALL_CODEX_ROOT` | `~/.codex/sessions/` |
 | opencode | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
 
+Both vibe store layouts are read: pre-3.x releases keep the log in flat
+`session_*/messages.jsonl` directories; 3.0 and later write each session to a
+unified store under `unified/<uuid>/` (a `CURRENT` pointer, `meta.json`, a
+hash-chained `journal/*.jsonl` replay and content-addressed chunks). The
+adapter reads both side by side — unified sessions by journal replay, legacy
+sessions by messages.jsonl — so an upgrade to vibe 3.x loses nothing. Both
+stores are opened read-only.
+
 Both opencode store layouts are read: pre-2.2 releases keep the log in
 `session`/`message`/`part`; 2.2 and later write it to
 `session_v2`/`session_message` (parts inlined in each row's data JSON,

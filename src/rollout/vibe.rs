@@ -11,10 +11,16 @@ use super::{
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
 ///
-/// Session directory structure:
+/// Legacy session directory structure:
 ///   session_YYYYMMDD_HHMMSS_<short-id>/
 ///   ├── messages.jsonl   (one JSON object per line)
 ///   └── meta.json        (session metadata)
+///
+/// Vibe 3.0.3 added a second, side-by-side layout: the unified-session store
+/// `unified/<uuid>/` (CURRENT pointer, meta.json, hash-chained
+/// journal/*.jsonl segments, content-addressed chunks/<sha256>.json). Both
+/// are read: unified sessions by journal replay, legacy sessions by
+/// messages.jsonl, each id namespace its own.
 pub struct VibeAdapter {
     root: PathBuf,
     from_env: bool,
@@ -106,24 +112,302 @@ impl VibeAdapter {
         }
     }
 
-    /// The store's session directories (`session_*`), enumerated exactly as
-    /// the full listing enumerates them.
+    /// The store's session directories: the legacy `session_*` layout plus
+    /// the vibe 3.0.3 unified-store sessions (`unified/<uuid>/`), enumerated
+    /// exactly as the full listing enumerates them.
     fn session_dirs(&self) -> Vec<(String, PathBuf)> {
-        let entries = match std::fs::read_dir(&self.root) {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!("vibe store {}: cannot be listed: {e}", self.root.display());
-                return Vec::new();
+        let mut out: Vec<(String, PathBuf)> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&self.root) {
+            for entry in entries.flatten() {
+                if !entry.path().is_dir() {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with("session_") {
+                    out.push((name, entry.path()));
+                }
             }
+        }
+        for (name, path) in self.unified_session_dirs() {
+            out.push((name, path));
+        }
+        out
+    }
+
+    /// The vibe 3.0.3 unified-session store: `unified/<uuid>/` directories,
+    /// one per session.
+    fn unified_session_dirs(&self) -> Vec<(String, PathBuf)> {
+        let unified = self.root.join("unified");
+        let entries = match std::fs::read_dir(&unified) {
+            Ok(e) => e,
+            Err(_) => return Vec::new(),
         };
         entries
             .flatten()
             .filter(|entry| entry.path().is_dir())
-            .filter_map(|entry| {
+            .map(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                name.starts_with("session_").then(|| (name, entry.path()))
+                (name, entry.path())
             })
             .collect()
+    }
+
+    /// Resolve a unified session id — full uuid, or a prefix long enough to
+    /// name exactly one directory — to its store path. An empty id means the
+    /// most recently written unified session.
+    fn unified_session_dir(&self, session_id: &str) -> Option<PathBuf> {
+        let dirs = self.unified_session_dirs();
+        if session_id.is_empty() {
+            return dirs
+                .into_iter()
+                .map(|(_, path)| {
+                    let stamp =
+                        unified_payload_mtime(&path).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                    (stamp, path)
+                })
+                .max_by_key(|(stamp, _)| *stamp)
+                .map(|(_, path)| path);
+        }
+        if let Some((_, path)) = dirs.iter().find(|(name, _)| name.as_str() == session_id) {
+            return Some(path.clone());
+        }
+        dirs.iter()
+            .filter(|(name, _)| name.contains(session_id))
+            .min_by_key(|(name, _)| name.len())
+            .map(|(_, path)| path.clone())
+    }
+
+    /// Journal segment paths of a unified store, in replay (seq) order —
+    /// the segments are named `NNNNNNNNNNNNNN.jsonl` by sequence.
+    fn journal_segment_paths(dir: &Path) -> Vec<PathBuf> {
+        let mut segs: Vec<PathBuf> = match std::fs::read_dir(dir.join("journal")) {
+            Ok(entries) => entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl"))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        segs.sort();
+        segs
+    }
+
+    /// Replay one unified session from its journal. `core_input` records
+    /// carry the user's turns, `action_result` records the assistant's
+    /// outputs (text, reasoning, tool calls); the other validated record
+    /// types (turn bookkeeping, receipts, projection deltas, model-input
+    /// echoes) contribute nothing, and an unparseable journal line is
+    /// skipped with a warning — never fatal, never fatally short.
+    fn read_unified_session(&self, session_id: &str) -> Option<Vec<RolloutMessage>> {
+        let dir = self.unified_session_dir(session_id)?;
+        let mut out = Vec::new();
+        for seg in Self::journal_segment_paths(&dir) {
+            let data = match std::fs::read(&seg) {
+                Ok(d) => d,
+                Err(e) => {
+                    tracing::warn!("vibe journal {}: cannot read: {e}", seg.display());
+                    continue;
+                }
+            };
+            for line in String::from_utf8_lossy(&data).lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<serde_json::Value>(line) {
+                    Ok(record) => out.extend(unified_record_messages(&record)),
+                    Err(e) => tracing::warn!(
+                        "vibe journal {}: skipping unparseable line: {e}",
+                        seg.display()
+                    ),
+                }
+            }
+        }
+        Some(out)
+    }
+
+    /// One unified session summarized: size/lines/roles from the journal
+    /// replay, title and times from `meta.json` (the same decorative
+    /// contract as the legacy summary).
+    fn summarize_unified(&self, path: &Path, name: &str) -> (SessionSummary, u64) {
+        let messages = self.read_unified_session(name).unwrap_or_default();
+
+        let file_size: u64 = Self::journal_segment_paths(path)
+            .iter()
+            .filter_map(|seg| std::fs::metadata(seg).ok())
+            .map(|m| m.len())
+            .sum();
+        let line_count = messages.len() as u64;
+
+        let meta = self.read_meta(path);
+        let get_str = |key: &str| -> String {
+            meta.as_ref()
+                .and_then(|m| m.get(key))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        let mut user_count = 0u64;
+        let mut assistant_count = 0u64;
+        let mut tool_count = 0u64;
+        let mut has_compaction = false;
+        for m in &messages {
+            match m.role.as_str() {
+                "user" => {
+                    user_count += 1;
+                    has_compaction |= m.content.contains("context compaction");
+                }
+                "assistant" => assistant_count += 1,
+                "tool" => tool_count += 1,
+                _ => {}
+            }
+        }
+
+        // Content hash over the replayed payload; 0 marks an empty replay,
+        // and empty stores are never deduped together.
+        let content_hash = if file_size == 0 {
+            0
+        } else {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            for m in &messages {
+                m.content.hash(&mut h);
+            }
+            h.finish()
+        };
+
+        (
+            SessionSummary {
+                session_id: name.to_string(),
+                title: get_str("title"),
+                start_time: get_str("start_time"),
+                end_time: get_str("end_time"),
+                file_size,
+                line_count,
+                user_count,
+                assistant_count,
+                tool_count,
+                has_compaction,
+                directory: meta
+                    .as_ref()
+                    .and_then(|m| m.pointer("/environment/working_directory"))
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string),
+                parent_session_id: meta
+                    .as_ref()
+                    .and_then(|m| m.get("parent_session_id"))
+                    .and_then(|p| p.as_str())
+                    .map(str::to_string),
+                child_sessions: Vec::new(),
+                has_tantivy_index: false,
+                aliases: Vec::new(),
+                read_error: None,
+            },
+            content_hash,
+        )
+    }
+
+    /// Profile of a unified session: real counters from the journal replay.
+    /// The interesting-events classification mirrors the legacy loop's
+    /// tool-call families (todo, git operations) over the summarized calls.
+    fn profile_unified(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+        let dir = self
+            .unified_session_dir(session_id)
+            .ok_or_else(|| no_session_error(&self.root, session_id))?;
+
+        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), session_id);
+        let stamp = unified_payload_mtime(&dir)
+            .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        if cache && let Some(cached) = crate::profile_cache::read_fresh(&cache_path, stamp) {
+            return Ok(cached);
+        }
+
+        let messages = self
+            .read_unified_session(session_id)
+            .ok_or_else(|| no_session_error(&self.root, session_id))?;
+
+        let file_size: u64 = Self::journal_segment_paths(&dir)
+            .iter()
+            .filter_map(|seg| std::fs::metadata(seg).ok())
+            .map(|m| m.len())
+            .sum();
+        let line_count = messages.len() as u64;
+
+        let mut role_counts: HashMap<String, u64> = HashMap::new();
+        let mut interesting_events = Vec::new();
+        let mut last_event_line = 0u64;
+        let mut first_ts: Option<String> = None;
+        let mut last_ts: Option<String> = None;
+
+        for (i, m) in messages.iter().enumerate() {
+            let line_num = (i + 1) as u64;
+            *role_counts.entry(m.role.clone()).or_insert(0) += 1;
+
+            if m.content.contains("context compaction") {
+                interesting_events.push(InterestingEvent {
+                    line_number: line_num,
+                    event_type: EventType::Compaction,
+                    summary: "Compaction marker".to_string(),
+                    gap_lines: line_num - last_event_line,
+                });
+                last_event_line = line_num;
+            }
+
+            if m.role == "user" && !m.injected {
+                interesting_events.push(InterestingEvent {
+                    line_number: line_num,
+                    event_type: EventType::UserMessage,
+                    summary: m.content.chars().take(80).collect(),
+                    gap_lines: line_num - last_event_line,
+                });
+                last_event_line = line_num;
+            }
+
+            for summary in &m.tool_calls_summary {
+                let event_type = if summary.contains("git commit") {
+                    Some(EventType::GitCommit)
+                } else if summary.contains("git push") {
+                    Some(EventType::GitPush)
+                } else if summary.contains("git tag") {
+                    Some(EventType::GitTag)
+                } else {
+                    None
+                };
+                if let Some(event_type) = event_type {
+                    interesting_events.push(InterestingEvent {
+                        line_number: line_num,
+                        event_type,
+                        summary: summary.clone(),
+                        gap_lines: line_num - last_event_line,
+                    });
+                    last_event_line = line_num;
+                }
+            }
+
+            if let Some(ts) = &m.timestamp {
+                if first_ts.is_none() {
+                    first_ts = Some(ts.clone());
+                }
+                last_ts = Some(ts.clone());
+            }
+        }
+
+        let profile = SessionProfile {
+            session_id: session_id.to_string(),
+            file_size,
+            line_count,
+            first_ts,
+            last_ts,
+            role_counts,
+            has_tantivy_index: false,
+            interesting_events,
+        };
+        if cache {
+            crate::profile_cache::write(&cache_path, &profile);
+        }
+        Ok(profile)
     }
 
     /// One session directory summarized into ([`SessionSummary`], content
@@ -131,6 +415,10 @@ impl VibeAdapter {
     /// dedupe. Callers apply the mtime window before calling, so this
     /// payload read only ever happens for in-window sessions.
     fn summarize_dir(&self, path: &Path, name: &str) -> (SessionSummary, u64) {
+        // A 3.0.3 unified store is hashed journal instead of messages.jsonl.
+        if path.join("journal").is_dir() && !path.join("messages.jsonl").exists() {
+            return self.summarize_unified(path, name);
+        }
         let messages_path = path.join("messages.jsonl");
         let file_size = std::fs::metadata(&messages_path)
             .map(|m| m.len())
@@ -342,9 +630,12 @@ impl RolloutAdapter for VibeAdapter {
         let mut identity: Vec<u64> = Vec::new();
 
         for (name, path) in self.session_dirs() {
+            // Legacy payload mtime, or — for unified stores — the newest
+            // journal segment's mtime.
             let mtime = std::fs::metadata(path.join("messages.jsonl"))
                 .and_then(|m| m.modified())
-                .ok();
+                .ok()
+                .or_else(|| unified_payload_mtime(&path));
             if !mtime_in_window(mtime, hours_back) {
                 continue;
             }
@@ -365,10 +656,20 @@ impl RolloutAdapter for VibeAdapter {
     }
 
     fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        // A unified-store id never collides with a legacy session_* name, so
+        // trying unified first only ever changes unified sessions.
+        if let Some(messages) = self.read_unified_session(session_id) {
+            return Ok(messages);
+        }
         Ok(Self::parse_jsonl(&self.read_payload(session_id)?))
     }
 
     fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+        // Unified stores are replayed, not mmapped: the journal is segmented
+        // and content-addressed, so there is no single payload to map.
+        if let Some(messages) = self.read_unified_session(session_id) {
+            return Ok(messages);
+        }
         let path = self
             .messages_path(session_id)
             .ok_or_else(|| no_session_error(&self.root, session_id))?;
@@ -380,6 +681,9 @@ impl RolloutAdapter for VibeAdapter {
     }
 
     fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+        if self.unified_session_dir(session_id).is_some() {
+            return self.profile_unified(session_id, cache);
+        }
         let path = self
             .messages_path(session_id)
             .ok_or_else(|| no_session_error(&self.root, session_id))?;
@@ -559,6 +863,12 @@ impl RolloutAdapter for VibeAdapter {
     /// pair. Pairing follows `tool_call_id`, so a question asked twice in
     /// one session keeps each call's own answer.
     fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
+        // No question-tool record shapes are validated in the unified replay
+        // yet, so unified sessions report no pairs — never an error. Legacy
+        // sessions keep the full pairing.
+        if self.unified_session_dir(session_id).is_some() {
+            return Ok(Vec::new());
+        }
         let data = self.read_payload(session_id)?;
         let text = String::from_utf8_lossy(&data);
         Ok(qa_pairs_from_vibe_lines(&text))
@@ -572,6 +882,11 @@ impl RolloutAdapter for VibeAdapter {
         full: bool,
         include_injected: bool,
     ) -> ReadResult<Vec<super::RolloutEntry>> {
+        if let Some(messages) = self.read_unified_session(session_id) {
+            // Raw-record projection from the replay; entry slicing mirrors
+            // the legacy compaction window.
+            return Ok(unified_entries(messages, full, include_injected));
+        }
         let data = self.read_payload(session_id)?;
         let text = String::from_utf8_lossy(&data);
 
@@ -861,4 +1176,191 @@ fn datetime_diff(dir: &str, iso: &str) -> u64 {
         return u64::MAX;
     };
     a.abs_diff(b)
+}
+
+/// One unified-store journal record projected into dialogue messages.
+/// `core_input` records carry the user's turn (`payload.input.command`
+/// content parts, timestamped by `input.determinism.time_unix_ms`);
+/// `action_result` records carry the assistant's output for the action
+/// (`payload.result.result.parts`: text, reasoning and tool_call parts) as
+/// one assistant message. Record types the dialogue stream has no read for
+/// (turn bookkeeping, receipts, projection deltas, model-input echoes like
+/// `action_intent`) contribute nothing; only unparseable lines warn.
+fn unified_record_messages(record: &serde_json::Value) -> Vec<RolloutMessage> {
+    let rtype = record.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let payload = match record.get("payload") {
+        Some(p) => p,
+        None => return Vec::new(),
+    };
+    match rtype {
+        "core_input" => {
+            let content = payload
+                .pointer("/input/command/content")
+                .and_then(|c| c.as_array())
+                .map(|parts| unified_text_parts(parts))
+                .unwrap_or_default();
+            if content.is_empty() {
+                return Vec::new();
+            }
+            let timestamp = payload
+                .pointer("/input/determinism/time_unix_ms")
+                .and_then(|v| v.as_i64())
+                .and_then(unix_ms_to_iso);
+            vec![RolloutMessage {
+                role: "user".to_string(),
+                content,
+                thinking: None,
+                tool_calls_summary: Vec::new(),
+                timestamp,
+                injected: false,
+            }]
+        }
+        "action_result" => {
+            let parts = match payload
+                .pointer("/result/result/parts")
+                .and_then(|p| p.as_array())
+            {
+                Some(p) => p,
+                None => return Vec::new(),
+            };
+            let mut content = String::new();
+            let mut thinking = String::new();
+            let mut tool_calls_summary = Vec::new();
+            for part in parts {
+                match part.get("type").and_then(|t| t.as_str()) {
+                    Some("text") => append_text(
+                        &mut content,
+                        part.get("text").and_then(|t| t.as_str()).unwrap_or(""),
+                    ),
+                    // This environment nests the reasoning prose in a
+                    // `content` array of text parts; a bare `text` field is
+                    // equally valid.
+                    Some("reasoning") => {
+                        if let Some(inner) = part.get("content").and_then(|c| c.as_array()) {
+                            append_text(&mut thinking, &unified_text_parts(inner));
+                        }
+                        append_text(
+                            &mut thinking,
+                            part.get("text").and_then(|t| t.as_str()).unwrap_or(""),
+                        );
+                    }
+                    Some("tool_call") => {
+                        let name = part.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+                        let args = part
+                            .get("arguments_json")
+                            .and_then(|a| a.as_str())
+                            .unwrap_or("{}");
+                        tool_calls_summary.push(summarize_tool_call(name, args));
+                    }
+                    _ => {}
+                }
+            }
+            if content.is_empty() && thinking.is_empty() && tool_calls_summary.is_empty() {
+                return Vec::new();
+            }
+            vec![RolloutMessage {
+                role: "assistant".to_string(),
+                content,
+                thinking: (!thinking.is_empty()).then_some(thinking),
+                tool_calls_summary,
+                timestamp: None,
+                injected: false,
+            }]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The `text` fields of a content-part array joined with newlines.
+fn unified_text_parts(parts: &[serde_json::Value]) -> String {
+    let mut out = String::new();
+    for part in parts {
+        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+            append_text(&mut out, text);
+        }
+    }
+    out
+}
+
+/// Append one text fragment, newline-separating fragments.
+fn append_text(into: &mut String, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if !into.is_empty() {
+        into.push('\n');
+    }
+    into.push_str(text);
+}
+
+/// The write stamp of a unified store: the newest modification among its
+/// journal segments.
+fn unified_payload_mtime(dir: &Path) -> Option<std::time::SystemTime> {
+    let mut latest: Option<std::time::SystemTime> = None;
+    if let Ok(entries) = std::fs::read_dir(dir.join("journal")) {
+        for entry in entries.flatten() {
+            if let Ok(m) = entry.metadata().and_then(|m| m.modified()) {
+                latest = Some(latest.map_or(m, |l| l.max(m)));
+            }
+        }
+    }
+    latest
+}
+
+/// Unix milliseconds → ISO8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`), matching the
+/// rollout convention the legacy layout carries. Inverse-free civil-date
+/// math (Hinnant); no calendar dependency.
+fn unix_ms_to_iso(ms: i64) -> Option<String> {
+    let secs = ms.div_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let sod = secs.rem_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    let (h, mi, s) = (sod / 3600, (sod % 3600) / 60, sod % 60);
+    Some(format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z"))
+}
+
+/// Unified-store raw entries (for `extract_by_type`): the replayed messages
+/// re-serialized, with the legacy compaction window and injected filter.
+fn unified_entries(
+    messages: Vec<RolloutMessage>,
+    full: bool,
+    include_injected: bool,
+) -> Vec<super::RolloutEntry> {
+    let start = if full {
+        0
+    } else {
+        messages
+            .iter()
+            .rposition(|m| m.content.contains("context compaction"))
+            .unwrap_or(0)
+    };
+    let mut out = Vec::new();
+    for m in messages.into_iter().skip(start) {
+        if !include_injected && m.injected {
+            continue;
+        }
+        if !matches!(m.role.as_str(), "user" | "assistant" | "tool") {
+            continue;
+        }
+        let record = match serde_json::to_value(&m) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        out.push(super::RolloutEntry {
+            index: out.len(),
+            entry_type: m.role.clone(),
+            timestamp: m.timestamp,
+            record,
+        });
+    }
+    out
 }
