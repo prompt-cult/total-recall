@@ -108,7 +108,10 @@ unless events were pruned first (step 4).
 ### 4. (Optional, the actual win) Prune the event log before vacuuming
 
 The event log is a bus log — the TUI reads current state from the
-session/message/part tables, not from historical events. Prune keeps the
+session tables (in opencode 2.2: `session_v2`/`session_message`; older
+releases: `session`/`message`/`part` — 2.2 migrates everything into the new
+pair and freezes the legacy copy, which is also what total-recall reads
+from). Prune keeps the
 newest N events per aggregate and drops the rest (default below keeps 50):
 
 ```sh
