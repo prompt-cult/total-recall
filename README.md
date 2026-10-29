@@ -540,6 +540,14 @@ resolves to nothing usable is an error, never a silent fall-back to `$HOME`.
 | codex | `TOTAL_RECALL_CODEX_ROOT` | `~/.codex/sessions/` |
 | opencode | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
 
+Both opencode store layouts are read: pre-2.2 releases keep the log in
+`session`/`message`/`part`; 2.2 and later write it to
+`session_v2`/`session_message` (parts inlined in each row's data JSON,
+`seq`-ordered) and migrate every old session over. total-recall detects the
+layout per store, reads v2 where the pair exists — the frozen legacy copy would
+hide the sessions 2.2 wrote after the bump — and falls back to the legacy
+tables otherwise. The store is always opened read-only.
+
 Set `TOTAL_RECALL_SANDBOX=1` to refuse to build any adapter whose root did not
 come from its override. With the sandbox armed and no override set,
 `make_adapter` fails closed with a descriptive error instead of reading the
