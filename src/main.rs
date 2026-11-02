@@ -342,10 +342,7 @@ async fn main() -> Result<()> {
         eprintln!("error: {}", e);
         std::process::exit(2);
     });
-    let session_id = if matches!(
-        cli.command,
-        Command::Index { .. } | Command::Sheep { .. }
-    ) {
+    let session_id = if matches!(cli.command, Command::Index { .. } | Command::Sheep { .. }) {
         String::new()
     } else {
         resolve_session(adapter.as_ref(), cli.session.as_deref().unwrap_or("")).unwrap_or_else(

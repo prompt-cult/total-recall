@@ -84,7 +84,10 @@ fn opencode_override_is_wired() {
     let oroot = scratch("opencode");
     let _o = EnvGuard::set(OPENCODE_ROOT_ENV_VAR, oroot.to_str().unwrap());
     let adapter = make_adapter("opencode").unwrap_or_else(|e| panic!("opencode: {e}"));
-    assert!(adapter.root_is_from_env(), "opencode root must come from env");
+    assert!(
+        adapter.root_is_from_env(),
+        "opencode root must come from env"
+    );
     // Empty fixture roots list zero sessions but must not error/panic.
     assert_eq!(adapter.list_sessions().len(), 0, "opencode");
 }

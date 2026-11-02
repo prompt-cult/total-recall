@@ -44,7 +44,12 @@ fn build_fixture(root: &std::path::Path) {
     let now = now_ms();
 
     let sessions: Vec<(&str, &str, &str, i64)> = vec![
-        ("ses_alpha0000000000000000000000aa", "/Users/dev/alpha", "alpha session", now),
+        (
+            "ses_alpha0000000000000000000000aa",
+            "/Users/dev/alpha",
+            "alpha session",
+            now,
+        ),
         (
             "ses_beta000000000000000000000000bb",
             "/Users/dev/beta",
@@ -285,8 +290,7 @@ fn tool_is_registered() {
 #[test]
 fn he_said_is_verbatim_user_text_without_synthetic_parts() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
+    let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
     assert!(text.contains("## HE SAID"), "{}", text);
     assert!(
@@ -310,8 +314,7 @@ fn he_said_is_verbatim_user_text_without_synthetic_parts() {
 #[test]
 fn she_said_is_assistant_text_only() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
+    let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
     assert!(text.contains("## SHE SAID"), "{}", text);
     assert!(
@@ -335,8 +338,7 @@ fn she_said_is_assistant_text_only() {
 #[test]
 fn they_did_is_every_action_without_results() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
+    let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
     assert!(text.contains("## THEY DID"), "{}", text);
     assert!(
@@ -349,11 +351,7 @@ fn they_did_is_every_action_without_results() {
         "MCP-style call: {}",
         text
     );
-    assert!(
-        text.contains("todowrite("),
-        "todo action: {}",
-        text
-    );
+    assert!(text.contains("todowrite("), "todo action: {}", text);
     assert!(
         !text.contains("status output the build was clean"),
         "tool result never appears in THEY DID: {}",
@@ -365,8 +363,7 @@ fn they_did_is_every_action_without_results() {
 #[test]
 fn compaction_boundary_is_inline() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
+    let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
     assert!(
         text.contains("COMPACTION BOUNDARY"),
@@ -379,15 +376,10 @@ fn compaction_boundary_is_inline() {
 #[test]
 fn context_carries_period_compaction_points_and_cache() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
+    let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
     // The period: bounded by first and last message timestamps.
-    assert!(
-        text.contains("PERIOD:"),
-        "the period is stated: {}",
-        text
-    );
+    assert!(text.contains("PERIOD:"), "the period is stated: {}", text);
     assert!(
         text.lines().any(|l| l.contains("## CONTEXT")),
         "the context section exists: {}",
@@ -434,8 +426,10 @@ fn empty_session_id_resolves_the_most_recent_session() {
 #[test]
 fn flood_control_eof_marker_names_the_overflow_file() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha", "max_bytes": 100}));
+    let (err, text) = call_he_said(
+        &mut mcp,
+        serde_json::json!({"session_id": "ses_alpha", "max_bytes": 100}),
+    );
     assert!(!err, "overflow is not an error: {text}");
     assert!(
         text.contains("EOF-TRUNCATED"),
@@ -453,8 +447,10 @@ fn flood_control_eof_marker_names_the_overflow_file() {
 #[test]
 fn max_bytes_out_of_range_is_a_bound_error() {
     let (mut mcp, _dir) = spawn();
-    let (err, text) =
-        call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha", "max_bytes": 0}));
+    let (err, text) = call_he_said(
+        &mut mcp,
+        serde_json::json!({"session_id": "ses_alpha", "max_bytes": 0}),
+    );
     assert!(err, "out-of-range max_bytes is an error");
     assert!(
         text.contains("max_bytes") && text.contains("1 to 8388608"),

@@ -327,10 +327,7 @@ fn every_session_scoped_tool_takes_session_id_and_the_list_is_cut_off() {
         .iter()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    for expected in [
-        "index_sessions",
-        "do_android_dream_of_electric_sheep",
-    ] {
+    for expected in ["index_sessions", "do_android_dream_of_electric_sheep"] {
         let tool = tools
             .as_array()
             .unwrap()

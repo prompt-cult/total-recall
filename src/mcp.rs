@@ -391,7 +391,6 @@ pub fn resolve_skill_path(
     Err(canonical)
 }
 
-
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndexSessionsParams {
@@ -1342,11 +1341,8 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
         let markers = adapter.compaction_markers(&messages);
-        let status = crate::summary_cache::status(
-            &adapter.shadow_index_root(),
-            &session_id,
-            &messages,
-        );
+        let status =
+            crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
         let text = he_said_she_said_they_did_report(
             &session_id,
             self.harness(),
@@ -2166,7 +2162,11 @@ fn he_said_she_said_they_did_report(
             continue;
         }
         said_any = true;
-        out += &format!("[{}] {}\n", m.timestamp.as_deref().unwrap_or("0"), m.content);
+        out += &format!(
+            "[{}] {}\n",
+            m.timestamp.as_deref().unwrap_or("0"),
+            m.content
+        );
     }
     if !said_any {
         out += "(no user text)\n";
@@ -2179,7 +2179,11 @@ fn he_said_she_said_they_did_report(
             continue;
         }
         she_any = true;
-        out += &format!("[{}] {}\n", m.timestamp.as_deref().unwrap_or("0"), m.content);
+        out += &format!(
+            "[{}] {}\n",
+            m.timestamp.as_deref().unwrap_or("0"),
+            m.content
+        );
     }
     if !she_any {
         out += "(no assistant text)\n";
@@ -2220,20 +2224,12 @@ fn he_said_she_said_they_did_report(
             ranges.join(", ")
         )
     };
-    let watermark = status
-        .blocks
-        .last()
-        .map(|b| b.to_id + 1)
-        .unwrap_or(1);
+    let watermark = status.blocks.last().map(|b| b.to_id + 1).unwrap_or(1);
     let marker_line = if markers.is_empty() {
         "no compaction points — the store holds the whole dialogue from its start".to_string()
     } else {
         let ids: Vec<String> = markers.iter().map(|i| (i + 1).to_string()).collect();
-        format!(
-            "{} at message id(s) {}",
-            markers.len(),
-            ids.join(", ")
-        )
+        format!("{} at message id(s) {}", markers.len(), ids.join(", "))
     };
     out += &format!("- period covered: ids 1..={n}, {first} .. {last}\n");
     out += &format!("- compaction points: {marker_line}\n");

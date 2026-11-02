@@ -463,11 +463,7 @@ fn every_numeric_input_out_of_range_returns_the_house_form() {
             json!({"max_bytes": 9_000_000}),
             "max_bytes",
         ),
-        (
-            "index_sessions",
-            json!({"hours_back": -7}),
-            "hours_back",
-        ),
+        ("index_sessions", json!({"hours_back": -7}), "hours_back"),
         (
             "do_android_dream_of_electric_sheep",
             json!({"query": "release", "hours_back": -1}),

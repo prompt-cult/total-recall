@@ -1,6 +1,6 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use serde_json::Value;
 
 use rusqlite::{Connection, OpenFlags};
 
@@ -1540,4 +1540,3 @@ pub(crate) fn now_ms() -> i64 {
 pub(crate) fn iso_cutoff(hours_back: u64) -> String {
     ms_to_iso8601(now_ms() - (hours_back as i64) * 3_600_000)
 }
-
