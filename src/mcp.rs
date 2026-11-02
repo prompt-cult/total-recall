@@ -290,10 +290,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_she_said_hours() -> u64 {
-    48
-}
-
 /// The natural question/answer call indexes the last two days, like the
 /// other window tools; the whole store is `all: true`, explicit.
 fn default_qa_hours() -> u64 {
@@ -323,36 +319,6 @@ fn default_max_bytes() -> i64 {
     crate::report_cap::DEFAULT_MAX_BYTES as i64
 }
 
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SheSaidHeSaidParams {
-    #[schemars(
-        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
-    )]
-    #[serde(default)]
-    pub session_id: String,
-    #[schemars(description = "Case-insensitive search terms. At least one is required.")]
-    pub words: Vec<String>,
-    #[schemars(
-        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
-        range(min = 1)
-    )]
-    #[serde(default)]
-    pub hours_back: Option<i64>,
-    #[schemars(
-        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
-    )]
-    #[serde(default)]
-    pub all: bool,
-    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
-    pub directory: Option<String>,
-    #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
-        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-    )]
-    #[serde(default = "default_max_bytes")]
-    pub max_bytes: i64,
-}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -655,61 +621,6 @@ impl TotalRecallServer {
             &adapter.shadow_index_root(),
         );
         Ok(capped_text("list_sessions", "list", json, max_bytes))
-    }
-
-    #[tool(
-        name = "she_said_he_said_action",
-        description = "Total-recall MCP tool: given case-insensitive terms, extract per session the HE SAID (user text), SHE SAID (assistant text) and THEY DID (tool calls) matching any term, as a markdown report ordered most-recent session first. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true). Matching runs inside SQLite on a read-only connection."
-    )]
-    async fn she_said_he_said_action(
-        &self,
-        Parameters(params): Parameters<SheSaidHeSaidParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let max_bytes = match number(
-            "she_said_he_said_action",
-            "max_bytes",
-            params.max_bytes,
-            1,
-            crate::bound::MAX_BYTES_CEILING as i64,
-            REPORT_MAX_BYTES_CHEAP,
-        ) {
-            Ok(v) => v as usize,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let adapter = self.adapter()?;
-        if params.words.is_empty() {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(
-                "she_said_he_said_action requires at least one term in `words`".to_string(),
-            )]));
-        }
-        let hours = match window_hours(
-            "she_said_he_said_action",
-            params.hours_back,
-            params.all,
-            default_she_said_hours(),
-        ) {
-            Ok(h) => h,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let sessions: Vec<String> = if params.session_id.is_empty() {
-            Vec::new()
-        } else {
-            vec![params.session_id.clone()]
-        };
-        match adapter.she_said_he_said_action(
-            &sessions,
-            &params.words,
-            hours,
-            params.directory.as_deref(),
-        ) {
-            Ok(report) => Ok(capped_text(
-                "she_said_he_said_action",
-                &params.session_id,
-                report,
-                max_bytes,
-            )),
-            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        }
     }
 
     #[tool(

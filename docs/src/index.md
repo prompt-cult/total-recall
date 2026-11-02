@@ -57,7 +57,6 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | `extract_user_messages` | the same envelope over verbatim user messages |
 | `extract_by_type` | a raw `type,timestamp,json` recovery dump, one record per line |
 | `extract_qa_pairs` | question/answer pairs from question-tool calls: the question, its options, the picked or typed answers |
-| `she_said_he_said_action` | per session: HE SAID (user text), SHE SAID (assistant text), THEY DID (tool calls) matching your terms |
 | `index_sessions` | builds or refreshes a tantivy full-text index per session |
 | `do_android_dream_of_electric_sheep` | full-text search across those indexes, merged by score |
 | `summary_cache` | the per-session summary cache blocks: from/to ids and timestamps, message-type counts, size, part file — plus the unsummarised tail |
@@ -72,10 +71,6 @@ exceptions named): [Tools](tools.md).
 total-recall opens the store read-only — the OpenCode adapter connects with
 `SQLITE_OPEN_READ_ONLY`. It never writes to a session store, and the only files
 it creates live in the shadow root beside it.
-`she_said_he_said_action` pushes its matching into the query engine as a custom
-scalar function, so the rows stream out in one pass without the database ever
-being written.
-
 ## Error contract
 
 A payload that cannot be resolved or read is an error, never an empty

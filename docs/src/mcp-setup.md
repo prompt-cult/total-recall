@@ -41,7 +41,7 @@ The registration snippet's environment block carries two entries:
   shell that launches the client; the server inherits it.
 
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
-tools, `she_said_he_said_action`, `index_sessions`,
+tools, `index_sessions`,
 `do_android_dream_of_electric_sheep`) need no key. Only `prior_period_summary`
 reads it.
 

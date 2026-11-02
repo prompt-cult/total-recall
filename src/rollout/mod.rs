@@ -542,10 +542,6 @@ pub trait RolloutAdapter: Send + Sync {
         ))
     }
 
-    /// Case-insensitive term-matched dialogue and tool actions, as a markdown
-    /// report of HE SAID (user text), SHE SAID (assistant text) and THEY DID
-    /// (tool calls). Harnesses without a native implementation return a clear
-    /// unsupported error.
     /// Root directory for the disposable per-session full-text shadow index
     /// (`<root>/<session_id>/`). Sibling of the rollout store, never inside it.
     fn shadow_index_root(&self) -> PathBuf;
@@ -556,19 +552,6 @@ pub trait RolloutAdapter: Send + Sync {
     /// mock) report true so they are never refused.
     fn root_is_from_env(&self) -> bool {
         true
-    }
-
-    fn she_said_he_said_action(
-        &self,
-        _sessions: &[String],
-        _words: &[String],
-        _hours_back: u64,
-        _directory: Option<&str>,
-    ) -> Result<String, String> {
-        Err(format!(
-            "she_said_he_said_action is not implemented for harness '{}'; supported: opencode",
-            self.name()
-        ))
     }
 }
 

@@ -148,23 +148,6 @@ scanned count stated in the header. Each session's section carries at most
 the most recent 100 pairs with the held-back count stated, and the report is
 flood-capped at `max_bytes` like every other one.
 
-### `she_said_he_said_action` — matched dialogue and actions
-
-Given case-insensitive terms and a session list (partial IDs) — or, when the
-list is empty, all rollouts updated within `hours_back` hours (default 48)
-optionally filtered by `directory` substring — extracts per session:
-
-- **HE SAID** — user text parts matching any term
-- **SHE SAID** — assistant text parts matching any term
-- **THEY DID** — tool calls whose name or arguments match any term
-
-Matching is pushed down into SQLite as a custom scalar function on a
-read-only connection: the database is never written, matching runs inside
-the query engine, and matching rows stream out in one pass. Synthetic parts
-(skill injections, compaction markers) are skipped. Output is a markdown
-report, sessions ordered most-recent first. Currently implemented for
-OpenCode; other harnesses return a clear unsupported error.
-
 ### `index_sessions` / `index` — tantivy shadow indexes
 
 Builds or refreshes a full-text index per session using
@@ -210,7 +193,7 @@ $B --harness opencode --session ses_f5a4ea5e profile
 Searches the per-session tantivy indexes with tantivy query syntax
 (`QueryParser` over the `content` and `thinking` fields), merging the top 10
 hits per session into one ranking ordered by score. Session selection is
-identical to `she_said_he_said_action`: the `session_id` parameter takes one
+the `session_id` parameter takes one
 partial id, resolving to the most recent match (an unmatched id is reported
 in the header, not fatal); empty means the window — all sessions updated
 within `hours_back` (default 48), or `all: true` for the whole store,
@@ -319,7 +302,7 @@ a silent clamp.
   `extract_user_messages`, `extract_by_type`,
   `prior_period_summary`, `todo_history`): `session_id` partial match; empty = the
   most recent session.
-- **Window tools** (`list_sessions`, `she_said_he_said_action`,
+- **Window tools** (`list_sessions`,
   `extract_qa_pairs`, `index_sessions`,
   `do_android_dream_of_electric_sheep`): `session_id`
   selects explicitly; when empty the tool works its window — `hours_back`
@@ -449,7 +432,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `she_said_he_said_action`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest` | works | works |
 | `summarise_from` (MCP), `summarise-from` (CLI) | registered; the guard and a covered tail serve the cache with no LLM call, a real summarise returns an error naming the missing feature | calls Mercury only when there is something new to summarise, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -508,10 +491,6 @@ $B --harness vibe --session 4836855e cache-delete-latest
 # Total recall: state summary + user goals/steers + rollouts table + plan files
 $B --harness vibe --session 4836855e recall
 
-# She-said/he-said/they-did: matched dialogue and tool actions
-$B --harness opencode he-said-she-said --words git,branch,tag,worktree --hours 48 --directory uvrr-core
-$B --harness opencode he-said-she-said --words git --sessions ses_f5a4ea5e ses_f5b87b1c
-
 # Build/refresh per-session tantivy shadow indexes, then full-text search them
 $B --harness opencode index --sessions ses_f5a4ea5e
 $B --harness opencode do-android-dream-of-electric-sheep --query 'compaction' --sessions ses_f5a4ea5e
@@ -569,7 +548,7 @@ The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 flag), `profile_session` (the on-by-default cache; `cache: false` to recompute), `extract_messages`,
 `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
 `summary_cache`, `summarise_from`,
-`cache_delete_latest`, `she_said_he_said_action`, `index_sessions`,
+`cache_delete_latest`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
 and `line_histogram`:
 

@@ -29,7 +29,7 @@ Two regimes, one parameter:
   `summarise_from`, `cache_delete_latest`: `session_id` (partial match; empty = the
   most recent session). One session is the smallest useful scope, so it is
   the default.
-- **window tools** — `list_sessions`, `she_said_he_said_action`,
+- **window tools** — `list_sessions`,
   `extract_qa_pairs`, `index_sessions`,
   `do_android_dream_of_electric_sheep`: `session_id`
   (partial match) selects sessions explicitly; when empty, the tool works
@@ -90,9 +90,8 @@ Output format per subcommand, with no flag given: `list` and `profile` print a
 human-readable summary, `extract` prints one JSON object per line,
 `user-messages` prints a JSON array, `extract-by-type` always prints
 `type,timestamp,json` records, and `todo-history` always prints one JSONL
-todo-edit event per line. `he-said-she-said`,
-`do-android-dream-of-electric-sheep` and `index` print their own report format
-regardless of flags.
+todo-edit event per line. `do-android-dream-of-electric-sheep` and `index`
+print their own report format regardless of flags.
 
 CLI extraction is unbounded by default — stdout is a stream, and 0 means
 unbounded. The MCP tools are always bounded. A CLI truncation notice goes to
@@ -339,28 +338,6 @@ marker and overflow file. Opencode only: every other harness refuses with
 an explicit error, never an empty list.
 
 CLI: `total-recall --harness opencode --session <id> todo-history [--no-full]`.
-
-## Matched dialogue and actions
-
-### `she_said_he_said_action`
-
-
-Per session it extracts:
-
-- **HE SAID** — user text parts matching any term
-- **SHE SAID** — assistant text parts matching any term
-- **THEY DID** — tool calls whose name or arguments match any term
-
-Matching is pushed down into SQLite as a custom scalar function on a
-read-only connection: the database is never written, matching runs inside the
-query engine, and matching rows stream out in one pass. Synthetic parts (skill
-injections, compaction markers) are skipped. Output is a markdown report,
-sessions ordered most-recent first. An unmatched session_id is
-reported in the header, not fatal. Currently implemented for OpenCode; other
-harnesses return a clear unsupported error.
-
-CLI: `total-recall --harness opencode he-said-she-said --words git,branch,tag
-[--sessions <id>…] [--hours 48] [--directory <substr>]`.
 
 ## Indexing and full-text search
 

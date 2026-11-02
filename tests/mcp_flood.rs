@@ -20,7 +20,7 @@ fn now_ms() -> i64 {
 
 /// Build an opencode fixture with three sessions: alpha and beta updated
 /// now, old updated at the unix epoch. Alpha carries many long matching
-/// parts so a she_said report overflows a small cap.
+/// parts so a report overflows a small cap.
 fn build_fixture(root: &std::path::Path) {
     let conn = Connection::open(root.join("fixture.db")).unwrap();
     conn.execute_batch(
@@ -328,7 +328,6 @@ fn every_session_scoped_tool_takes_session_id_and_the_list_is_cut_off() {
         .filter_map(|t| t["name"].as_str())
         .collect();
     for expected in [
-        "she_said_he_said_action",
         "index_sessions",
         "do_android_dream_of_electric_sheep",
     ] {
@@ -352,58 +351,6 @@ fn every_session_scoped_tool_takes_session_id_and_the_list_is_cut_off() {
         names.contains(&"line_histogram"),
         "line_histogram is registered"
     );
-    reap(&mut mcp);
-}
-
-#[test]
-fn she_said_with_session_id_scans_only_that_session() {
-    let (mut mcp, _dir) = spawn();
-    let (err, text) = mcp.call(
-        "she_said_he_said_action",
-        serde_json::json!({"words": ["release"], "session_id": "ses_alpha"}),
-    );
-    assert!(!err, "she_said must succeed: {text}");
-    assert!(
-        text.contains("ses_alpha"),
-        "the alpha session is in the report"
-    );
-    assert!(
-        !text.contains("ses_beta"),
-        "the beta session must NOT be scanned"
-    );
-    reap(&mut mcp);
-}
-
-#[test]
-fn she_said_overflow_returns_the_marker_and_keeps_the_whole_report() {
-    let (mut mcp, _dir) = spawn();
-    let (err, text) = mcp.call(
-        "she_said_he_said_action",
-        serde_json::json!({"words": ["release"], "session_id": "ses_alpha", "max_bytes": 200}),
-    );
-    assert!(!err, "the capped call succeeds: {text}");
-    assert!(
-        text.contains("--- [EOF-TRUNCATED] ---"),
-        "the marker is present"
-    );
-    assert!(text.contains("full_report: "), "the marker names the file");
-    assert!(
-        text.contains("Bucket Distribution"),
-        "the marker carries the histogram"
-    );
-    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap();
-    assert!(
-        head.len() <= 200,
-        "the returned head respects max_bytes: {}",
-        head.len()
-    );
-    let path = marker_path(&text);
-    let full = std::fs::read_to_string(&path).unwrap();
-    assert!(
-        full.contains("release alpha finding 19"),
-        "the overflow file carries the whole report, past the cut"
-    );
-    assert!(full.len() > head.len(), "the file is bigger than the head");
     reap(&mut mcp);
 }
 

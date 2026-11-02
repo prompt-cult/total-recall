@@ -145,21 +145,6 @@ pub enum Command {
     /// the work after that boundary
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
-    /// She-said/he-said/they-did: matched dialogue and tool actions
-    HeSaidSheSaid {
-        /// Comma-separated case-insensitive search terms (required)
-        #[arg(long, required = true)]
-        words: String,
-        /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
-        #[arg(long, value_name = "id")]
-        sessions: Vec<String>,
-        /// Hours back when no sessions are given (default 48; 0 = no bound)
-        #[arg(long, default_value_t = 48)]
-        hours: u64,
-        /// Directory substring filter (empty-session-list mode)
-        #[arg(long)]
-        directory: Option<String>,
-    },
     /// Build/refresh per-session tantivy shadow indexes
     Index {
         /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
@@ -359,7 +344,7 @@ async fn main() -> Result<()> {
     });
     let session_id = if matches!(
         cli.command,
-        Command::HeSaidSheSaid { .. } | Command::Index { .. } | Command::Sheep { .. }
+        Command::Index { .. } | Command::Sheep { .. }
     ) {
         String::new()
     } else {
@@ -770,34 +755,6 @@ async fn main() -> Result<()> {
             );
             print!("{}", output);
             let _ = std::io::stdout().flush();
-        }
-
-        Command::HeSaidSheSaid {
-            words,
-            sessions,
-            hours,
-            directory,
-        } => {
-            let terms: Vec<String> = words
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .collect();
-            if terms.is_empty() {
-                eprintln!("error: --words requires at least one term");
-                std::process::exit(1);
-            }
-            match adapter.she_said_he_said_action(&sessions, &terms, hours, directory.as_deref()) {
-                Ok(report) => {
-                    print!("{}", report);
-                    let _ = std::io::stdout().flush();
-                }
-                Err(e) => {
-                    eprintln!("error: {}", e);
-                    std::process::exit(1);
-                }
-            }
         }
 
         Command::Index {

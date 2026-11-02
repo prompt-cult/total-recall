@@ -89,7 +89,7 @@ The key name and the surrounding structure survive, so a summary still shows
 snip rather than after, so a key cannot be cut in half and have its surviving
 prefix shipped; the log-mining tools
 (`list_sessions`, `profile_session`, `extract_messages`,
-`extract_user_messages`, `extract_by_type`, `she_said_he_said_action`,
+`extract_user_messages`, `extract_by_type`,
 `index_sessions`, `do_android_dream_of_electric_sheep`) make no outbound call
 at all and never transmit content.
 
@@ -107,9 +107,8 @@ The session stores are the sensitive part: they are your prompts, your source
 code, and your tool output.
 
 **The stores are read-only.** SQLite is opened `SQLITE_OPEN_READ_ONLY`
-(`src/rollout/opencode.rs`) and term matching for
-`she_said_he_said_action` runs on a read-only connection. The tool never
-writes, migrates, or repairs a session store.
+(`src/rollout/opencode.rs`). No tool writes, migrates, or repairs a session
+store.
 
 **The only files the binary writes** are inside the adapter's shadow root,
 never inside the session store:

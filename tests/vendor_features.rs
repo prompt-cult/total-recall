@@ -460,7 +460,6 @@ fn llm_tool_names_are_registered_in_every_build() {
         "cache_delete_latest",
         "prior_period_summary",
         "list_sessions",
-        "she_said_he_said_action",
     ] {
         assert!(
             names.iter().any(|n| n == expected),

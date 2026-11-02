@@ -226,7 +226,7 @@ fn reap(mcp: &mut Mcp) {
 
 /// Every tool that takes parameters, with the arguments that get it past its
 /// required fields.
-fn tools() -> [(&'static str, Value); 14] {
+fn tools() -> [(&'static str, Value); 13] {
     [
         ("list_sessions", json!({})),
         ("profile_session", json!({})),
@@ -237,7 +237,6 @@ fn tools() -> [(&'static str, Value); 14] {
         ("summarise_from", json!({"from_id": 1})),
         ("cache_delete_latest", json!({})),
         ("prior_period_summary", json!({})), // #31: the deleted total_recall tool is gone
-        ("she_said_he_said_action", json!({"words": ["release"]})),
         ("index_sessions", json!({})),
         (
             "do_android_dream_of_electric_sheep",
@@ -248,9 +247,8 @@ fn tools() -> [(&'static str, Value); 14] {
     ]
 }
 
-const WINDOW_TOOLS: [&str; 4] = [
+const WINDOW_TOOLS: [&str; 3] = [
     "list_sessions",
-    "she_said_he_said_action",
     "index_sessions",
     "do_android_dream_of_electric_sheep",
 ];
@@ -262,7 +260,6 @@ const CONTRADICTION: &str =
 /// required arguments need.
 fn zero_hours_call(tool: &str) -> Value {
     match tool {
-        "she_said_he_said_action" => json!({"words": ["release"], "hours_back": 0}),
         "do_android_dream_of_electric_sheep" => json!({"query": "release", "hours_back": 0}),
         _ => json!({"hours_back": 0}),
     }
@@ -305,9 +302,6 @@ fn all_true_with_zero_hours_is_the_whole_store_and_a_real_window_still_contradic
     assert!(!err, "whole-store indexing succeeds: {text}");
     for tool in WINDOW_TOOLS {
         let args = match tool {
-            "she_said_he_said_action" => {
-                json!({"words": ["release"], "all": true, "hours_back": 0})
-            }
             "do_android_dream_of_electric_sheep" => {
                 json!({"query": "release", "all": true, "hours_back": 0})
             }
@@ -324,9 +318,6 @@ fn all_true_with_zero_hours_is_the_whole_store_and_a_real_window_still_contradic
         );
 
         let args = match tool {
-            "she_said_he_said_action" => {
-                json!({"words": ["release"], "all": true, "hours_back": 24})
-            }
             "do_android_dream_of_electric_sheep" => {
                 json!({"query": "release", "all": true, "hours_back": 24})
             }
@@ -369,7 +360,7 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
         );
     }
     // The numeric bounds the handlers enforce.
-    let cases: [(&str, &str, Option<f64>, Option<f64>); 16] = [
+    let cases: [(&str, &str, Option<f64>, Option<f64>); 15] = [
         ("extract_messages", "limit", Some(0.0), Some(1000.0)),
         ("extract_messages", "offset", Some(0.0), None),
         (
@@ -389,12 +380,6 @@ fn served_schemas_state_the_bounds_the_handlers_enforce() {
         ("extract_by_type", "limit", Some(0.0), Some(1000.0)),
         ("extract_by_type", "max_bytes", Some(0.0), Some(8_388_608.0)),
         ("list_sessions", "max_bytes", Some(1.0), Some(8_388_608.0)),
-        (
-            "she_said_he_said_action",
-            "max_bytes",
-            Some(1.0),
-            Some(8_388_608.0),
-        ),
         (
             "do_android_dream_of_electric_sheep",
             "max_bytes",
@@ -470,7 +455,7 @@ fn every_tool_rejects_an_unknown_field_by_name_and_lists_what_it_accepts() {
 fn every_numeric_input_out_of_range_returns_the_house_form() {
     let (mut mcp, dir) = spawn();
     // (tool, args, the field the error must name)
-    let cases: [(&str, Value, &str); 27] = [
+    let cases: [(&str, Value, &str); 25] = [
         ("list_sessions", json!({"hours_back": -1}), "hours_back"),
         ("list_sessions", json!({"max_bytes": -1}), "max_bytes"),
         (
@@ -479,16 +464,10 @@ fn every_numeric_input_out_of_range_returns_the_house_form() {
             "max_bytes",
         ),
         (
-            "she_said_he_said_action",
-            json!({"words": ["release"], "hours_back": -1}),
+            "index_sessions",
+            json!({"hours_back": -7}),
             "hours_back",
         ),
-        (
-            "she_said_he_said_action",
-            json!({"words": ["release"], "max_bytes": 9_000_000}),
-            "max_bytes",
-        ),
-        ("index_sessions", json!({"hours_back": -7}), "hours_back"),
         (
             "do_android_dream_of_electric_sheep",
             json!({"query": "release", "hours_back": -1}),

@@ -319,19 +319,3 @@ fn v2_qa_pairs_parse_question_tool() {
     assert_eq!(pairs[0].header.as_deref(), Some("Plan"));
     assert_eq!(pairs[0].options.len(), 2);
 }
-
-#[test]
-fn v2_store_she_said_finds_v2_hits() {
-    let (_r, ad) = v2_fixture("ocv2_shesaid");
-    let report = ad
-        .she_said_he_said_action(
-            &[],
-            &["summarise".to_string(), "cargo".to_string()],
-            24,
-            None,
-        )
-        .expect("report");
-    assert!(report.contains("HE SAID"), "user hit: {report}");
-    assert!(report.contains("SHE SAID"), "assistant hit: {report}");
-    assert!(report.contains("THEY DID"), "tool hit: {report}");
-}

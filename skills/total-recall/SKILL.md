@@ -1,6 +1,6 @@
 ---
 name: total-recall
-description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 3, list/profile/extract rollouts across harnesses (opencode, vibe, claude, codex), mine dialogue with she_said_he_said_action, and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
+description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 3, list/profile/extract rollouts across harnesses (opencode, vibe, claude, codex), and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
 ---
 
 # Total Recall
@@ -23,7 +23,6 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events (cached by default; `--no-cache` to recompute) |
 | `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
 | `total-recall_extract_messages` | `extract` | all messages as JSON |
-| `she_said_he_said_action` | `he-said-she-said` | exact-term dialogue/tool mining |
 | `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — ranked, phrase-capable, covers assistant thinking |
 | `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes |
 
@@ -32,8 +31,7 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 `do_android_dream_of_electric_sheep` is the ranked full-text search over
 rollout content. It indexes message content **and assistant
 thinking/reasoning**, so it surfaces what the agent was reasoning about —
-exactly the material word-list tools cannot reach. It complements
-`she_said_he_said_action`, which only finds exact terms.
+exactly the material word-list tools cannot reach.
 
 Indexes are per session, in a shadow folder adjacent to the store:
 `<store>/.tantivy/<session-id>/`. They are disposable and never committed.
@@ -72,14 +70,3 @@ timestamp, role (marked `ROLE (thinking)` when the match is in reasoning),
 and a fragment around the match. Sessions without an index are reported in
 the header as "not indexed (run index first)".
 
-## Term mining (exact match)
-
-```bash
-total-recall --harness opencode he-said-she-said --words "mcp,tantivy" --hours 48
-```
-
-MCP: `she_said_he_said_action` with `words` (required, at least one),
-optional `sessions`, `hours_back` (default 48, omitted or 0 = that
-default), `directory`.
-Returns HE SAID (user), SHE SAID (assistant), THEY DID (tool calls) per
-session, most recent first.

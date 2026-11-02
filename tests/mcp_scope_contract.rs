@@ -203,9 +203,8 @@ fn whole_listing(text: &str) -> String {
     }
 }
 
-const WINDOW_TOOLS: [&str; 5] = [
+const WINDOW_TOOLS: [&str; 4] = [
     "list_sessions",
-    "she_said_he_said_action",
     "index_sessions",
     "do_android_dream_of_electric_sheep",
     "extract_qa_pairs",
@@ -222,9 +221,6 @@ fn all_true_with_hours_back_is_rejected_on_every_window_tool() {
             tool,
             match tool {
                 "list_sessions" => serde_json::json!({"all": true, "hours_back": 48}),
-                "she_said_he_said_action" => {
-                    serde_json::json!({"words": ["release"], "all": true, "hours_back": 48})
-                }
                 "do_android_dream_of_electric_sheep" => {
                     serde_json::json!({"query": "release", "all": true, "hours_back": 48})
                 }
@@ -256,15 +252,6 @@ fn all_true_reaches_the_whole_store_and_the_default_window_does_not() {
     assert!(
         written.contains("ses_old"),
         "all: true is the whole store, old sessions included"
-    );
-    let (err, text) = mcp.call(
-        "she_said_he_said_action",
-        serde_json::json!({"words": ["old memory"], "all": true}),
-    );
-    assert!(!err, "all: true she_said succeeds: {text}");
-    assert!(
-        text.contains("ses_old"),
-        "all: true scans the sessions outside every window"
     );
     reap(&mut mcp);
 }

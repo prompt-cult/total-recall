@@ -107,12 +107,6 @@ The session has no shadow index yet. Run `index_sessions` (or
 sessions in its header and skips them, rather than returning nothing as if the
 terms were absent. A corrupt index is reported in the header, also not fatal.
 
-## `she_said_he_said_action` fails on a non-OpenCode harness
-
-The tool is implemented for OpenCode only; other harnesses return a clear
-unsupported error. Matching runs inside SQLite as a custom scalar function on
-a read-only connection, which is an OpenCode-store property.
-
 ## A tool name looks wrong in the agent's surface
 
 The MCP server key was renamed. The tool names derive from it —
