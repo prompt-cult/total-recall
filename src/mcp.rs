@@ -345,15 +345,35 @@ fn default_max_bytes() -> i64 {
 
 /// Resolve the path to the release's `skills/total-recall/SKILL.md`.
 ///
-/// Pure: takes the env override (already read by the caller) and the exe path.
-/// Returns `Ok(path)` when a candidate is chosen (env wins, or a walk-up hit);
-/// `Err(path)` names the first candidate when nothing is found, so the caller
-/// can render the house-form error.
-pub fn resolve_skill_path(env: Option<&str>, exe: &std::path::Path) -> Result<std::path::PathBuf, std::path::PathBuf> {
+/// Pure: takes the env override (already read by the caller), the exe path and
+/// the home directory. Resolution order:
+///   1. env override (`TOTAL_RECALL_SKILL_PATH`) — the escape hatch;
+///   2. the canonical skills location — `<home>/.config/opencode/skills/`
+///      `total-recall/SKILL.md` — the directory OpenCode itself loads skills
+///      from, so `help` serves the same file the plugin surface serves;
+///   3. a walk-up from the executable (dev builds: `target/{debug,release}`
+///      find the repo's skills tree).
+/// Returns `Ok(path)` when a candidate exists on disk; `Err(path)` names the
+/// canonical location when nothing is found, so the caller can render the
+/// house-form error.
+pub fn resolve_skill_path(
+    env: Option<&str>,
+    exe: &std::path::Path,
+    home: &std::path::Path,
+) -> Result<std::path::PathBuf, std::path::PathBuf> {
     if let Some(v) = env {
         if !v.is_empty() {
             return Ok(std::path::PathBuf::from(v));
         }
+    }
+    let canonical = home
+        .join(".config")
+        .join("opencode")
+        .join("skills")
+        .join("total-recall")
+        .join("SKILL.md");
+    if canonical.is_file() {
+        return Ok(canonical);
     }
     let mut cur = exe.parent();
     for _ in 0..4 {
@@ -367,11 +387,7 @@ pub fn resolve_skill_path(env: Option<&str>, exe: &std::path::Path) -> Result<st
             break;
         }
     }
-    let first = exe
-        .parent()
-        .map(|p| p.join("skills").join("total-recall").join("SKILL.md"))
-        .unwrap_or_else(|| std::path::PathBuf::from("skills/total-recall/SKILL.md"));
-    Err(first)
+    Err(canonical)
 }
 
 
@@ -655,7 +671,10 @@ impl TotalRecallServer {
         };
         let env = std::env::var("TOTAL_RECALL_SKILL_PATH").ok();
         let exe = std::env::current_exe().unwrap_or_default();
-        let path = match resolve_skill_path(env.as_deref(), &exe) {
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let path = match resolve_skill_path(env.as_deref(), &exe, &home) {
             Ok(p) => p,
             Err(p) => {
                 return Ok(CallToolResult::error(vec![ContentBlock::text(format!(

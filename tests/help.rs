@@ -85,16 +85,36 @@ fn call_help(skill_path: Option<&Path>) -> (String, bool) {
 fn resolve_skill_path_env_wins() {
     let env = Some("/tmp/some/SKILL.md");
     let exe = Path::new("/a/b/c/total-recall");
-    assert_eq!(resolve_skill_path(env, exe).unwrap(), Path::new("/tmp/some/SKILL.md"));
+    assert_eq!(resolve_skill_path(env, exe, Path::new("/home/u")).unwrap(), Path::new("/tmp/some/SKILL.md"));
 }
 
 #[test]
-fn resolve_skill_path_env_empty_falls_through() {
-    let root = scratch("help_walk");
+fn resolve_skill_path_canonical_beats_walk_up() {
+    let root = scratch("help_canon");
     std::fs::create_dir_all(root.join("skills/total-recall")).unwrap();
-    std::fs::write(root.join("skills/total-recall/SKILL.md"), "x").unwrap();
+    std::fs::write(root.join("skills/total-recall/SKILL.md"), "canonical").unwrap();
+    let home = scratch("help_canon_home");
+    std::fs::create_dir_all(home.join(".config/opencode/skills/total-recall")).unwrap();
+    std::fs::write(home.join(".config/opencode/skills/total-recall/SKILL.md"), "canonical-home").unwrap();
     let exe = root.join("a/b/total-recall");
-    assert_eq!(resolve_skill_path(Some(""), &exe).unwrap(), root.join("skills/total-recall/SKILL.md"));
+    // The canonical skills location wins over the dev walk-up: it is the file
+    // the plugin surface loads.
+    assert_eq!(
+        resolve_skill_path(None, &exe, &home).unwrap(),
+        home.join(".config/opencode/skills/total-recall/SKILL.md")
+    );
+}
+
+#[test]
+fn resolve_skill_path_env_empty_falls_through_to_canonical() {
+    let home = scratch("help_canon2");
+    std::fs::create_dir_all(home.join(".config/opencode/skills/total-recall")).unwrap();
+    std::fs::write(home.join(".config/opencode/skills/total-recall/SKILL.md"), "x").unwrap();
+    let exe = Path::new("/ nowhere/bin/total-recall");
+    assert_eq!(
+        resolve_skill_path(Some(""), &exe, &home).unwrap(),
+        home.join(".config/opencode/skills/total-recall/SKILL.md")
+    );
 }
 
 #[test]
@@ -102,16 +122,24 @@ fn resolve_skill_path_walk_up_find() {
     let root = scratch("help_walk2");
     std::fs::create_dir_all(root.join("skills/total-recall")).unwrap();
     std::fs::write(root.join("skills/total-recall/SKILL.md"), "x").unwrap();
+    let home = scratch("help_walk2_home"); // no canonical skill here
     let exe = root.join("a/b/total-recall");
-    assert_eq!(resolve_skill_path(None, &exe).unwrap(), root.join("skills/total-recall/SKILL.md"));
+    assert_eq!(
+        resolve_skill_path(None, &exe, &home).unwrap(),
+        root.join("skills/total-recall/SKILL.md")
+    );
 }
 
 #[test]
-fn resolve_skill_path_both_missing() {
+fn resolve_skill_path_both_missing_names_canonical() {
     let root = scratch("help_miss");
+    let home = scratch("help_miss_home");
     let exe = root.join("a/b/total-recall");
-    let err = resolve_skill_path(None, &exe).unwrap_err();
-    assert_eq!(err, root.join("a/b/skills/total-recall/SKILL.md"));
+    let err = resolve_skill_path(None, &exe, &home).unwrap_err();
+    assert_eq!(
+        err,
+        home.join(".config/opencode/skills/total-recall/SKILL.md")
+    );
 }
 
 // --- integration tests ---
