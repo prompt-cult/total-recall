@@ -282,6 +282,20 @@ pub struct PriorPeriodSummaryParams {
     pub max_bytes: i64,
 }
 
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HeSaidSheSaidTheyDidParams {
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
+}
+
 fn default_hours() -> i64 {
     24
 }
@@ -1196,6 +1210,59 @@ impl TotalRecallServer {
     }
 
     #[tool(
+        name = "he_said_she_said_they_did",
+        description = "Total-recall MCP tool: one full, per-session report answering what did we say and do — the surface for why/how/when/else and follow-ups. HE SAID: the user's messages verbatim (synthetic/injected parts skipped). SHE SAID: the assistant's text parts only — explicitly not its thinking, explicitly not tool results. THEY DID: every action, kind-agnostic — built-in tool calls, MCP tool calls, plugin actions, todo actions — each as call name + arguments, tool results excluded, with compaction boundaries appearing inline at the point they occurred. A context section states the period the report covers, the compaction-point locations (1-based message ids), and where the existing summaries are: the summary-cache blocks and the high watermark (the first id a summarise_from may start at). Read-only, no LLM call. The session_id (partial match; empty = most recent) selects the session; the report is flood-capped at max_bytes."
+    )]
+    async fn he_said_she_said_they_did(
+        &self,
+        Parameters(params): Parameters<HeSaidSheSaidTheyDidParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let max_bytes = match number(
+            "he_said_she_said_they_did",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let markers = adapter.compaction_markers(&messages);
+        let status = crate::summary_cache::status(
+            &adapter.shadow_index_root(),
+            &session_id,
+            &messages,
+        );
+        let text = he_said_she_said_they_did_report(
+            &session_id,
+            self.harness(),
+            &messages,
+            &markers,
+            &status,
+        );
+        Ok(capped_text(
+            "he_said_she_said_they_did",
+            &session_id,
+            text,
+            max_bytes,
+        ))
+    }
+
+    #[tool(
         name = "prior_period_summary",
         description = "Total-recall MCP tool: an orientation summary of a prior period of work. The period is the work since the session's last compaction boundary — the work after that boundary; a session with no compaction points has no earlier period, so the summary covers the whole session up to now. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls."
     )]
@@ -1970,4 +2037,110 @@ fn extract_by_type_report(
         out.push('\n');
     }
     Ok(out)
+}
+
+/// Assemble the `he_said_she_said_they_did` report. Three spoken sections in
+/// chronological order — HE SAID (verbatim user text, synthetic parts
+/// skipped), SHE SAID (assistant text parts only; never thinking, never tool
+/// results), THEY DID (every action as name+arguments, tool results excluded,
+/// compaction boundaries inline) — under a header, with a context section
+/// carrying the period covered, the compaction-point locations and the
+/// summary-cache blocks. Pure render: no writes, no LLM call, no term
+/// matching; the caller resolved the session and read the store read-only.
+fn he_said_she_said_they_did_report(
+    session_id: &str,
+    harness: &str,
+    messages: &[crate::RolloutMessage],
+    markers: &[usize],
+    status: &crate::summary_cache::CacheStatus,
+) -> String {
+    let n = messages.len();
+    let (first, last) = crate::summary_cache::bounds(messages)
+        .map(|(f, l)| (f, l))
+        .unwrap_or_default();
+    let mut out = format!("# he_said_she_said_they_did — {session_id} ({harness})\n");
+    out += &format!("PERIOD: {first} .. {last} ({n} messages)\n\n");
+
+    out += "## HE SAID\n";
+    let mut said_any = false;
+    for m in messages {
+        if m.role != "user" || m.injected || m.content.is_empty() {
+            continue;
+        }
+        said_any = true;
+        out += &format!("[{}] {}\n", m.timestamp.as_deref().unwrap_or("0"), m.content);
+    }
+    if !said_any {
+        out += "(no user text)\n";
+    }
+
+    out += "\n## SHE SAID\n";
+    let mut she_any = false;
+    for m in messages {
+        if m.role != "assistant" || m.content.trim().is_empty() {
+            continue;
+        }
+        she_any = true;
+        out += &format!("[{}] {}\n", m.timestamp.as_deref().unwrap_or("0"), m.content);
+    }
+    if !she_any {
+        out += "(no assistant text)\n";
+    }
+
+    out += "\n## THEY DID\n";
+    let mut did_any = false;
+    for (i, m) in messages.iter().enumerate() {
+        if markers.contains(&i) {
+            did_any = true;
+            out += &format!(
+                "--- COMPACTION BOUNDARY (message {} of {n}) [{}] ---\n",
+                i + 1,
+                m.timestamp.as_deref().unwrap_or("0")
+            );
+        }
+        for call in &m.tool_calls_summary {
+            did_any = true;
+            out += &format!("[{}] {call}\n", m.timestamp.as_deref().unwrap_or("0"));
+        }
+    }
+    if !did_any {
+        out += "(no actions)\n";
+    }
+
+    out += &format!("\n## CONTEXT\n");
+    let block_line = if status.blocks.is_empty() {
+        "no summary-cache blocks — the summarise_from guard starts at id 1".to_string()
+    } else {
+        let ranges: Vec<String> = status
+            .blocks
+            .iter()
+            .map(|b| format!("{}..={}", b.from_id, b.to_id))
+            .collect();
+        format!(
+            "{} block(s): id ranges {}",
+            status.blocks.len(),
+            ranges.join(", ")
+        )
+    };
+    let watermark = status
+        .blocks
+        .last()
+        .map(|b| b.to_id + 1)
+        .unwrap_or(1);
+    let marker_line = if markers.is_empty() {
+        "no compaction points — the store holds the whole dialogue from its start".to_string()
+    } else {
+        let ids: Vec<String> = markers.iter().map(|i| (i + 1).to_string()).collect();
+        format!(
+            "{} at message id(s) {}",
+            markers.len(),
+            ids.join(", ")
+        )
+    };
+    out += &format!("- period covered: ids 1..={n}, {first} .. {last}\n");
+    out += &format!("- compaction points: {marker_line}\n");
+    out += &format!(
+        "- summaries: {block_line}; the first unsummarised id, the high watermark, is {watermark}\n"
+    );
+    out
 }

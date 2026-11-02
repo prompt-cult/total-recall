@@ -89,7 +89,7 @@ The key name and the surrounding structure survive, so a summary still shows
 snip rather than after, so a key cannot be cut in half and have its surviving
 prefix shipped; the log-mining tools
 (`list_sessions`, `profile_session`, `extract_messages`,
-`extract_user_messages`, `extract_by_type`,
+`extract_user_messages`, `extract_by_type`, `he_said_she_said_they_did`,
 `index_sessions`, `do_android_dream_of_electric_sheep`) make no outbound call
 at all and never transmit content.
 

@@ -300,7 +300,7 @@ a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`,
-  `prior_period_summary`, `todo_history`): `session_id` partial match; empty = the
+  `prior_period_summary`, `todo_history`, `he_said_she_said_they_did`): `session_id` partial match; empty = the
   most recent session.
 - **Window tools** (`list_sessions`,
   `extract_qa_pairs`, `index_sessions`,
@@ -432,7 +432,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest`, `he_said_she_said_they_did` | works | works |
 | `summarise_from` (MCP), `summarise-from` (CLI) | registered; the guard and a covered tail serve the cache with no LLM call, a real summarise returns an error naming the missing feature | calls Mercury only when there is something new to summarise, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -550,7 +550,7 @@ flag), `profile_session` (the on-by-default cache; `cache: false` to recompute),
 `summary_cache`, `summarise_from`,
 `cache_delete_latest`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
-and `line_histogram`:
+`line_histogram`, `he_said_she_said_they_did`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
 empty = most recent) except the window tools, which take a `hours_back`

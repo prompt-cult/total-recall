@@ -24,14 +24,20 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
 | `total-recall_extract_messages` | `extract` | all messages as JSON |
 | `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — ranked, phrase-capable, covers assistant thinking |
+| `he_said_she_said_they_did` | — | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only), THEY DID (every action incl. MCP/plugin/todo calls) with compaction boundaries inline, period covered, compaction points and summary-cache blocks |
 | `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes |
 
 ## The dream pass (tantivy search)
 
 `do_android_dream_of_electric_sheep` is the ranked full-text search over
 rollout content. It indexes message content **and assistant
-thinking/reasoning**, so it surfaces what the agent was reasoning about —
-exactly the material word-list tools cannot reach.
+thinking/reasoning**, so it surfaces what the agent was reasoning about.
+
+`he_said_she_said_they_did` complements it as the reading pass: one full
+per-session report of HE SAID (verbatim user text), SHE SAID (assistant text
+only — no thinking, no tool results), and THEY DID (every action incl.
+MCP/plugin/todo calls, arguments only), with compaction boundaries inline,
+the period covered, the compaction-point ids and the summary-cache blocks.
 
 Indexes are per session, in a shadow folder adjacent to the store:
 `<store>/.tantivy/<session-id>/`. They are disposable and never committed.

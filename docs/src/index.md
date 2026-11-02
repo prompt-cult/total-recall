@@ -62,6 +62,7 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | `summary_cache` | the per-session summary cache blocks: from/to ids and timestamps, message-type counts, size, part file — plus the unsummarised tail |
 | `summarise_from` | a structured summary of a session from an explicit unsummarised id: Accomplished, Current Work, Files, Next Steps, Key Decisions; guard: the id must be the first unsummarised one |
 | `cache_delete_latest` | roll the summary-cache high watermark back one block (rm ledger row + part file); returns the new cache status |
+| `he_said_she_said_they_did` | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only — no thinking, no tool results), THEY DID (every action incl. MCP/plugin/todo calls, arguments only) with compaction boundaries inline, plus the period covered, the compaction-point ids and the summary-cache blocks/high watermark |
 | `prior_period_summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + a recent-rollouts table + plan files + orientation warning |
 Full parameter tables and the CLI equivalent of each tool (with the MCP-only
 exceptions named): [Tools](tools.md).

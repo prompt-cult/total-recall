@@ -26,7 +26,8 @@ Two regimes, one parameter:
 - **session tools** — `profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`,
   `prior_period_summary`, `todo_history`, `summary_cache`,
-  `summarise_from`, `cache_delete_latest`: `session_id` (partial match; empty = the
+  `summarise_from`, `cache_delete_latest`, `he_said_she_said_they_did`:
+  `session_id` (partial match; empty = the
   most recent session). One session is the smallest useful scope, so it is
   the default.
 - **window tools** — `list_sessions`,
@@ -338,6 +339,58 @@ marker and overflow file. Opencode only: every other harness refuses with
 an explicit error, never an empty list.
 
 CLI: `total-recall --harness opencode --session <id> todo-history [--no-full]`.
+
+### `he_said_she_said_they_did`
+
+One full, per-session report answering "what did we say and do" — the
+surface for "why/how/when/else" and follow-ups. Read-only: no term
+matching, no LLM call, nothing written. `session_id` (partial match; empty
+= the most recent session) selects the session; `max_bytes` (default
+16,384, 8 MiB ceiling) flood-caps the report with the EOF marker and
+overflow file.
+
+The report has three spoken sections plus a context section, all derived
+from the session as a whole:
+
+- **HE SAID** — the user's messages, verbatim. Injected (synthetic) user
+  parts are skipped, as they are in `extract_user_messages`.
+- **SHE SAID** — the assistant's text parts only. Explicitly NOT model
+  thinking/reasoning and explicitly NOT tool results.
+- **THEY DID** — every action: built-in tool calls, MCP tool calls, plugin
+  actions, todo actions — anything that arrived as a tool-like call. Each
+  action is one line of call name + arguments; tool results are excluded.
+  Compaction boundaries appear inline in the stream at the point they
+  occurred, so the reader knows the dialogue was itself cut down.
+- **Context** — the period the report covers (first to last message
+  timestamp), where the compaction points sit (1-based message ids), and
+  where the existing summaries are: total-recall's own summary-cache
+  blocks (their id ranges) and the high watermark, i.e. the first message
+  id a `summarise_from` can start at.
+
+Example (shape; content is whatever the session holds):
+
+```
+# he_said_she_said_they_did — ses_alpha0001 (opencode)
+PERIOD: 2026-10-26T09:04:00Z .. 2026-10-26T09:17:00Z (14 messages)
+
+## HE SAID
+1. [2026-10-26T09:04:00Z] Please run git status for me
+
+## SHE SAID
+2. [2026-10-26T09:05:00Z] Here is the current branch state…
+
+## THEY DID
+3. [2026-10-26T09:05:30Z] bash: git status
+4. [2026-10-26T09:06:00Z] todowrite(...)
+--- COMPACTION BOUNDARY (message 5 of 14) [2026-10-26T09:08:00Z]
+
+## CONTEXT
+- period covers all 14 messages: nothing has been compacted away within the store itself
+- compaction points: 1, at message 5
+- summaries: no summary-cache blocks — summarise_from can start at id 1
+```
+
+MCP only — no CLI subcommand.
 
 ## Indexing and full-text search
 

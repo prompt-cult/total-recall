@@ -93,6 +93,15 @@ carrying its line number, visible under `--verbose`.
 read is still listed, with counts from whatever could be read, and carries a
 `read_error` field.
 
+## `he_said_she_said_they_did` — why SHE SAID looks thin
+
+By contract SHE SAID carries the assistant's text parts only: no
+thinking/reasoning entry appears there (`extract_by_type` with
+`types: [thinking]` reads those), tool results are not assistant text, and
+tool-call record lines render only in THEY DID. If a session looks thin in
+the spoken sections but busy in THEY DID, that is the tool behaving as
+documented, not missing content.
+
 ## A tool reports "No sessions found" but the store has sessions
 
 A partial `session_id` that matches nothing resolves to no session, and the
