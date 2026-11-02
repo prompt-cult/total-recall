@@ -64,9 +64,13 @@ jobs:
       # The archive name is the contract with mise/aqua/ubi: <name>_<version>_<target-triple>.tar.gz
       # (goreleaser's convention). mise's asset autodetection reads the OS token
       # (darwin/linux), the arch token (x86_64/aarch64) and the libc token (gnu)
-      # straight out of the triple, and takes the single executable at the
-      # archive root as the installed binary. A triple needs no `matching=` hint
-      # in the user's config, and the aqua registry maps the same three fields.
+      # straight out of the triple, and takes the executable at the archive root
+      # as the installed binary (extra non-executable files at the root do not
+      # disturb the name match). A triple needs no `matching=` hint in the
+      # user's config, and the aqua registry maps the same three fields.
+      # The archive root holds the executable and the release's SKILL.md —
+      # the skill the `help` action serves; the install step copies it into
+      # the skills directory.
       - name: Stage archive
         run: |
           set -euo pipefail
@@ -74,6 +78,7 @@ jobs:
           NAME="total-recall_${VERSION}_${{ matrix.triple }}.tar.gz"
           mkdir -p dist
           cp target/release/total-recall dist/total-recall
+          cp skills/total-recall/SKILL.md dist/SKILL.md
           # Reproducible archive: zeroed mtime, uid/gid 0 and a fixed ustar format
           # so the same source tree yields the same bytes. The mtime form is the
           # portable -t one with an explicit TZ: BSD touch rejects `-d @0` on the
@@ -85,10 +90,10 @@ jobs:
           # Linux runners rejects them (v0.8.0's first release run died on
           # "tar: unrecognized option '--uname=root'"). --owner/--group pin the
           # uid/gid fields both implementations write.
-          TZ=UTC touch -t 197001010000 dist/total-recall
+          TZ=UTC touch -t 197001010000 dist/total-recall dist/SKILL.md
           tar --format=ustar --owner=0 --group=0 --numeric-owner \
-              -C dist -cf - total-recall | gzip -n -9 > "dist/$NAME"
-          rm dist/total-recall
+              -C dist -cf - total-recall SKILL.md | gzip -n -9 > "dist/$NAME"
+          rm dist/total-recall dist/SKILL.md
           tar -tzf "dist/$NAME"
       - uses: actions/upload-artifact@v4
         with:

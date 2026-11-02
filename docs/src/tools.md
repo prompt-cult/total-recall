@@ -109,9 +109,14 @@ takes `--harness` explicitly.
 ### `help`
 
 No session parameters. `max_bytes` (default 16,384). Returns the release's
-`skills/total-recall/SKILL.md` through the standard capped-text path. Resolution:
-`TOTAL_RECALL_SKILL_PATH` env var if set and non-empty, else walk up from the
-server binary. A missing skill degrades gracefully.
+`skills/total-recall/SKILL.md` through the standard capped-text path.
+Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
+non-empty (the escape hatch); the skills directory —
+`~/.config/opencode/skills/total-recall/SKILL.md`, the file OpenCode itself
+loads as the skill; a walk up from the server binary (dev builds run from a
+repo `target/` tree). A missing skill degrades gracefully: the error names
+the skills-directory path and the env var.
+
 ### `list_sessions`
 
 MCP: `hours_back` (a window in hours, `1` or more; `0` or omitted = the

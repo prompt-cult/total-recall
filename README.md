@@ -662,7 +662,10 @@ vendor-free build with no key at all.
 Prebuilt archives ship on every tagged release. Asset names are
 `total-recall_<version>_<target-triple>.tar.gz` — for example
 `total-recall_0.7.0_x86_64-unknown-linux-gnu.tar.gz` — and each archive holds
-one executable, `total-recall`, at its root.
+the `total-recall` executable and the release's `SKILL.md` at its root. The
+binary goes on your `PATH`; the skill goes into the skills directory
+(`~/.config/opencode/skills/total-recall/SKILL.md`) — the `help` action serves
+it from there.
 
 ### mise
 
@@ -710,6 +713,8 @@ curl -fsSLO "https://github.com/prompt-cult/total-recall/releases/download/v${VE
 sha256sum --check --ignore-missing SHA256SUMS
 tar -xzf "total-recall_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
 install -m 0755 total-recall /usr/local/bin/
+mkdir -p "${HOME}/.config/opencode/skills/total-recall"
+install -m 0644 SKILL.md "${HOME}/.config/opencode/skills/total-recall/SKILL.md"
 ```
 
 Substitute the triple for your platform: `aarch64-apple-darwin`,

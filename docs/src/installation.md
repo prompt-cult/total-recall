@@ -47,7 +47,7 @@ aqua is configured to read.
 Prebuilt archives ship on every tagged release. Asset names are
 `total-recall_<version>_<target-triple>.tar.gz` — for example
 `total-recall_0.7.0_x86_64-unknown-linux-gnu.tar.gz` — and each archive holds
-one executable, `total-recall`, at its root.
+the `total-recall` executable and the release's `SKILL.md` at its root.
 
 ```bash
 VERSION=0.7.0
@@ -56,7 +56,12 @@ curl -fsSLO "https://github.com/prompt-cult/total-recall/releases/download/v${VE
 sha256sum --check --ignore-missing SHA256SUMS
 tar -xzf "total-recall_${VERSION}_x86_64-unknown-linux-gnu.tar.gz"
 install -m 0755 total-recall /usr/local/bin/
+mkdir -p "${HOME}/.config/opencode/skills/total-recall"
+install -m 0644 SKILL.md "${HOME}/.config/opencode/skills/total-recall/SKILL.md"
 ```
+
+The skill lands in the skills directory — the `help` action serves it from
+there, and OpenCode loads it as the `total-recall` skill.
 
 Substitute the triple for your platform: `aarch64-apple-darwin`,
 `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, or
