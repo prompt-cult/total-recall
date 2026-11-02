@@ -112,7 +112,7 @@ fn resolve_skill_path_env_empty_falls_through_to_canonical() {
     std::fs::write(home.join(".config/opencode/skills/total-recall/SKILL.md"), "x").unwrap();
     let exe = Path::new("/ nowhere/bin/total-recall");
     assert_eq!(
-        resolve_skill_path(Some(""), &exe, &home).unwrap(),
+        resolve_skill_path(Some(""), exe, &home).unwrap(),
         home.join(".config/opencode/skills/total-recall/SKILL.md")
     );
 }

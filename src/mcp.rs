@@ -353,6 +353,7 @@ fn default_max_bytes() -> i64 {
 ///      from, so `help` serves the same file the plugin surface serves;
 ///   3. a walk-up from the executable (dev builds: `target/{debug,release}`
 ///      find the repo's skills tree).
+///
 /// Returns `Ok(path)` when a candidate exists on disk; `Err(path)` names the
 /// canonical location when nothing is found, so the caller can render the
 /// house-form error.
@@ -361,10 +362,10 @@ pub fn resolve_skill_path(
     exe: &std::path::Path,
     home: &std::path::Path,
 ) -> Result<std::path::PathBuf, std::path::PathBuf> {
-    if let Some(v) = env {
-        if !v.is_empty() {
-            return Ok(std::path::PathBuf::from(v));
-        }
+    if let Some(v) = env
+        && !v.is_empty()
+    {
+        return Ok(std::path::PathBuf::from(v));
     }
     let canonical = home
         .join(".config")
@@ -2154,9 +2155,7 @@ fn he_said_she_said_they_did_report(
     status: &crate::summary_cache::CacheStatus,
 ) -> String {
     let n = messages.len();
-    let (first, last) = crate::summary_cache::bounds(messages)
-        .map(|(f, l)| (f, l))
-        .unwrap_or_default();
+    let (first, last) = crate::summary_cache::bounds(messages).unwrap_or_default();
     let mut out = format!("# he_said_she_said_they_did — {session_id} ({harness})\n");
     out += &format!("PERIOD: {first} .. {last} ({n} messages)\n\n");
 
@@ -2206,7 +2205,7 @@ fn he_said_she_said_they_did_report(
         out += "(no actions)\n";
     }
 
-    out += &format!("\n## CONTEXT\n");
+    out += "\n## CONTEXT\n";
     let block_line = if status.blocks.is_empty() {
         "no summary-cache blocks — the summarise_from guard starts at id 1".to_string()
     } else {
