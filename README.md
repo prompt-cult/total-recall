@@ -550,7 +550,7 @@ flag), `profile_session` (the on-by-default cache; `cache: false` to recompute),
 `summary_cache`, `summarise_from`,
 `cache_delete_latest`, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
-`line_histogram`, `he_said_she_said_they_did`:
+`line_histogram`, `he_said_she_said_they_did`, `help`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
 empty = most recent) except the window tools, which take a `hours_back`

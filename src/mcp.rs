@@ -284,6 +284,16 @@ pub struct PriorPeriodSummaryParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct HelpParams {
+    #[schemars(
+        description = "Flood-control cap on the returned skill text, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384."
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct HeSaidSheSaidTheyDidParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -331,6 +341,37 @@ fn default_list_hours() -> u64 {
 
 fn default_max_bytes() -> i64 {
     crate::report_cap::DEFAULT_MAX_BYTES as i64
+}
+
+/// Resolve the path to the release's `skills/total-recall/SKILL.md`.
+///
+/// Pure: takes the env override (already read by the caller) and the exe path.
+/// Returns `Ok(path)` when a candidate is chosen (env wins, or a walk-up hit);
+/// `Err(path)` names the first candidate when nothing is found, so the caller
+/// can render the house-form error.
+pub fn resolve_skill_path(env: Option<&str>, exe: &std::path::Path) -> Result<std::path::PathBuf, std::path::PathBuf> {
+    if let Some(v) = env {
+        if !v.is_empty() {
+            return Ok(std::path::PathBuf::from(v));
+        }
+    }
+    let mut cur = exe.parent();
+    for _ in 0..4 {
+        if let Some(p) = cur {
+            let candidate = p.join("skills").join("total-recall").join("SKILL.md");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+            cur = p.parent();
+        } else {
+            break;
+        }
+    }
+    let first = exe
+        .parent()
+        .map(|p| p.join("skills").join("total-recall").join("SKILL.md"))
+        .unwrap_or_else(|| std::path::PathBuf::from("skills/total-recall/SKILL.md"));
+    Err(first)
 }
 
 
@@ -591,6 +632,45 @@ impl TotalRecallServer {
             json,
             crate::report_cap::DEFAULT_MAX_BYTES,
         ))
+    }
+
+    #[tool(
+        name = "help",
+        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the standard capped_text flood-control path. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build."
+    )]
+    async fn help_tool(
+        &self,
+        Parameters(params): Parameters<HelpParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "help",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let env = std::env::var("TOTAL_RECALL_SKILL_PATH").ok();
+        let exe = std::env::current_exe().unwrap_or_default();
+        let path = match resolve_skill_path(env.as_deref(), &exe) {
+            Ok(p) => p,
+            Err(p) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
+                    p.display()
+                ))]));
+            }
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(md) => Ok(capped_text("help", "", md, max_bytes)),
+            Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
+                path.display()
+            ))])),
+        }
     }
 
     #[tool(

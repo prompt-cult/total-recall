@@ -106,6 +106,12 @@ No parameters. Returns the harness this server is bound to, as JSON. The
 cheapest confirmation that a registration is right. No CLI equivalent — the CLI
 takes `--harness` explicitly.
 
+### `help`
+
+No session parameters. `max_bytes` (default 16,384). Returns the release's
+`skills/total-recall/SKILL.md` through the standard capped-text path. Resolution:
+`TOTAL_RECALL_SKILL_PATH` env var if set and non-empty, else walk up from the
+server binary. A missing skill degrades gracefully.
 ### `list_sessions`
 
 MCP: `hours_back` (a window in hours, `1` or more; `0` or omitted = the

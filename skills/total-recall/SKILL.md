@@ -26,6 +26,14 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — ranked, phrase-capable, covers assistant thinking |
 | `he_said_she_said_they_did` | — | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only), THEY DID (every action incl. MCP/plugin/todo calls) with compaction boundaries inline, period covered, compaction points and summary-cache blocks |
 | `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes |
+| `prior_period_summary` | `prior-period-summary` | orientation summary of a prior period |
+| `harness` | — | report which harness this server is bound to |
+| `list_sessions` | `list` | list session rollouts for the bound harness |
+| `extract_by_type` | `extract-by-type` | raw extract of entries filtered by type |
+| `extract_qa_pairs` | `extract-qa-pairs` | question/answer pairs from sessions |
+| `todo_history` | `todo-history` | todo-list edits as JSONL event stream |
+| `line_histogram` | `line-histogram` | line-size distribution or extract lines |
+| `help` | — | return this skill text |
 
 ## The dream pass (tantivy search)
 
