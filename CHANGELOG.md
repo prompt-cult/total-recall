@@ -5,6 +5,123 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-11-02
+
+### Added
+
+- New `he_said_she_said_they_did` MCP tool (#47): one full, per-session
+  report answering "what did we say and do" — HE SAID (the user's messages
+  verbatim, synthetic/injected parts skipped), SHE SAID (the assistant's
+  text parts only — explicitly not its thinking, explicitly not tool
+  results), THEY DID (every action, kind-agnostic: built-in tool calls, MCP
+  tool calls, plugin actions, todo actions — each as call name + arguments,
+  tool results excluded) with compaction boundaries appearing inline at the
+  point they occurred, spontaneous or not. A context section states the
+  period the report covers, the compaction-point locations (1-based message
+  ids) and where the existing summaries are: the summary-cache blocks and
+  the high watermark. Session-scoped (`session_id` partial match, empty =
+  the most recent session), flood-capped at `max_bytes` like every other
+  report. Read-only.
+- New `help` MCP tool (#48): returns the release's
+  `skills/total-recall/SKILL.md` through the standard capped-text path.
+  Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
+  non-empty (the escape hatch); the skills directory
+  (`~/.config/opencode/skills/total-recall/SKILL.md` — the file OpenCode
+  itself loads as the skill); a walk up from the server binary (dev builds
+  run from a repo `target/` tree). A missing skill degrades gracefully: the
+  error names the skills-directory path and the env var. A drift test
+  asserts the skill's tool table equals the server's `tools/list` in both
+  directions, so a stale or lying skill fails `cargo test` before any
+  release.
+- The release archives carry the release's `SKILL.md` at the archive root
+  beside the executable; the documented install step copies it into the
+  skills directory, so a binary release and its skill land together (#48).
+
+### Removed
+
+- The `she_said_he_said_action` MCP tool and the `he-said-she-said` CLI
+  subcommand (#47): term-matched fragments only — not fit for purpose as an
+  account of a session. Replaced by `he_said_she_said_they_did`; no
+  term-matching behaviour remains.
+
+## [0.18.0] - 2026-10-29
+
+### Added
+
+- Read vibe 3.x unified-session stores beside the legacy layout (#46): the
+  vibe adapter reads the 3.x unified store's sessions and message bodies
+  while the legacy layout remains readable, so rollouts mined from either
+  layout surface identically.
+
+## [0.17.0] - 2026-10-29
+
+### Added
+
+- Read opencode 2.2 stores (#44): the new `session_v2`/`session_message`
+  layout is read beside the legacy `session`/`message` tables — the store
+  layout is detected per database, and both layouts serve the same tool
+  surface.
+
+## [0.16.2] - 2026-10-27
+
+### Changed
+
+- Summarisation runs on Mercury 3 (#41, #42): model `mercury-3`, a 500K
+  input budget (half of Mercury 3's 1M context — summarisation is kept
+  lossless by sending more session intact instead of pruning harder), and
+  the bytes→tokens guard stated where the cap is documented (~4
+  chars/token). Endpoint and key unchanged; rate limits and concurrency
+  unchanged.
+
+## [0.16.1] - 2026-10-19
+
+### Fixed
+
+- Canonical session resolution is a store-side match, not a full-store
+  listing: resolving a partial session id no longer lists every session to
+  find the most recent match — the match runs inside the store read.
+
+## [0.16.0] - 2026-10-18
+
+### Added
+
+- Summary cache blocks (#39): `summary_cache` introspection (the cached
+  blocks' id ranges, counts, sizes and part files plus the unsummarised
+  tail), `summarise_from` (explicit 1-based id to summarise from, guarded to
+  the first unsummarised id), and `cache_delete_latest` (roll the cache back
+  one block).
+
+### Changed
+
+- The prior period is the work SINCE the last compaction boundary (#38) —
+  the docs state the boundary rule plainly for both flows.
+
+### Removed
+
+- The deprecated implicit `summarise_current_session` form (#40): the
+  explicit tool surface is the whole surface.
+
+## [0.15.0] - 2026-10-18
+
+### Added
+
+- Summaries cached by default via a range ledger, and the profile cache on
+  by default (#36, #37): repeated summary and profile reads serve from the
+  cache; `profile_session` takes `cache: false` to force a recompute.
+- `summarise_current_session` (#35), replacing the deprecated
+  `compact_session` (#34).
+
+### Changed
+
+- One tool, one job (#34): the `full` flag is gone — the boundary a tool
+  reads from is the tool's own contract, not a caller's modifier.
+
+### Fixed
+
+- The per-call summarisation input cap is 90% of the 260K context window,
+  not 1M tokens: the cap guards against overrun instead of trusting a
+  vendor's ceiling the request could exceed.
+
 ## [0.14.0] - 2026-10-17
 
 ### Added
