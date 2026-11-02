@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-11-02
+
+### Removed
+
+- The codex and claude harnesses (#49): untested by the author, and an
+  untested surface ships lying docs and unverified code paths. The adapters,
+  their tests, their fixtures and every doc mention are gone. `opencode` and
+  `vibe` are the supported set; the rejection error names them
+  (`unknown harness '<value>'. Valid values: vibe|opencode`), and the
+  `TOTAL_RECALL_CODEX_ROOT` and `TOTAL_RECALL_CLAUDE_ROOT` environment
+  overrides are gone with the harnesses.
+
 ## [0.19.0] - 2026-11-02
 
 ### Added
