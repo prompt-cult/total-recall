@@ -1,5 +1,3 @@
-pub mod claude;
-pub mod codex;
 pub mod mock;
 pub mod opencode;
 pub mod vibe;
@@ -409,7 +407,7 @@ pub(crate) fn qa_pairs_from_messages(messages: &[RolloutMessage]) -> Vec<QaPair>
 
 /// Trait abstracting over different CLI tool session formats.
 pub trait RolloutAdapter: Send + Sync {
-    /// Name of the harness ("vibe", "codex", "claude", "opencode")
+    /// Name of the harness ("vibe", "opencode")
     fn name(&self) -> &'static str;
 
     /// Find all rollout sessions, return summary info
@@ -736,15 +734,6 @@ pub(crate) fn mtime_in_window(mtime: Option<std::time::SystemTime>, hours_back: 
     hours_back == 0 || mtime.is_none_or(|m| m >= cutoff)
 }
 
-/// The directory substring test shared by the scoped listings: an absent or
-/// empty filter matches everything, and a session with no directory passes —
-/// it cannot contradict the filter.
-pub(crate) fn directory_matches(filter: Option<&str>, directory: Option<&str>) -> bool {
-    filter
-        .filter(|f| !f.is_empty())
-        .is_none_or(|f| directory.is_none_or(|d| d.contains(f)))
-}
-
 /// Assemble the bounded listing from one window's rows keyed by mtime:
 /// sorted most-recent-first, capped at [`LISTING_ROW_CAP`], with the full
 /// window count reported so held-back rows are stated, not silent.
@@ -985,8 +974,6 @@ pub fn slice_from_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessag
 /// `$HOME`-derived live store. Used to point the CLI and MCP server at
 /// fixtures or simulated data without ever touching live sessions.
 pub const VIBE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_VIBE_ROOT";
-pub const CLAUDE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_CLAUDE_ROOT";
-pub const CODEX_ROOT_ENV_VAR: &str = "TOTAL_RECALL_CODEX_ROOT";
 pub const OPENCODE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_OPENCODE_ROOT";
 
 /// When set to "1"/"true", `make_adapter` refuses to build any adapter whose

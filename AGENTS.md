@@ -8,6 +8,11 @@ the contract — the user bumps, tests locally, and rolls out if they like it.
 Tag main only when it is tested. Squash-merge keeps history at one commit per
 issue. Never leave a branch hanging: merge it or kill it.
 
+Every release carries release notes about the recent significant changes: the
+CHANGELOG gains its version entry at release time, and the GitHub release
+body is populated from that entry before the release is called done. A tag
+with an empty release body is not a shipped release.
+
 ## Andon アンドン — Prime Directive
 
 Andon is a kernel panic. It halts the line, halts planning, halts todo

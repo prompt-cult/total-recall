@@ -7,10 +7,7 @@ use common::scratch::scratch;
 use common::{EnvGuard, lock_env};
 use std::path::Path;
 use total_recall::harness::make_adapter;
-use total_recall::rollout::{
-    CLAUDE_ROOT_ENV_VAR, CODEX_ROOT_ENV_VAR, OPENCODE_ROOT_ENV_VAR, SANDBOX_ENV_VAR,
-    VIBE_ROOT_ENV_VAR,
-};
+use total_recall::rollout::{OPENCODE_ROOT_ENV_VAR, SANDBOX_ENV_VAR, VIBE_ROOT_ENV_VAR};
 
 /// Build a minimal vibe session dir so list_sessions finds exactly one entry.
 fn make_vibe_session(root: &Path, name: &str) {
@@ -82,18 +79,12 @@ fn sandbox_allows_when_root_from_env() {
 }
 
 #[test]
-fn claude_codex_opencode_overrides_are_wired() {
+fn opencode_override_is_wired() {
     let _l = lock_env();
-    let croot = scratch("claude");
-    let xroot = scratch("codex");
     let oroot = scratch("opencode");
-    let _c = EnvGuard::set(CLAUDE_ROOT_ENV_VAR, croot.to_str().unwrap());
-    let _x = EnvGuard::set(CODEX_ROOT_ENV_VAR, xroot.to_str().unwrap());
     let _o = EnvGuard::set(OPENCODE_ROOT_ENV_VAR, oroot.to_str().unwrap());
-    for h in ["claude", "codex", "opencode"] {
-        let adapter = make_adapter(h).unwrap_or_else(|e| panic!("{h}: {e}"));
-        assert!(adapter.root_is_from_env(), "{h} root must come from env");
-        // Empty fixture roots list zero sessions but must not error/panic.
-        assert_eq!(adapter.list_sessions().len(), 0, "{h}");
-    }
+    let adapter = make_adapter("opencode").unwrap_or_else(|e| panic!("opencode: {e}"));
+    assert!(adapter.root_is_from_env(), "opencode root must come from env");
+    // Empty fixture roots list zero sessions but must not error/panic.
+    assert_eq!(adapter.list_sessions().len(), 0, "opencode");
 }

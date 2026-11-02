@@ -9,8 +9,6 @@ instead, without ever touching live sessions, set the harness's root override.
 | Harness | Env var | Default root |
 |---------|---------|--------------|
 | `vibe` | `TOTAL_RECALL_VIBE_ROOT` | `~/.vibe/logs/session/` |
-| `claude` | `TOTAL_RECALL_CLAUDE_ROOT` | `~/.claude/projects/` |
-| `codex` | `TOTAL_RECALL_CODEX_ROOT` | `~/.codex/sessions/` |
 | `opencode` | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
 
 Precedence: an explicit root (tests) > the env override (non-empty) > the
@@ -129,8 +127,6 @@ the harness's shadow root:
 |---------|-------------|----------|
 | `opencode` | `~/.local/share/opencode/.tantivy/` | `<session_id>/` index folders, `tr_<session>_meta.json` profile caches |
 | `vibe` | `~/.vibe/logs/.tantivy/` | same |
-| `codex` | `~/.codex/.tantivy/` | same |
-| `claude` | `~/.claude/.tantivy/` | same |
 
 Both are disposable: delete the folder at any time, or override the session
 root to move it. A shadow root inside a git repository MUST NOT be committed.

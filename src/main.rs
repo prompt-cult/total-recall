@@ -23,7 +23,7 @@ use total_recall::{
 #[command(version)]
 #[command(about = "Total-recall MCP tool for log mining of session rollouts")]
 pub struct Cli {
-    /// Which harness to use (vibe | codex | claude | opencode). Required for list/profile/extract/user-messages; optional for mcp (falls back to HARNESS env var).
+    /// Which harness to use (vibe | opencode). Required for list/profile/extract/user-messages; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
     pub harness: Option<String>,
 
@@ -334,7 +334,7 @@ async fn main() -> Result<()> {
     let harness_name = match cli.harness.as_deref() {
         Some(name) => name,
         None => {
-            eprintln!("error: --harness is required (vibe | codex | claude | opencode)");
+            eprintln!("error: --harness is required (vibe | opencode)");
             std::process::exit(2);
         }
     };

@@ -1,7 +1,4 @@
-use crate::{
-    RolloutAdapter, VibeAdapter,
-    rollout::{claude::ClaudeAdapter, codex::CodexAdapter, opencode::OpenCodeAdapter},
-};
+use crate::{RolloutAdapter, VibeAdapter, rollout::opencode::OpenCodeAdapter};
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";
 
@@ -9,15 +6,13 @@ pub const HARNESS_ENV_VAR: &str = "HARNESS";
 pub fn root_env_var(harness: &str) -> &'static str {
     match harness {
         "vibe" => crate::rollout::VIBE_ROOT_ENV_VAR,
-        "codex" => crate::rollout::CODEX_ROOT_ENV_VAR,
-        "claude" => crate::rollout::CLAUDE_ROOT_ENV_VAR,
         "opencode" => crate::rollout::OPENCODE_ROOT_ENV_VAR,
         _ => "TOTAL_RECALL_<H>_ROOT",
     }
 }
 
 // One match arm + one VALID_HARNESSES entry per harness.
-pub const VALID_HARNESSES: [&str; 4] = ["vibe", "codex", "claude", "opencode"];
+pub const VALID_HARNESSES: [&str; 2] = ["vibe", "opencode"];
 
 pub fn valid_harnesses() -> String {
     VALID_HARNESSES.join("|")
@@ -78,8 +73,6 @@ pub fn canonical_session_id(adapter: &dyn RolloutAdapter, session_id: &str) -> S
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
     let adapter: Box<dyn RolloutAdapter> = match harness {
         "vibe" => Box::new(VibeAdapter::new()),
-        "codex" => Box::new(CodexAdapter::new()),
-        "claude" => Box::new(ClaudeAdapter::new()),
         "opencode" => Box::new(OpenCodeAdapter::new()),
         other => {
             return Err(format!(

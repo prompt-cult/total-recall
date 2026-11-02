@@ -31,7 +31,7 @@ fn refuses_to_start_without_flag_or_env() {
         assert!(err.contains("HARNESS"), "must name the env var: {err}");
         assert!(err.contains("--harness"), "must name the flag: {err}");
         assert!(
-            err.contains("vibe") && err.contains("codex") && err.contains("claude"),
+            err.contains("vibe") && err.contains("opencode"),
             "must list valid values: {err}"
         );
     });
@@ -39,15 +39,15 @@ fn refuses_to_start_without_flag_or_env() {
 
 #[test]
 fn binds_harness_from_env_var() {
-    with_env(HARNESS_ENV_VAR, Some("codex"), || {
-        assert_eq!(resolve_harness(None).unwrap(), "codex");
+    with_env(HARNESS_ENV_VAR, Some("vibe"), || {
+        assert_eq!(resolve_harness(None).unwrap(), "vibe");
     });
 }
 
 #[test]
 fn flag_overrides_env_var() {
     with_env(HARNESS_ENV_VAR, Some("vibe"), || {
-        assert_eq!(resolve_harness(Some("claude")).unwrap(), "claude");
+        assert_eq!(resolve_harness(Some("opencode")).unwrap(), "opencode");
     });
 }
 
@@ -56,29 +56,62 @@ fn unknown_harness_value_is_refused() {
     with_env(HARNESS_ENV_VAR, Some("bogus"), || {
         let err = resolve_harness(None).expect_err("unknown env value must be refused");
         assert!(
-            err.contains("bogus") || err.contains("vibe|codex|claude"),
+            err.contains("bogus") || err.contains("vibe|opencode"),
             "must explain the refusal: {err}"
         );
     });
     let err = resolve_harness(Some("bogus")).expect_err("unknown flag value must be refused");
     assert!(
-        err.contains("vibe|codex|claude") || err.contains("bogus"),
+        err.contains("vibe|opencode") || err.contains("bogus"),
         "must explain the refusal: {err}"
     );
 }
 
 #[test]
 fn server_binds_and_exposes_harness() {
-    let server = TotalRecallServer::with_harness("codex".to_string());
-    assert_eq!(server.harness(), "codex");
+    let server = TotalRecallServer::with_harness("opencode".to_string());
+    assert_eq!(server.harness(), "opencode");
 }
 
 #[test]
 fn adapter_factory_errors_on_unknown_harness() {
     assert!(make_adapter("bogus").is_err());
     assert!(make_adapter("vibe").is_ok());
-    assert!(make_adapter("codex").is_ok());
-    assert!(make_adapter("claude").is_ok());
+    assert!(make_adapter("opencode").is_ok());
+}
+
+/// The supported harness set is `vibe | opencode`. Everywhere a harness can
+/// be named — the adapter factory, the `HARNESS` env var, the `--harness`
+/// flag — a value outside the set is refused with the house-form error that
+/// names the refused value and the supported set.
+#[test]
+fn removed_harnesses_are_refused_with_the_supported_set() {
+    for removed in ["codex", "claude"] {
+        let err = match make_adapter(removed) {
+            Ok(_) => panic!("removed harness must not build an adapter"),
+            Err(e) => e,
+        };
+        assert!(err.contains(removed), "must name the refused value: {err}");
+        assert!(
+            err.contains("vibe|opencode"),
+            "must name the supported set: {err}"
+        );
+        with_env(HARNESS_ENV_VAR, Some(removed), || {
+            let err =
+                resolve_harness(None).expect_err("removed harness must be refused from HARNESS");
+            assert!(err.contains(removed), "must name the refused value: {err}");
+            assert!(
+                err.contains("vibe|opencode"),
+                "must name the supported set: {err}"
+            );
+        });
+        let err = resolve_harness(Some(removed))
+            .expect_err("removed harness must be refused from --harness");
+        assert!(
+            err.contains(removed) && err.contains("vibe|opencode"),
+            "must name the refused value and the supported set: {err}"
+        );
+    }
 }
 
 #[test]

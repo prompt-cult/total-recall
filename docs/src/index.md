@@ -13,7 +13,7 @@ loop.
 
 ## Why
 
-Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits
+Every CLI coding agent hits
 context limits on long sessions. Their built-in compaction is slow and uses
 expensive frontier models. Mercury 3 does the same job at 1,068 tok/s for
 $0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch,
@@ -30,8 +30,6 @@ works in a vendor-free build with no API key: see
 | Harness | Store | Format |
 |---------|-------|--------|
 | `vibe` | `~/.vibe/logs/session/` | JSONL |
-| `codex` | `~/.codex/sessions/` | JSONL + SQLite |
-| `claude` | `~/.claude/projects/` | JSONL |
 | `opencode` | `~/.local/share/opencode/opencode.db` | SQLite |
 
 A session store holds the transcripts. The shadow index root is a disposable
@@ -41,8 +39,6 @@ folder of full-text indexes this tool builds beside the store, never inside it:
 |---------|-------------------|
 | `opencode` | `~/.local/share/opencode/.tantivy/` |
 | `vibe` | `~/.vibe/logs/.tantivy/` |
-| `codex` | `~/.codex/.tantivy/` |
-| `claude` | `~/.claude/.tantivy/` |
 
 See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-and-full-text-search).
 

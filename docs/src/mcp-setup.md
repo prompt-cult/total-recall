@@ -15,8 +15,6 @@ subcommand — the flag wins if both are given:
 | Harness | Store |
 |---------|-------|
 | `vibe` | `~/.vibe/logs/session/` |
-| `codex` | `~/.codex/sessions/` |
-| `claude` | `~/.claude/projects/` |
 | `opencode` | `~/.local/share/opencode/opencode.db` |
 
 No tool takes a harness parameter; the `harness` tool reports the bound value.

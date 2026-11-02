@@ -7,13 +7,13 @@ by `HARNESS` in the registration snippet's environment block, or `--harness
 <name>` on the `mcp` subcommand:
 
 ```
-refusing to start MCP server: harness not defined. Set HARNESS=<vibe|codex|claude|opencode>
+refusing to start MCP server: harness not defined. Set HARNESS=<vibe|opencode>
 in the MCP config environment or pass --harness <name>.
 ```
 
 ```
 refusing to start MCP server: unknown harness 'vibee'. Valid values:
-vibe|codex|claude|opencode. Set HARNESS=<vibe|codex|claude|opencode> in the MCP
+vibe|opencode. Set HARNESS=<vibe|opencode> in the MCP
 config environment or pass --harness <name>.
 ```
 

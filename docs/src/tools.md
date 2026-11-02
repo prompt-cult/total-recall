@@ -76,7 +76,7 @@ Accepted before the subcommand:
 
 | Flag | Effect |
 |------|--------|
-| `--harness <name>` | `vibe` \| `codex` \| `claude` \| `opencode`. Required for every subcommand except `mcp` |
+| `--harness <name>` | `vibe` \| `opencode`. Required for every subcommand except `mcp` |
 | `--session <id>` | partial session id; empty means the most recent session |
 | `--json` | pretty JSON, for `list` and `profile` |
 | `--markdown` | markdown table for `list`; readable blocks for `extract`, numbered list for `user-messages` |
@@ -422,8 +422,6 @@ The index lives in a shadow folder next to the session store, never inside it:
 |---------|-------------|
 | `opencode` | `~/.local/share/opencode/.tantivy/` |
 | `vibe` | `~/.vibe/logs/.tantivy/` |
-| `codex` | `~/.codex/.tantivy/` |
-| `claude` | `~/.claude/.tantivy/` |
 
 Each session gets `<shadow root>/<session_id>/`, plus a
 `total-recall-meta.json` marker carrying `session_id`, `doc_count` and
@@ -648,11 +646,8 @@ them returns HTTP 429.
 ## Compaction prompt design
 
 The compaction prompts and strategies are informed by
-[badlogic's context compaction research](https://gist.github.com/badlogic/cd2ef65b0697c4dbe2d13fbecb0a0a5f)
-comparing Claude Code, Codex CLI, OpenCode, and Amp:
+[badlogic's context compaction research](https://gist.github.com/badlogic/cd2ef65b0697c4dbe2d13fbecb0a0a5f):
 
-- Claude Code triggers at ~95% context capacity, uses a summary prompt
-- Codex CLI preserves recent user messages (last ~20k tokens) alongside the summary
 - OpenCode has a separate "prune" mechanism for tool outputs beyond 40k tokens
 - Amp uses manual "handoff" instead of auto-compaction
 

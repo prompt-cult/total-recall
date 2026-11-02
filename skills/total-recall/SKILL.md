@@ -1,6 +1,6 @@
 ---
 name: total-recall
-description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 3, list/profile/extract rollouts across harnesses (opencode, vibe, claude, codex), and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
+description: Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store. Use this skill to compact sessions with Mercury 3, list/profile/extract rollouts across harnesses (opencode, vibe), and full-text search sessions with the tantivy-backed do_android_dream_of_electric_sheep action.
 ---
 
 # Total Recall
@@ -10,7 +10,7 @@ session rollouts. Installed at `~/.local/bin/total-recall`. Run as an MCP
 server with `total-recall mcp --harness <name>` or used directly as a CLI.
 
 Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
-`vibe`, `claude`, `codex` (JSONL stores).
+`vibe` (JSONL store at `~/.vibe/logs/session/`).
 
 ## The actions
 

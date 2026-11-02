@@ -123,8 +123,6 @@ never inside the session store:
 |---------|-------------|
 | opencode | `~/.local/share/opencode/.tantivy/` |
 | vibe | `~/.vibe/logs/.tantivy/` |
-| codex | `~/.codex/.tantivy/` |
-| claude | `~/.claude/.tantivy/` |
 
 These are disposable derived data. Deleting them costs only a rebuild. Never
 commit them.
@@ -145,8 +143,6 @@ point it at fixtures or a scratch copy instead, set the harness's override:
 | Harness | Env var |
 |---------|---------|
 | vibe | `TOTAL_RECALL_VIBE_ROOT` |
-| claude | `TOTAL_RECALL_CLAUDE_ROOT` |
-| codex | `TOTAL_RECALL_CODEX_ROOT` |
 | opencode | `TOTAL_RECALL_OPENCODE_ROOT` |
 
 Precedence: an explicit `with_root` (tests) > a non-empty env override > the

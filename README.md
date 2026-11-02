@@ -4,7 +4,7 @@ Total-recall MCP tool for log mining of session rollouts as a long-term memory s
 
 ## Why
 
-Every CLI coding agent (Claude Code, Codex CLI, OpenCode, Mistral Vibe) hits context limits on long sessions, and frontier models are expensive. Mercury 3 summarises at 1,068 tok/s for $0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch, October 2026).
+Every CLI coding agent hits context limits on long sessions, and frontier models are expensive. Mercury 3 summarises at 1,068 tok/s for $0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch, October 2026).
 
 Augment Code [moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5) (150s to 27s) and costs 90%. This tool brings that same engine — now Mercury 3 — to mining your CLI agent sessions.
 
@@ -165,8 +165,6 @@ it:
 |---------|-------------|
 | opencode | `~/.local/share/opencode/.tantivy/` |
 | vibe | `~/.vibe/logs/.tantivy/` |
-| codex | `~/.codex/.tantivy/` |
-| claude | `~/.claude/.tantivy/` |
 
 Each session gets `<shadow root>/<session_id>/`, plus a
 `total-recall-meta.json` marker (`session_id`, `doc_count`, `built_at`).
@@ -392,16 +390,12 @@ CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider
 |------|---------|---------------------------|----------|
 | Mistral Vibe | JSONL (`~/.vibe/logs/session/`) | [gist: mistral-vibe-chat-history](https://gist.github.com/simbo1905/b79ba81f637e9e235d55e4853e3dc299) | Yes |
 | OpenCode | SQLite (`~/.local/share/opencode/`) | [simbo1905/opencode-chat-history](https://github.com/simbo1905/opencode-chat-history) | Yes (`--harness opencode`) |
-| Codex CLI | JSONL + SQLite | [simbo1905/codex-chat-history](https://github.com/simbo1905/codex-chat-history) | Yes |
-| Claude Code | JSONL | [simbo1905/claude-chat-history](https://github.com/simbo1905/claude-chat-history) | Yes |
 
 ## Compaction prompt research
 
-The compaction prompts and strategies in this tool are informed by [badlogic's context compaction research](https://gist.github.com/badlogic/cd2ef65b0697c4dbe2d13fbecb0a0a5f) comparing Claude Code, Codex CLI, OpenCode, and Amp.
+The compaction prompts and strategies in this tool are informed by [badlogic's context compaction research](https://gist.github.com/badlogic/cd2ef65b0697c4dbe2d13fbecb0a0a5f).
 
 Key findings from that research:
-- Claude Code triggers at ~95% context capacity, uses a summary prompt
-- Codex CLI preserves recent user messages (last ~20k tokens) alongside the summary
 - OpenCode has a separate "prune" mechanism for tool outputs beyond 40k tokens
 - Amp uses manual "handoff" instead of auto-compaction
 
@@ -463,7 +457,7 @@ B=./target/release/total-recall
 # Version (matches the Cargo package / release tag)
 $B --version
 
-# List rollouts for a harness (--harness is required; vibe | codex | claude | opencode)
+# List rollouts for a harness (--harness is required; vibe | opencode)
 $B --harness vibe list
 
 # Profile: counts, compaction markers, interesting events (cache is on by default)
@@ -515,8 +509,6 @@ resolves to nothing usable is an error, never a silent fall-back to `$HOME`.
 | Harness | Env var | Default root |
 |---------|---------|--------------|
 | vibe | `TOTAL_RECALL_VIBE_ROOT` | `~/.vibe/logs/session/` |
-| claude | `TOTAL_RECALL_CLAUDE_ROOT` | `~/.claude/projects/` |
-| codex | `TOTAL_RECALL_CODEX_ROOT` | `~/.codex/sessions/` |
 | opencode | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
 
 Both vibe store layouts are read: pre-3.x releases keep the log in flat
