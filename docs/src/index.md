@@ -51,6 +51,7 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 | Tool | What it returns |
 |------|-----------------|
 | `harness` | the harness this server is bound to |
+| `help` | the release's `skills/total-recall/SKILL.md` — the tool surface and usage guide, served through the standard capped-text path |
 | `list_sessions` | every rollout: id, title, times, counts, byte size, parent/children, aliases, `has_tantivy_index` |
 | `profile_session` | one rollout: size, line count, role counts, compaction markers, interesting events |
 | `extract_messages` | messages since the last compaction point (or the whole rollout) as a bounded JSON envelope |

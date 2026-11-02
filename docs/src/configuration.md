@@ -79,7 +79,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `he_said_she_said_they_did`, `index_sessions`, `do_android_dream_of_electric_sheep`, `harness` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `he_said_she_said_they_did`, `index_sessions`, `do_android_dream_of_electric_sheep`, `harness`, `help` | works | works |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
 The LLM-backed **MCP tool names stay in `tools/list` in every build** — clients
