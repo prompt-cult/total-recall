@@ -539,8 +539,12 @@ total-recall --harness <h> --session <id> summarise-from --from-id 5 [--provider
 ### `cache_delete_latest`
 
 Roll the cache back one block: the newest ledger row is removed and its
-part file deleted, then the same status JSON as `summary_cache` is
-returned. With no blocks it is a house-form error, not a no-op.
+part file deleted, then the rolled-back cache status is returned as the
+same record stream as `summary_cache` — a bare compact JSON array whose
+element 0 is the meta record `{"type":"meta","tool":"cache_delete_latest",
+…}` followed by one `type=block` record per surviving block. Call it
+repeatedly to roll back several blocks. With no blocks it is a house-form
+error, not a no-op — an error never enters the record stream.
 
 ```bash
 total-recall --harness <h> --session <id> cache-delete-latest

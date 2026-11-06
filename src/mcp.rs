@@ -1285,7 +1285,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "cache_delete_latest",
-        description = "Total-recall MCP tool: roll the summary cache back one block — the newest ledger row and its part file are deleted, then the same status JSON as summary_cache is returned. Call repeatedly to roll back several blocks. No blocks is a house-form error, not a no-op."
+        description = "Total-recall MCP tool: roll the summary cache back one block — the newest ledger row and its part file are deleted, then the rolled-back cache status is returned as the same JSONL record stream as summary_cache: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"cache_delete_latest\",\"session_id\":\"…\",\"tail\":{…}|null} followed by one {\"type\":\"block\",…} record per surviving block. Call repeatedly to roll back several blocks. No blocks is a house-form error, not a no-op — an error never enters the record stream."
     )]
     async fn cache_delete_latest(
         &self,
@@ -1318,14 +1318,9 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
         let status = crate::summary_cache::status(&root, &session_id, &messages);
-        let json = serde_json::to_string_pretty(&status)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(capped_text(
-            "cache_delete_latest",
-            &session_id,
-            json,
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            cache_status_report("cache_delete_latest", &status),
+        )]))
     }
 
     #[tool(

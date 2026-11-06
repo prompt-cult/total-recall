@@ -664,3 +664,58 @@ fn summary_cache_fully_covered_session_has_a_null_tail() {
     assert_eq!(records[1]["to_id"], 4, "{records:?}");
     reap(&mut mcp);
 }
+
+/// The rollback returns the same record stream as summary_cache, with the
+/// meta record naming `cache_delete_latest` and the block records reflecting
+/// the rolled-back state. Repeated calls roll back repeatedly; no blocks is
+/// still the house-form error, never an empty array.
+#[test]
+fn cache_delete_latest_rolls_back_through_the_record_stream() {
+    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+
+    // First rollback: two blocks in, one block record out.
+    let (is_error, text) = mcp.call(
+        "cache_delete_latest",
+        serde_json::json!({"session_id": "ses_summ"}),
+    );
+    assert!(!is_error, "a seeded rollback must not error: {text}");
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(meta["tool"].as_str(), Some("cache_delete_latest"), "{meta}");
+    assert_eq!(meta["session_id"].as_str(), Some(SID), "{meta}");
+    assert_eq!(
+        records.len(),
+        1,
+        "the newest block was rolled back: {records:?}"
+    );
+    assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
+    assert_eq!(
+        records[0]["to_id"], 2,
+        "the older block survives: {records:?}"
+    );
+
+    // Second rollback: the ledger empties, the meta carries a null tail and
+    // zero block records — never an empty unexplained array.
+    let (is_error, text) = mcp.call(
+        "cache_delete_latest",
+        serde_json::json!({"session_id": "ses_summ"}),
+    );
+    assert!(!is_error, "{text}");
+    let (meta, records) = parsed_stream(&text);
+    assert!(
+        meta["tail"].is_null() || meta["tail"]["from_id"] == 1,
+        "{meta}"
+    );
+    assert_eq!(records.len(), 0, "no blocks remain: {records:?}");
+
+    // Third call: the house-form error — the sink is never entered.
+    let (is_error, text) = mcp.call(
+        "cache_delete_latest",
+        serde_json::json!({"session_id": "ses_summ"}),
+    );
+    assert!(is_error, "no blocks must be a tool error: {text}");
+    assert!(
+        text.contains("no cached blocks"),
+        "the house-form error names the empty cache: {text}"
+    );
+    reap(&mut mcp);
+}
