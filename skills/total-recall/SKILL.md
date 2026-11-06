@@ -16,24 +16,24 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 
 | MCP tool | CLI | What it does |
 |---|---|---|
-| `total-recall_summary_cache` | `summary-cache` | read-only introspection of a session's summary cache: the cached blocks (id ranges, type counts, chars, token estimates) plus the unsummarised tail — what a summarise would cost. Never calls the LLM |
-| `total-recall_summarise_from` | `summarise-from` | Mercury 3 structured summary from an explicit 1-based message id; the guard requires the first unsummarised id (one past the last cached block's `to_id`, or 1) and errors naming it otherwise; returns the composed parts + cache footer |
-| `total-recall_cache_delete_latest` | `cache-delete-latest` | roll the summary cache back one block (newest ledger row + part file deleted) and return the new cache status; no blocks = error |
-| `total-recall_prior_period_summary` | `prior-period-summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + recent rollouts + plan files + orientation warning; the period is the work since the session's last compaction boundary |
-| `total-recall_profile_session` | `profile` | file size, line count, role counts, interesting events (cached by default; `--no-cache` to recompute) |
-| `total-recall_extract_user_messages` | `user-messages` | verbatim user messages |
-| `total-recall_extract_messages` | `extract` | all messages as JSON |
-| `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — ranked, phrase-capable, covers assistant thinking |
-| `he_said_she_said_they_did` | — | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only), THEY DID (every action incl. MCP/plugin/todo calls) with compaction boundaries inline, period covered, compaction points and summary-cache blocks |
-| `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes |
+| `total-recall_summary_cache` | `summary-cache` | read-only introspection of a session's summary cache as a record stream: meta carries the unsummarised tail, then one `type=block` record per cached block. Never calls the LLM |
+| `total-recall_summarise_from` | `summarise-from` | Mercury 3 structured summary from an explicit 1-based message id; the guard requires the first unsummarised id (one past the last cached block's `to_id`, or 1) and errors naming it otherwise; returns `type=section` records per composed part + the cache footer |
+| `total-recall_cache_delete_latest` | `cache-delete-latest` | roll the summary cache back one block (newest ledger row + part file deleted) and return the same record stream as summary_cache; no blocks = error |
+| `total-recall_prior_period_summary` | `prior-period-summary` | orientation summary of a prior period as `type=section` records (recent_rollouts, plan_files, todo_log, commits, state_summary, goals_summary, compaction_footer, instructions, orientation_warning); the meta carries the timing map; the period is the work since the session's last compaction boundary |
+| `total-recall_profile_session` | `profile` | record stream: meta carries file size, line count, role counts, index flag; `type=event` records per interesting event (cached by default; `--no-cache` to recompute) |
+| `total-recall_extract_user_messages` | `user-messages` | record stream: meta carries the paging inputs, `type=message` records verbatim, injected skipped |
+| `total-recall_extract_messages` | `extract` | all messages as a record stream (meta + `type=message` records) |
+| `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — meta + `type=hit` records ranked by score, phrase-capable, covers assistant thinking |
+| `he_said_she_said_they_did` | — | one full per-session report as records: `he_said`/`she_said`/`they_did` + inline `compaction_boundary`; the meta carries the period, compaction points and summary-cache blocks |
+| `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes; `type=indexed` records per session |
 | `prior_period_summary` | `prior-period-summary` | orientation summary of a prior period |
 | `harness` | — | report which harness this server is bound to |
-| `list_sessions` | `list` | list session rollouts for the bound harness |
-| `extract_by_type` | `extract-by-type` | raw extract of entries filtered by type |
-| `extract_qa_pairs` | `extract-qa-pairs` | question/answer pairs from sessions |
-| `todo_history` | `todo-history` | todo-list edits as JSONL event stream |
-| `line_histogram` | `line-histogram` | line-size distribution or extract lines |
-| `help` | — | return this skill text |
+| `list_sessions` | `list` | record stream: meta carries `window_count`, `type=row` records most-recent-first |
+| `extract_by_type` | `extract-by-type` | raw extract as `type=entry` records (entry_type/ts/record) filtered by type |
+| `extract_qa_pairs` | `extract-qa-pairs` | question/answer pairs as `type=qa` records |
+| `todo_history` | `todo-history` | todo-list edits as `type=todo_edit` records |
+| `line_histogram` | `line-histogram` | line-size distribution or extract lines (the text path) |
+| `help` | — | return this skill text (the text path) |
 
 ## The dream pass (tantivy search)
 
@@ -79,8 +79,49 @@ syntax: terms, `OR`, phrase in quotes), `sessions` (partial ids, empty =
 all within `hours_back`, default 48, omitted or 0 = that default), optional
 `directory`.
 
-The report lists hits ordered by relevance score: session id, score,
-timestamp, role (marked `ROLE (thinking)` when the match is in reasoning),
-and a fragment around the match. Sessions without an index are reported in
-the header as "not indexed (run index first)".
+Hits return as `type=hit` records ordered by relevance score — session id,
+score, ts, role, `thinking: true` when the match is in reasoning, and a
+fragment around the match. Sessions without an index are named in the meta
+record's `not_indexed` (run `index_sessions` first).
+
+## JSONL overflow files
+
+Every record-shaped tool returns a **bare compact JSON array**: element 0 is
+the meta record `{"type":"meta","tool":"…",…}`, every later element a data
+record with a `type` discriminator. When a response would exceed
+`max_bytes`, the array is cut at a record boundary and the fitting prefix is
+followed by an `--- [EOF-TRUNCATED] ---` marker naming the overflow file —
+a **pure JSONL** file (one compact record per line, `\n`-terminated, no
+commas, meta first) that carries ALL records, mode 600 under
+`$TMPDIR/total-recall/`, pruned after 24 hours. The file is the point:
+`rg` finds, `jq` extracts, `line_histogram` profiles.
+
+Recipes:
+
+```bash
+# strip the marker from a capped response — the array prefix alone:
+sed '/^--- \[EOF-TRUNCATED\]/,$d' response.txt
+
+# find records: rg over the JSONL (every line is one JSON object):
+rg 'pattern' "$TMPDIR"/total-recall/list_sessions_*.jsonl
+
+# extract fields (every record carries type; meta is record 0):
+jq -c 'select(.type=="row") | {session_id, title}' file.jsonl
+jq -c 'select(.type=="hit")  | {session_id, score, fragment}' file.jsonl
+jq -c 'select(.type=="meta")' file.jsonl   # the meta record alone
+
+# profile before prompting: the chonky record is visible without reading it:
+total-recall line-histogram file.jsonl
+```
+
+Sweep the recent overflow files (the fdfind one-liner):
+
+```bash
+fdfind -H -t f -e jsonl --changed-within 1d . "$TMPDIR/total-recall" \
+  | while read -r f; do echo "=== $f ==="; total-recall line-histogram "$f"; done
+```
+
+References: [Line histogram — the file profiler you didn't know you
+needed](https://dev.to/simbo1905/line-histogram-the-file-profiler-you-didnt-know-you-needed-38oi)
+and [the gist](https://gist.github.com/simbo1905/0454936144ee8dbc55bdc96ef532555e).
 

@@ -89,10 +89,12 @@ Accepted before the subcommand:
 
 Output format per subcommand, with no flag given: `list` and `profile` print a
 human-readable summary, `extract` prints one JSON object per line,
-`user-messages` prints a JSON array, `extract-by-type` always prints
-`type,timestamp,json` records, and `todo-history` always prints one JSONL
-todo-edit event per line. `do-android-dream-of-electric-sheep` and `index`
-print their own report format regardless of flags.
+`user-messages` prints a JSON array, `extract-by-type` prints one JSON
+object per entry, and `todo-history` always prints one JSONL todo-edit
+event per line. `do-android-dream-of-electric-sheep` and `index` print their
+own report format regardless of flags. (The CLI's stdout is human-facing and
+out of the MCP record-stream contract's scope; the MCP tools are the record
+streams.)
 
 CLI extraction is unbounded by default — stdout is a stream, and 0 means
 unbounded. The MCP tools are always bounded. A CLI truncation notice goes to
@@ -396,48 +398,37 @@ One full, per-session report answering "what did we say and do" — the
 surface for "why/how/when/else" and follow-ups. Read-only: no term
 matching, no LLM call, nothing written. `session_id` (partial match; empty
 = the most recent session) selects the session; `max_bytes` (default
-16,384, 8 MiB ceiling) flood-caps the report with the EOF marker and
-overflow file.
+16,384, 8 MiB ceiling) cuts the record stream at a record boundary with the
+EOF marker and overflow file on overflow.
 
-The report has three spoken sections plus a context section, all derived
-from the session as a whole:
+The report is a record stream — the meta record carries the context, the
+data records are the three spoken sections in order:
 
-- **HE SAID** — the user's messages, verbatim. Injected (synthetic) user
-  parts are skipped, as they are in `extract_user_messages`.
-- **SHE SAID** — the assistant's text parts only. Explicitly NOT model
+- meta: `period_first`/`period_last` (first to last message timestamp),
+  `messages`, `compaction_points` (1-based message ids), `cache_blocks`
+  (the summary-cache id ranges) and `watermark` (the first message id a
+  `summarise_from` can start at).
+- **`he_said`** — the user's messages, verbatim (`ts` + `text`). Injected
+  (synthetic) user parts are skipped, as they are in
+  `extract_user_messages`.
+- **`she_said`** — the assistant's text parts only. Explicitly NOT model
   thinking/reasoning and explicitly NOT tool results.
-- **THEY DID** — every action: built-in tool calls, MCP tool calls, plugin
-  actions, todo actions — anything that arrived as a tool-like call. Each
-  action is one line of call name + arguments; tool results are excluded.
-  Compaction boundaries appear inline in the stream at the point they
-  occurred, so the reader knows the dialogue was itself cut down.
-- **Context** — the period the report covers (first to last message
-  timestamp), where the compaction points sit (1-based message ids), and
-  where the existing summaries are: total-recall's own summary-cache
-  blocks (their id ranges) and the high watermark, i.e. the first message
-  id a `summarise_from` can start at.
+- **`they_did`** — every action: built-in tool calls, MCP tool calls,
+  plugin actions, todo actions — anything that arrived as a tool-like call.
+  Each record is `ts` + `call` (call name + arguments); tool results are
+  excluded. `compaction_boundary` records appear inline in the stream at
+  the point they occurred (`message` = the 1-based id), so the reader knows
+  the dialogue was itself cut down.
 
-Example (shape; content is whatever the session holds):
-
-```
-# he_said_she_said_they_did — ses_alpha0001 (opencode)
-PERIOD: 2026-10-26T09:04:00Z .. 2026-10-26T09:17:00Z (14 messages)
-
-## HE SAID
-1. [2026-10-26T09:04:00Z] Please run git status for me
-
-## SHE SAID
-2. [2026-10-26T09:05:00Z] Here is the current branch state…
-
-## THEY DID
-3. [2026-10-26T09:05:30Z] bash: git status
-4. [2026-10-26T09:06:00Z] todowrite(...)
---- COMPACTION BOUNDARY (message 5 of 14) [2026-10-26T09:08:00Z]
-
-## CONTEXT
-- period covers all 14 messages: nothing has been compacted away within the store itself
-- compaction points: 1, at message 5
-- summaries: no summary-cache blocks — summarise_from can start at id 1
+```json
+[{"type":"meta","tool":"he_said_she_said_they_did","session_id":"ses_alpha0001",
+  "harness":"opencode","period_first":"2026-10-26T09:04:00Z",
+  "period_last":"2026-10-26T09:17:00Z","messages":14,"compaction_points":[5],
+  "cache_blocks":[],"watermark":1},
+ {"type":"he_said","ts":"2026-10-26T09:04:00Z","text":"Please run git status for me"},
+ {"type":"she_said","ts":"2026-10-26T09:05:00Z","text":"Here is the current branch state…"},
+ {"type":"they_did","ts":"2026-10-26T09:05:30Z","call":"bash: git status"},
+ {"type":"compaction_boundary","message":5,"ts":"2026-10-26T09:08:00Z"}]
 ```
 
 MCP only — no CLI subcommand.
@@ -648,24 +639,41 @@ CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider
 
 ## Flood control
 
-Every response that can overflow the caller's context is capped at
-`max_bytes` (default 16,384) — the mechanism is generic and applies to any
-tool that can produce a large response, not to a fixed list. An overflowing
-response is never lost and never floods the caller's context:
+Every record-shaped tool's response is a **bare compact JSON array** —
+element 0 the meta record `{"type":"meta","tool":"…",…}`, every later
+element a data record with a `type` discriminator — cut at a **record
+boundary** under `max_bytes` (default 16,384): the array is never torn, and
+a record that would push it past the budget joins the overflow file instead
+of the response. The response and the disk are one record stream in two
+shapes:
 
-- the full response is written to a private file under the user's temp
-  directory, `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.md`, mode 600
-- the returned text is cut at a line boundary at or under `max_bytes` —
-  JSON responses are never torn: an overflowing JSON response returns the
-  marker alone
-- the return ends with a line-oriented EOF marker naming the tool, the
-  returned and total byte counts, the total line count, the full response's
-  path, and the prune policy
+- the SAME records stream, as they are produced, to a private **pure JSONL**
+  file under the user's temp directory,
+  `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600 — one
+  compact record per line, `\n`-terminated, no commas, the meta record
+  first; the file carries ALL records even when the response is capped
+- the fitting-prefix array is followed by a line-oriented EOF marker naming
+  the tool, the returned and total byte counts, the record counts
+  (`records_returned` / `records_total`), the full file's path, and the
+  prune policy — `held_back`-style counts are
+  `window_count - records_returned`, one subtraction for the caller
 - the marker carries the file's line histogram (the vendored
   `line_histogram.awk`), so the shape of what overflowed is visible without
   reading it
+- under the cap the response is the bare array alone and the streamed file
+  is deleted — overflow files are kept on overflow only
 - every capped call first removes overflow files older than 24 hours from
   that directory, so the temp file needs no manual cleanup
+
+The overflow file is the point: `rg` finds, `jq` extracts
+(`select(.type=="row")` — every record carries `type`, the meta is record
+0), `line_histogram` profiles. The recipes live in the
+[skill](https://github.com/prompt-cult/total-recall/blob/main/skills/total-recall/SKILL.md).
+
+Two tools stay on the TEXT path — `help` (the skill markdown) and
+`line_histogram` (the awk table) — their outputs are genuinely not record
+streams: an overflowing text response is written whole to a `.md` file and
+the return is the text cut at a line boundary plus the marker.
 
 Raise the window with `max_bytes` when a bigger response is wanted inline.
 
