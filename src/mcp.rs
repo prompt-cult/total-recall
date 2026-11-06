@@ -1041,7 +1041,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "extract_by_type",
-        description = "Total-recall MCP tool: raw extract of a session's entries filtered by type (user|assistant|tool|thinking, or \"all\"). Emits one record per line as `type,timestamp,json` with no summarization, under a hard byte cap (default most-recent-100, 8 MiB ceiling); a `#` header line carries bounds with next_offset and an explicit truncation notice. Recovers data from large or damaged sessions."
+        description = "Total-recall MCP tool: raw extract of a session's entries filtered by type (user|assistant|tool|thinking, or \"all\") as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_by_type\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"types\":[…],\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}}, followed by one {\"type\":\"entry\",\"entry_type\":\"…\",\"ts\":\"…\",\"record\":{…}} record per entry — no summarization, clamped by max_record_bytes. Recovers data from large or damaged sessions. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every entry in the window, one per line."
     )]
     async fn extract_by_type(
         &self,
@@ -1096,22 +1096,20 @@ impl TotalRecallServer {
             .filter(|e| want_all || params.types.contains(&e.entry_type))
             .collect();
 
-        let text = match extract_by_type_report(
-            &session_id,
-            self.harness(),
-            params.full,
-            &selected,
-            &filtered,
-            limit,
-            offset,
-            max_bytes,
-            max_record_bytes,
-        ) {
-            Ok(text) => text,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        // Bounded extraction: the envelope is this tool's flood control.
-        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+        // Bounded extraction: the sink is this tool's flood control.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            extract_by_type_records(
+                &session_id,
+                self.harness(),
+                params.full,
+                &selected,
+                &filtered,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
     }
 
     #[tool(
@@ -2141,15 +2139,15 @@ struct MessageRecord<'a> {
     message: &'a crate::RolloutMessage,
 }
 
-/// Assemble the `extract_by_type` line-format report. Line 1 is a `#`-prefixed
-/// compact-JSON header carrying the bounds; each subsequent line is
-/// `type,timestamp,json` (compact JSON, embedded newlines escaped so the
-/// one-record-per-line invariant holds). On truncation a final `# TRUNCATED:`
-/// line is appended. Never summarizes or aggregates. Errors when even one
-/// record cannot fit under the budget (fix: raise `max_bytes` or enable the
-/// clamp).
+/// Build the `extract_by_type` record stream: the same bounded shape as
+/// `extract_messages` — the meta record carries the type selection and the
+/// paging inputs, every data record is a `type=entry` record carrying the
+/// entry type, the timestamp and the raw record JSON (clamped). The old
+/// `#`-header + `type,timestamp,json` line format and the `# TRUNCATED:`
+/// trailer are dead; the old "even one record exceeds max_bytes" hard error
+/// is dead with them — overflow goes to the file + marker.
 #[allow(clippy::too_many_arguments)]
-fn extract_by_type_report(
+fn extract_by_type_records(
     session_id: &str,
     harness: &str,
     full: bool,
@@ -2159,84 +2157,60 @@ fn extract_by_type_report(
     offset: Option<usize>,
     max_bytes: usize,
     max_record_bytes: usize,
-) -> Result<String, String> {
+) -> String {
     let total = entries.len();
     let (start, end) = crate::bound::window(total, offset, limit);
     let windowed = &entries[start..end];
 
-    // Serialize each record to a single line, clamping the JSON payload.
+    // Serialize each record, clamping the JSON payload.
     let mut clamped_indices = Vec::new();
-    let mut sized: Vec<crate::bound::SizedRecord> = Vec::with_capacity(windowed.len());
+    let mut clamped_records = Vec::with_capacity(windowed.len());
     for (i, e) in windowed.iter().enumerate() {
         let mut record_json = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
-        let mut clamped = false;
         if record_json.len() > max_record_bytes {
             record_json =
                 crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
-            clamped = true;
-        }
-        if clamped {
             clamped_indices.push(i);
         }
-        let line = format!(
-            "{},{},{}",
-            e.entry_type,
-            crate::rollout::entry_timestamp(e.timestamp.as_deref()),
-            record_json
-        );
-        let bytes = line.len();
-        sized.push(crate::bound::SizedRecord { json: line, bytes });
+        clamped_records.push((e, record_json));
     }
 
-    let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
-    if sized
-        .first()
-        .is_some_and(|r| r.bytes.saturating_add(1) > budget)
-    {
-        return Err(format!(
-            "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
-            sized[0].bytes, max_bytes
-        ));
-    }
-    let fit = crate::bound::fit_count(&sized, budget);
-    let record_limit_hit = start > 0 || end < total;
-    let byte_cap_hit = fit < sized.len();
-    let kept = &sized[..fit];
-    let bytes: usize = kept.iter().map(|r| r.bytes).sum();
-
-    let bounds = crate::bound::finalize_bounds(
-        total,
-        start,
-        limit,
-        fit,
-        record_limit_hit,
-        byte_cap_hit,
-        clamped_indices,
-        max_bytes,
-        bytes,
-    );
-
-    let header = serde_json::json!({
+    let mut sink = crate::jsonl_sink::JsonlSink::new("extract_by_type", session_id, max_bytes);
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "extract_by_type",
         "session_id": session_id,
         "harness": harness,
         "full": full,
         "types": selected_types,
-        "bounds": bounds,
-    });
-    let mut out = String::new();
-    out.push('#');
-    out.push_str(&serde_json::to_string(&header).unwrap_or_else(|_| "{}".to_string()));
-    out.push('\n');
-    for r in kept {
-        out.push_str(&r.json);
-        out.push('\n');
+        "bounds": {
+            "total_records": total,
+            "offset": start,
+            "limit": limit,
+            "max_bytes": max_bytes,
+            "clamped_record_indices": clamped_indices,
+        },
+    }));
+    for (e, record_json) in &clamped_records {
+        sink.push(&EntryRecord {
+            record_type: "entry",
+            entry_type: &e.entry_type,
+            ts: crate::rollout::entry_timestamp(e.timestamp.as_deref()),
+            record: serde_json::from_str(record_json).unwrap_or(serde_json::Value::Null),
+        });
     }
-    if bounds.truncated {
-        out.push_str("# TRUNCATED: ");
-        out.push_str(&bounds.notice);
-        out.push('\n');
-    }
-    Ok(out)
+    sink.finish()
+}
+
+/// One extracted-entry stream record: the entry type, its timestamp and the
+/// raw record JSON under the record stream's `type` discriminator.
+#[derive(serde::Serialize)]
+struct EntryRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'static str,
+    entry_type: &'a str,
+    ts: String,
+    record: serde_json::Value,
 }
 
 /// Assemble the `he_said_she_said_they_did` report. Three spoken sections in

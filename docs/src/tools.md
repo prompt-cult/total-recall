@@ -284,34 +284,37 @@ CLI: `total-recall --harness <h> --session <id> user-messages`.
 ### `extract_by_type`
 
 A pure read of the raw store, for recovering data from large, partially
-corrupt, or poisoned sessions. Emits one record per line with no summarization
-or aggregation.
+corrupt, or poisoned sessions: a record stream with no summarization or
+aggregation. The response is a bare compact JSON array whose element 0 is
+the meta record
+`{"type":"meta","tool":"extract_by_type","session_id":"…","harness":"…",
+"full":bool,"types":[…],"bounds":{…}}` (the same paging inputs as
+`extract_messages`), followed by one `type=entry` record per entry:
 
-
+```json
+[{"type":"meta","tool":"extract_by_type","session_id":"…","harness":"vibe",
+  "full":true,"types":["user","tool"],
+  "bounds":{"total_records":2,"offset":0,"limit":100,"max_bytes":8388608,
+            "clamped_record_indices":[]}},
+ {"type":"entry","entry_type":"user","ts":"2026-09-15T09:59:55Z",
+  "record":{"role":"user","content":"…","injected":false}}]
 ```
-# {"session_id":"…","harness":"vibe","types":["user","tool"],"bounds":{…}}
-user,2026-09-15T09:59:55Z,{"role":"user","content":"…","injected":false}
-tool,2026-09-15T10:00:02Z,{"role":"tool","content":"…"}
-```
 
-Line 1 is a `#`-prefixed JSON header carrying the same `bounds` envelope,
-including `next_offset` and a truncation notice. Each record line is
-`type,timestamp,json`: `timestamp` is ISO8601, a unix epoch, or `0` when
-neither; `json` is the source record serialized compactly, so embedded
-newlines are escaped and the one-record-per-line invariant always holds. On
-truncation a final `# TRUNCATED: …` line is appended. The stable prefix lets
-callers filter and re-merge with standard Unix tools:
+`ts` is ISO8601, a unix epoch, or `0` when neither; `record` is the source
+record serialized compactly, clamped by `max_record_bytes` (the clamped
+window-relative indices are in `bounds.clamped_record_indices`). Injected
+records are skipped by default; the record itself carries the `injected`
+flag either way. For vibe the records are the byte-faithful source lines
+re-parsed from `messages.jsonl`; other harnesses derive entries from the
+normalized message stream. Over `max_bytes` the fitting-prefix array is
+followed by the EOF marker; the overflow file carries every entry in the
+window, one per line — `rg`/`jq` work it directly:
 
 ```bash
-awk -F, '$1=="user"'        # filter by type
-jq -R 'fromjson'            # re-parse the JSON column
-sort -t, -k2                # order by timestamp
+jq -c 'select(.entry_type=="user")' <file>.jsonl   # filter by type
+jq -c '.record' <file>.jsonl                        # the raw records
+sort -t'"' -k4 <file>.jsonl                         # order by timestamp
 ```
-
-Injected records are skipped by default; the record itself carries the
-`injected` flag either way. For vibe the records are the byte-faithful source
-lines re-parsed from `messages.jsonl`; other harnesses derive entries from the
-normalized message stream.
 
 CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
 --type thinking [--include-injected]`.

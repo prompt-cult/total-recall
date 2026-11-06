@@ -113,10 +113,24 @@ fn sample_lines() -> Vec<String> {
     ]
 }
 
-fn data_lines(text: &str) -> Vec<&str> {
-    text.lines()
-        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
-        .collect()
+/// The record stream, parsed: the response is a bare compact JSON array —
+/// never torn — whose element 0 is the `type=meta` record.
+fn parsed_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+    });
+    let array = value.as_array().unwrap_or_else(|| {
+        panic!(
+            "the response must be a bare JSON array — the # header + type,ts,json lines are dead: {text:?}"
+        )
+    });
+    let meta = array.first().expect("record 0 is the meta record").clone();
+    assert_eq!(
+        meta.get("type").and_then(|t| t.as_str()),
+        Some("meta"),
+        "record 0 is the meta record: {meta}"
+    );
+    (meta, array[1..].to_vec())
 }
 
 #[test]
@@ -132,25 +146,40 @@ fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
     let resp = read_id(&mut reader, 2);
     let text = text_of(&resp);
 
-    // Header line present and is valid JSON after the '#'.
-    let header = text.lines().next().unwrap();
-    assert!(header.starts_with('#'));
-    let _: serde_json::Value = serde_json::from_str(&header[1..]).expect("header is JSON");
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(meta["tool"], "extract_by_type", "{meta}");
+    assert_eq!(meta["harness"], "vibe", "{meta}");
+    assert_eq!(
+        meta["bounds"]["total_records"], 3,
+        "the meta carries the paging inputs (the injected record never counts): {meta}"
+    );
 
-    let lines = data_lines(&text);
-    // injected user message excluded -> 3 records (user, assistant, tool)
-    assert_eq!(lines.len(), 3, "injected excluded: {lines:?}");
-    for l in lines {
-        let parts: Vec<&str> = l.splitn(3, ',').collect();
-        assert_eq!(parts.len(), 3, "three comma fields: {l}");
-        assert!(["user", "assistant", "tool", "thinking"].contains(&parts[0]));
-        serde_json::from_str::<serde_json::Value>(parts[2]).expect("third field parses as JSON");
+    // injected user message excluded -> 3 entry records (user, assistant, tool)
+    assert_eq!(records.len(), 3, "injected excluded: {records:?}");
+    for r in &records {
+        assert_eq!(r["type"], "entry", "{r}");
+        assert!(
+            ["user", "assistant", "tool", "thinking"]
+                .contains(&r["entry_type"].as_str().unwrap_or("")),
+            "{r}"
+        );
+        assert!(r.get("ts").is_some(), "{r}");
+        assert!(
+            r.get("record").is_some_and(|v| v.is_object()),
+            "the raw record rides the entry: {r}"
+        );
     }
-    // Multiline content stayed on one physical line (escaped).
-    let assistant = text.lines().find(|l| l.starts_with("assistant,")).unwrap();
+    // Multiline content survived as data (JSON-escaped inside the record).
+    let assistant = records
+        .iter()
+        .find(|r| r["entry_type"] == "assistant")
+        .unwrap();
     assert!(
-        assistant.contains("\\n"),
-        "embedded newline escaped: {assistant}"
+        assistant["record"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains('\n'),
+        "embedded newline is content, not a line break: {assistant}"
     );
     reap_mcp(&mut child, &cwd);
 }
@@ -167,9 +196,9 @@ fn extract_by_type_single_type_filter() {
     );
     let resp = read_id(&mut reader, 2);
     let text = text_of(&resp);
-    let lines = data_lines(&text);
-    assert_eq!(lines.len(), 1);
-    assert!(lines[0].starts_with("user,"));
+    let (_meta, records) = parsed_stream(&text);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["entry_type"], "user");
     reap_mcp(&mut child, &cwd);
 }
 
@@ -207,15 +236,20 @@ fn extract_by_type_is_bounded_with_notice() {
     let resp = read_id(&mut reader, 2);
     let text = text_of(&resp);
     assert!(text.len() <= 8 * 1024 * 1024);
-    let header = text.lines().next().unwrap();
-    let hj: serde_json::Value = serde_json::from_str(&header[1..]).unwrap();
+    let (meta, records) = parsed_stream(&text);
     assert_eq!(
-        hj.pointer("/bounds/truncated").and_then(|v| v.as_bool()),
-        Some(true)
+        meta["bounds"]["total_records"].as_u64(),
+        Some(500),
+        "the meta states the session's record count: {meta}"
+    );
+    assert_eq!(
+        records.len(),
+        100,
+        "the default limit-100 window is 100 entry records"
     );
     assert!(
-        text.lines().any(|l| l.starts_with("# TRUNCATED:")),
-        "truncation notice line present"
+        !text.contains("EOF-TRUNCATED"),
+        "the window fits the 8 MiB ceiling: {text}"
     );
     reap_mcp(&mut child, &cwd);
 }
@@ -232,13 +266,16 @@ fn extract_by_type_omitted_types_defaults_to_all() {
     );
     let resp = read_id(&mut reader, 2);
     let text = text_of(&resp);
-    let lines = data_lines(&text);
-    assert_eq!(lines.len(), 3, "all types, injected excluded: {lines:?}");
-    let hj: serde_json::Value = serde_json::from_str(&text.lines().next().unwrap()[1..]).unwrap();
+    let (meta, records) = parsed_stream(&text);
     assert_eq!(
-        hj.get("types").unwrap().as_array().unwrap().len(),
+        records.len(),
+        3,
+        "all types, injected excluded: {records:?}"
+    );
+    assert_eq!(
+        meta["types"].as_array().unwrap().len(),
         4,
-        "header echoes all four types"
+        "the meta echoes all four types: {meta}"
     );
     reap_mcp(&mut child, &cwd);
 }
@@ -256,21 +293,27 @@ fn extract_by_type_include_toggle_at_mcp_level() {
     );
     let resp = read_id(&mut reader, 2);
     let text = text_of(&resp);
-    let lines = data_lines(&text);
-    assert_eq!(lines.len(), 2, "injected user record included: {lines:?}");
-    let injected = lines
+    let (_meta, records) = parsed_stream(&text);
+    assert_eq!(
+        records.len(),
+        2,
+        "injected user record included: {records:?}"
+    );
+    let injected = records
         .iter()
-        .find(|l| l.contains("injected marker"))
+        .find(|r| r["record"]["content"] == "injected marker")
         .expect("injected record present");
     assert!(
-        injected.contains("\"injected\":true"),
-        "record carries the injected flag"
+        injected["record"]["injected"] == true,
+        "record carries the injected flag: {injected}"
     );
     reap_mcp(&mut child, &cwd);
 }
 
 #[test]
-fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
+fn extract_by_type_tiny_max_bytes_overflows_to_the_file() {
+    // The "even one record exceeds max_bytes" hard error is DEAD: the meta
+    // plus the marker return, and the file carries every entry.
     let root = scratch("tinycap");
     make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
@@ -282,8 +325,32 @@ fn extract_by_type_tiny_max_bytes_is_a_tool_error() {
     let resp = read_id(&mut reader, 2);
     assert_eq!(
         resp.pointer("/result/isError").and_then(|v| v.as_bool()),
-        Some(true)
+        Some(false),
+        "an overflowing extraction is NOT a tool error anymore: {resp}"
     );
-    assert!(text_of(&resp).contains("even one record"));
+    let text = text_of(&resp);
+    assert!(
+        text.contains("EOF-TRUNCATED") && text.contains("full_report"),
+        "the marker names the overflow file: {text}"
+    );
+    let path = text
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .unwrap()
+        .trim_start_matches("full_report: ")
+        .trim()
+        .to_string();
+    let written = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = written.lines().collect();
+    assert_eq!(
+        lines.len(),
+        4,
+        "the file carries the meta plus all 3 entries the response could not"
+    );
+    for line in &lines {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
     reap_mcp(&mut child, &cwd);
 }
