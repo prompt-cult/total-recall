@@ -1089,7 +1089,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "extract_qa_pairs",
-        description = "Total-recall MCP tool: extract question/answer pairs from sessions where the harness asked through a question tool (opencode `question`, vibe `ask_user_question`) — the question text, its headers/options where the format carries them, paired with the selected or typed answers, chronologically. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true) resolves sessions most-recent-first, each session's pairs under one output. Capped at the most recent 100 pairs per session with the held-back count stated, then byte-capped like every other report."
+        description = "Total-recall MCP tool: extract question/answer pairs from sessions where the harness asked through a question tool (opencode `question`, vibe `ask_user_question`) as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_qa_pairs\",\"scope\":\"…\",\"sessions_scanned\":N,\"sessions_with_pairs\":N,\"per_session_cap\":100}, followed by one {\"type\":\"qa\",\"session_id\":\"…\",\"harness\":\"…\",\"qa\":N,\"ts\":\"…\"?,\"header\":\"…\"?,\"question\":\"…\",\"options\":[…],\"answers\":[…],\"held_back\":N?} record per pair, chronologically; the held-back count rides the session's last record when the per-session cap dropped pairs. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true) resolves sessions most-recent-first; sessions without pairs contribute no records. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every pair, one per line."
     )]
     async fn extract_qa_pairs(
         &self,
@@ -1131,53 +1131,54 @@ impl TotalRecallServer {
                 Ok(p) => p,
                 Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
             };
-            let text = qa_pairs_report(&session_id, self.harness(), &pairs, QA_PAIR_CAP);
-            return Ok(capped_text(
-                "extract_qa_pairs",
-                &params.session_id,
-                text,
-                max_bytes,
-            ));
+            let mut sink =
+                crate::jsonl_sink::JsonlSink::new("extract_qa_pairs", &session_id, max_bytes);
+            sink.push_meta(&serde_json::json!({
+                "type": "meta",
+                "tool": "extract_qa_pairs",
+                "scope": session_id,
+                "sessions_scanned": 1,
+                "sessions_with_pairs": usize::from(!pairs.is_empty()),
+                "per_session_cap": QA_PAIR_CAP,
+            }));
+            push_qa_records(&mut sink, &session_id, self.harness(), &pairs, QA_PAIR_CAP);
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                sink.finish(),
+            )]));
         }
 
-        // Window mode: sessions most-recent-first, each session's pairs under
-        // one output. Sessions without question calls contribute no section,
-        // and the header states how many were scanned.
+        // Window mode: sessions most-recent-first; sessions without question
+        // calls contribute no records — the meta carries the scanned count.
         let (selected, _unmatched) = crate::index::select_sessions(
             adapter.as_ref(),
             &[],
             hours,
             params.directory.as_deref(),
         );
-        let mut sections = Vec::new();
+        let mut with_pairs = Vec::new();
         for summary in &selected {
             let Ok(pairs) = adapter.read_qa_pairs(&summary.session_id) else {
                 continue;
             };
-            if pairs.is_empty() {
-                continue;
+            if !pairs.is_empty() {
+                with_pairs.push((summary.session_id.clone(), pairs));
             }
-            sections.push(qa_pairs_report(
-                &summary.session_id,
-                self.harness(),
-                &pairs,
-                QA_PAIR_CAP,
-            ));
         }
-        let mut out = format!(
-            "# extract_qa_pairs — {} sessions scanned, {} with Q/A pairs\n",
-            selected.len(),
-            sections.len()
-        );
-        for section in sections {
-            out.push_str(&section);
+        let mut sink = crate::jsonl_sink::JsonlSink::new("extract_qa_pairs", "window", max_bytes);
+        sink.push_meta(&serde_json::json!({
+            "type": "meta",
+            "tool": "extract_qa_pairs",
+            "scope": "window",
+            "sessions_scanned": selected.len(),
+            "sessions_with_pairs": with_pairs.len(),
+            "per_session_cap": QA_PAIR_CAP,
+        }));
+        for (session_id, pairs) in &with_pairs {
+            push_qa_records(&mut sink, session_id, self.harness(), pairs, QA_PAIR_CAP);
         }
-        Ok(capped_text(
-            "extract_qa_pairs",
-            &params.session_id,
-            out,
-            max_bytes,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
 
     #[tool(
@@ -1962,42 +1963,56 @@ fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> St
     sink.finish()
 }
 
-/// Render one session's Q/A pairs for `extract_qa_pairs`: pairs in
-/// chronological order, at most the most-recent `cap` of them, with the
-/// held-back count stated in the section itself.
-fn qa_pairs_report(
+/// One Q/A stream record: the pair's fields plus the record stream's `type`
+/// discriminator and the session context; `ts`/`header` omitted when the
+/// format carries none, `held_back` present only on the session's last
+/// record when the per-session cap dropped pairs.
+#[derive(serde::Serialize)]
+struct QaRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    session_id: &'a str,
+    harness: &'a str,
+    qa: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ts: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    header: &'a Option<String>,
+    question: &'a str,
+    options: &'a [crate::rollout::QaOption],
+    answers: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    held_back: Option<usize>,
+}
+
+/// Push one session's Q/A pairs into the record stream: pairs in
+/// chronological order, at most the most-recent `cap` of them, the
+/// held-back count carried by the session's last record.
+fn push_qa_records(
+    sink: &mut crate::jsonl_sink::JsonlSink,
     session_id: &str,
     harness: &str,
     pairs: &[crate::rollout::QaPair],
     cap: usize,
-) -> String {
+) {
     let total = pairs.len();
     let shown = &pairs[total.saturating_sub(cap)..];
-    let mut out = format!("=== {} ({})\n", session_id, harness);
-    if total > shown.len() {
-        out += &format!("({} of {total} pairs not shown)\n", total - shown.len());
-    }
     for (i, pair) in shown.iter().enumerate() {
-        match &pair.timestamp {
-            Some(ts) => out += &format!("--- QA {} ({ts})\n", i + 1),
-            None => out += &format!("--- QA {}\n", i + 1),
-        }
-        if let Some(header) = &pair.header {
-            out += &format!("HEADER: {header}\n");
-        }
-        out += &format!("QUESTION: {}\n", pair.question);
-        if !pair.options.is_empty() {
-            out += "OPTIONS:\n";
-            for option in &pair.options {
-                out += &format!("  - {} — {}\n", option.label, option.description);
-            }
-        }
-        out += "ANSWERS:\n";
-        for answer in &pair.answers {
-            out += &format!("  - {answer}\n");
-        }
+        sink.push(&QaRecord {
+            record_type: "qa",
+            session_id,
+            harness,
+            qa: i + 1,
+            ts: &pair.timestamp,
+            header: &pair.header,
+            question: &pair.question,
+            options: &pair.options,
+            answers: &pair.answers,
+            held_back: (i + 1 == shown.len())
+                .then(|| total - shown.len())
+                .filter(|held_back| *held_back > 0),
+        });
     }
-    out
 }
 
 /// Read a session window respecting `full`, propagating read damage as a tool

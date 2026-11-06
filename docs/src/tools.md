@@ -316,19 +316,20 @@ CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
 ### `extract_qa_pairs`
 
 The question/answer pairs from sessions where the harness asked through a
-question tool: the question text, its header and options where the format
-carries them, paired with the answers the user picked or typed,
-chronologically:
+question tool as a record stream: a bare compact JSON array whose element 0
+is the meta record
+`{"type":"meta","tool":"extract_qa_pairs","scope":"…","sessions_scanned":N,
+"sessions_with_pairs":N,"per_session_cap":100}`, followed by one `type=qa`
+record per pair, chronologically:
 
-```
-=== ses_ee8e8f72 (opencode)
---- QA 1 (2026-10-12T08:15:04Z)
-HEADER: Branch
-OPTIONS:
-  - main — the trunk, release when green
-  - feature — cut a branch instead
-ANSWERS:
-  - main
+```json
+[{"type":"meta","tool":"extract_qa_pairs","scope":"ses_ee8e8f72",
+  "sessions_scanned":1,"sessions_with_pairs":1,"per_session_cap":100},
+ {"type":"qa","session_id":"ses_ee8e8f72","harness":"opencode","qa":1,
+  "ts":"2026-10-12T08:15:04Z","header":"Branch",
+  "question":"Which branch?",
+  "options":[{"label":"main","description":"the trunk, release when green"}],
+  "answers":["main"]}]
 ```
 
 For opencode the pairs are read store-side from the `question` tool parts
@@ -336,18 +337,19 @@ For opencode the pairs are read store-side from the `question` tool parts
 tool result output as fallback. For vibe, `ask_user_question` arguments'
 questions are paired with the following `tool_result` output's answers by
 `tool_call_id`. A question that was never answered, or whose prompt was
-cancelled, yields no pair. Harnesses without question tools report no
-sections, never an error.
+cancelled, yields no pair. Harnesses without question tools return the meta
+record with zero pair records, never an error.
 
 Session selection follows the window tools: `session_id` (partial match)
 selects one session; empty works the `hours_back` window (default 48, `0` =
 omitted) with an optional `directory` substring, and `all: true` is the
 explicit whole-store opt-in. In window mode sessions are ordered
-most-recent-first, one section each for the sessions that have pairs, the
-scanned count stated in the header. Each session's section carries at most
-the most recent 100 pairs with the held-back count stated; the report is
-flood-capped at `max_bytes` (default 16384, 8 MiB ceiling) with the EOF
-marker and overflow file. MCP only — no CLI subcommand.
+most-recent-first; sessions without pairs contribute no records — the meta
+carries the scanned count. Each session contributes at most the most recent
+100 pairs, the held-back count stated in the session's last record
+(`held_back`). Over `max_bytes` (default 16384, 8 MiB ceiling) the
+fitting-prefix array is followed by the EOF marker and the overflow file
+carries every pair, one per line. MCP only — no CLI subcommand.
 
 ### `todo_history`
 

@@ -405,3 +405,230 @@ fn test_default_read_qa_pairs_returns_empty_for_sessions_without_question_calls(
         .expect("sessions without question calls read as empty, never an error");
     assert!(pairs.is_empty());
 }
+
+// --- MCP stdio server: the record-stream contract ---------------------------
+//
+// The response shape is pinned at the MCP layer over the same opencode
+// question fixture the extraction tests use: three answered questions (the
+// pending one yields no pair).
+
+struct Mcp {
+    child: std::process::Child,
+    reader: std::io::BufReader<std::process::ChildStdout>,
+    stdin: std::process::ChildStdin,
+    cwd: std::path::PathBuf,
+    next: u64,
+}
+
+impl Mcp {
+    fn send(&mut self, v: &serde_json::Value) {
+        use std::io::Write;
+        writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
+        self.stdin.flush().unwrap();
+    }
+
+    fn read_until_id(&mut self, id: u64) -> serde_json::Value {
+        use std::io::BufRead;
+        loop {
+            let mut line = String::new();
+            self.reader
+                .read_line(&mut line)
+                .expect("server stdout open");
+            if line.trim().is_empty() {
+                panic!("server closed stdout waiting for response {id}");
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+                && v.get("id").and_then(|i| i.as_u64()) == Some(id)
+            {
+                return v;
+            }
+        }
+    }
+
+    fn call(&mut self, name: &str, args: serde_json::Value) -> (bool, String) {
+        let id = self.next;
+        self.next += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": args}
+        }));
+        let result = self.read_until_id(id)["result"].clone();
+        let is_error = result["isError"].as_bool().unwrap_or(false);
+        (
+            is_error,
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        )
+    }
+}
+
+fn reap(mcp: &mut Mcp) {
+    mcp.child.kill().ok();
+    mcp.child.wait().ok();
+    let _ = std::fs::remove_dir_all(&mcp.cwd);
+}
+
+fn spawn_qa_mcp() -> (Mcp, ScratchRoot) {
+    let dir = scratch("extract_qa_pairs_mcp");
+    create_qa_fixture(&dir.join("fixture.db"));
+    let cwd = common::scratch::child_cwd("extract_qa_pairs_mcp");
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+        .args(["--harness", "opencode", "mcp"])
+        .current_dir(&cwd)
+        .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn mcp");
+    let reader = std::io::BufReader::new(child.stdout.take().unwrap());
+    let stdin = child.stdin.take().unwrap();
+    let mut mcp = Mcp {
+        child,
+        reader,
+        stdin,
+        cwd,
+        next: 1,
+    };
+    mcp.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                   "clientInfo": {"name": "qa-pairs-test", "version": "0"}}
+    }));
+    let _ = mcp.read_until_id(0);
+    mcp.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/initialized"
+    }));
+    (mcp, dir)
+}
+
+fn parsed_qa_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+    });
+    let array = value.as_array().unwrap_or_else(|| {
+        panic!("the response must be a bare JSON array — the === prose sections are dead: {text:?}")
+    });
+    let meta = array.first().expect("record 0 is the meta record").clone();
+    assert_eq!(
+        meta.get("type").and_then(|t| t.as_str()),
+        Some("meta"),
+        "record 0 is the meta record: {meta}"
+    );
+    (meta, array[1..].to_vec())
+}
+
+#[test]
+fn extract_qa_pairs_streams_the_bare_qa_record_array() {
+    let (mut mcp, _dir) = spawn_qa_mcp();
+
+    // Single-session mode: the meta names the resolved session as the scope,
+    // every pair is a qa record with the extraction's fields.
+    let (is_error, text) = mcp.call(
+        "extract_qa_pairs",
+        serde_json::json!({"session_id": "ses_qafixture"}),
+    );
+    assert!(!is_error, "the extraction must not error: {text}");
+    assert!(
+        !text.contains("=== ") && !text.contains("QUESTION:"),
+        "the ===/--- QA/QUESTION: prose shape is gone: {text}"
+    );
+    let (meta, records) = parsed_qa_stream(&text);
+    assert_eq!(meta["tool"].as_str(), Some("extract_qa_pairs"), "{meta}");
+    assert_eq!(
+        meta["scope"].as_str(),
+        Some("ses_qafixture"),
+        "the scope is the session id as the caller gave it (the pre-existing resolution contract): {meta}"
+    );
+    assert_eq!(meta["sessions_scanned"], 1, "{meta}");
+    assert_eq!(meta["sessions_with_pairs"], 1, "{meta}");
+    assert_eq!(meta["per_session_cap"], 100, "{meta}");
+    assert_eq!(records.len(), 3, "three answered pairs: {records:?}");
+    for (i, record) in records.iter().enumerate() {
+        assert_eq!(record["type"].as_str(), Some("qa"), "{record}");
+        assert_eq!(record["session_id"].as_str(), Some("ses_qafixture"));
+        assert_eq!(record["qa"], i + 1, "the qa index is 1-based: {record}");
+        assert!(record.get("question").is_some(), "{record}");
+        assert!(record.get("answers").is_some(), "{record}");
+    }
+    assert_eq!(
+        records[0]["header"].as_str(),
+        Some("First Question"),
+        "{records:?}"
+    );
+    assert_eq!(
+        records[0]["answers"][0].as_str(),
+        Some("Docker Compose"),
+        "{records:?}"
+    );
+
+    // Window mode: the same record stream, the scope names the window.
+    let (is_error, text) = mcp.call("extract_qa_pairs", serde_json::json!({"all": true}));
+    assert!(!is_error, "{text}");
+    let (meta, records) = parsed_qa_stream(&text);
+    assert_eq!(meta["scope"].as_str(), Some("window"), "{meta}");
+    assert_eq!(meta["sessions_scanned"], 1, "{meta}");
+    assert_eq!(records.len(), 3, "{records:?}");
+    reap(&mut mcp);
+}
+
+#[test]
+fn extract_qa_pairs_over_the_cap_is_prefix_array_marker_and_pure_jsonl_file() {
+    let (mut mcp, _dir) = spawn_qa_mcp();
+    let (is_error, text) = mcp.call(
+        "extract_qa_pairs",
+        serde_json::json!({"session_id": "ses_qafixture", "max_bytes": 200}),
+    );
+    assert!(
+        !is_error,
+        "an overflowing extraction still succeeds: {text}"
+    );
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "the marker follows the fitting-prefix array: {text}"
+    );
+    assert!(
+        text.trim_start().starts_with('['),
+        "the array prefix always returns — never the marker alone: {text}"
+    );
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let v: serde_json::Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let array = v.as_array().expect("the prefix is an array");
+    assert_eq!(
+        array.len(),
+        1,
+        "a 200-byte budget fits the meta record alone: {array:?}"
+    );
+    let marker_path_line = text
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .expect("the marker names the overflow file");
+    let path = marker_path_line.trim_start_matches("full_report: ").trim();
+    let written = std::fs::read_to_string(path).unwrap();
+    let lines: Vec<&str> = written.lines().collect();
+    assert_eq!(
+        lines.len(),
+        4,
+        "the file carries the meta plus every pair the response could not: {written}"
+    );
+    for line in &lines {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
+    assert!(
+        written.contains("Which deployment target"),
+        "the file carries the pairs: {written}"
+    );
+    reap(&mut mcp);
+}
