@@ -697,7 +697,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness, optionally bounded by hours_back (a window in hours, 1 or more; 0 or omitted = the 240-hour default) and a directory substring filter; all: true lists the whole store. The listing renders as many of the most recent rows as max_bytes holds and states the held-back count."
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"list_sessions\",\"window_count\":N,\"max_bytes\":N} (window_count = how many rows the window holds; max_bytes = the budget that decided the cut), followed by one {\"type\":\"row\",\"session_id\":\"…\",…} record per listed session, most recent first. Bounded by hours_back (a window in hours, 1 or more; 0 or omitted = the 240-hour default) and a directory substring filter; all: true lists the whole store. Over max_bytes the fitting-prefix array is followed by the EOF marker whose records_returned/records_total state the cut; the overflow file carries every row, one per line."
     )]
     async fn list_sessions(
         &self,
@@ -727,17 +727,30 @@ impl TotalRecallServer {
         // The scoped listing: the window and the directory substring are
         // applied where the data lives, at most the 200 most recent rows of the
         // window reach this layer, and the rows the window holds but did not
-        // print are stated in the response itself.
+        // print are derivable from the meta's window_count against the
+        // records the budget returned (stated by the marker on overflow).
         let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
         let mut sessions = listing.sessions;
         crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
-        let json = listing_json(
-            &sessions,
-            listing.window_count,
-            max_bytes,
-            &adapter.shadow_index_root(),
-        );
-        Ok(capped_text("list_sessions", "list", json, max_bytes))
+        let shadow_root = adapter.shadow_index_root();
+        let mut sink = crate::jsonl_sink::JsonlSink::new("list_sessions", "list", max_bytes);
+        sink.push_meta(&serde_json::json!({
+            "type": "meta",
+            "tool": "list_sessions",
+            "window_count": listing.window_count,
+            "max_bytes": max_bytes,
+        }));
+        for s in &sessions {
+            let mut row = crate::ListingRow::new(s);
+            row.summary_cache = crate::summary_cache::through_marker(&shadow_root, &s.session_id);
+            sink.push(&RowRecord {
+                record_type: "row",
+                row: &row,
+            });
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
 
     #[tool(
@@ -1798,83 +1811,16 @@ fn line_selectors(
     })
 }
 
-/// The `list_sessions` response, with the row count derived from the response
-/// budget: rows are rendered most recent first until the next one would push
-/// the response past `max_bytes`, and the rows the window holds but did not
-/// print are stated in `held_back`.
-///
-/// The budget is the one owner of this bound. A fixed row cap cannot be: a
-/// rendered [`ListingRow`] is a few hundred bytes pretty-printed, so 200 of
-/// them is tens of KB and the 16 KiB flood cap replaces the whole listing with
-/// a marker — a default call that returns nothing usable. The row count is
-/// therefore measured, not guessed: the candidate response is serialised
-/// exactly as it is emitted, so the contract ("the listing fits `max_bytes`")
-/// holds by construction rather than by arithmetic.
-///
-/// Each row's own id arrays are bounded before it is ever measured, in
-/// [`ListingRow::new`] — a row is rendered as a [`ListingRow`], never as a raw
-/// [`SessionSummary`] — so no row's cost is a function of how many subagent
-/// children or vibe aliases its session happens to carry. One row larger than
-/// the whole budget is then only reachable through a title or directory of its
-/// own; there the full listing is rendered and handed to flood control, which
-/// writes it to the overflow file and returns the marker with its histogram —
-/// the escape hatch every other report has. Answering with an empty table
-/// instead would hide the store behind a bound.
-///
-/// The `summary_cache` marker is set here, in the render layer, by a cheap
-/// post-pass that reads each session's ledger's last row — the adapters never
-/// touch it, the same way `has_tantivy_index` is set by the server.
-fn listing_json(
-    sessions: &[crate::SessionSummary],
-    window_count: usize,
-    max_bytes: usize,
-    shadow_root: &std::path::Path,
-) -> String {
-    let rows: Vec<crate::ListingRow> = sessions
-        .iter()
-        .map(|s| {
-            let mut row = crate::ListingRow::new(s);
-            row.summary_cache = crate::summary_cache::through_marker(shadow_root, &s.session_id);
-            row
-        })
-        .collect();
-    let mut rendered: Vec<&crate::ListingRow> = Vec::new();
-    let mut json = listing_envelope(&rendered, window_count, max_bytes);
-    for row in &rows {
-        rendered.push(row);
-        let candidate = listing_envelope(&rendered, window_count, max_bytes);
-        if candidate.len() > max_bytes {
-            rendered.pop();
-            break;
-        }
-        json = candidate;
-    }
-    if rendered.is_empty() && !rows.is_empty() {
-        // No row fits the budget: flood control takes the whole listing.
-        return listing_envelope(&rows.iter().collect::<Vec<_>>(), window_count, max_bytes);
-    }
-    json
-}
-
-/// The listing envelope, serialised exactly as it is emitted.
-fn listing_envelope(rows: &[&crate::ListingRow], window_count: usize, max_bytes: usize) -> String {
-    let held_back = window_count.saturating_sub(rows.len());
-    let notice = if held_back > 0 {
-        format!(
-            "TRUNCATED: rendered {} of the {window_count} rows the window holds under max_bytes {max_bytes}. Raise max_bytes for a bigger slice, or narrow the window with hours_back or directory.",
-            rows.len()
-        )
-    } else {
-        String::new()
-    };
-    serde_json::to_string_pretty(&serde_json::json!({
-        "sessions": rows,
-        "window_count": window_count,
-        "held_back": held_back,
-        "max_bytes": max_bytes,
-        "notice": notice,
-    }))
-    .unwrap_or_else(|_| "{}".to_string())
+/// One listing row record: the row's own serde fields (session_id, title,
+/// the timestamps and counts, the bounded id arrays and their true counts,
+/// the summary-cache marker when the session's cache is seeded) flattened
+/// under the record stream's `type` discriminator.
+#[derive(serde::Serialize)]
+struct RowRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    row: &'a crate::ListingRow,
 }
 
 /// One `todo_edit` stream record: the event's fields plus the record

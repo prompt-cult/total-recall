@@ -622,7 +622,13 @@ fn list_sessions_rows_carry_the_summary_cache_marker() {
     let (err, text) = mcp.call("list_sessions", json!({"all": true}));
     assert!(!err, "the listing succeeds: {text}");
     let listing: Value = serde_json::from_str(&text).expect("the listing is JSON");
-    let rows = listing["sessions"].as_array().expect("rows array");
+    let rows = listing
+        .as_array()
+        .expect("the bare record array")
+        .iter()
+        .filter(|r| r["type"] == "row")
+        .cloned()
+        .collect::<Vec<_>>();
 
     let alpha = rows
         .iter()

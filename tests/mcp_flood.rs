@@ -356,10 +356,11 @@ fn list_sessions_default_cutoff_is_240_hours() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
     let v: Value =
-        serde_json::from_str(&text).expect("the default listing is returned inline, untorn");
+        serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
     assert_eq!(
-        v["window_count"].as_u64(),
+        v[0]["window_count"].as_u64(),
         Some(3),
         "the 240-hour default holds the three recent sessions: {text}"
     );
@@ -367,30 +368,52 @@ fn list_sessions_default_cutoff_is_240_hours() {
         !whole_listing(&text).contains("ses_old"),
         "the epoch-old session is cut off by the 240-hour default"
     );
-    assert!(text.contains("ses_alpha"), "the recent session is listed");
+    assert!(head.contains("ses_alpha"), "the recent session is listed");
     let (err, text) = mcp.call("list_sessions", serde_json::json!({"all": true}));
     assert!(!err, "all: true succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "the 20,000-character-title row cannot fit the default budget: the prefix array plus the marker return"
+    );
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
     let v: Value =
-        serde_json::from_str(&text).expect("the whole-store listing is returned inline, untorn");
+        serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
     assert_eq!(
-        v["window_count"].as_u64(),
+        v[0]["window_count"].as_u64(),
         Some(4),
         "all: true lifts the window to the whole store: {text}"
     );
+    // The huge row does not fit the budget: the sink drops THAT row alone —
+    // the lean rows behind it still return (no head-of-line blocking) — the
+    // marker names the cut, the file carries every row.
     assert_eq!(
-        v["held_back"].as_u64(),
-        Some(2),
-        "the 20,000-character-title row does not fit the default budget and the rows behind it are held back with it, and the listing says so: {text}"
+        v.as_array().unwrap().len(),
+        4,
+        "the prefix is the meta plus the three lean rows; the huge row is in the file, not the response"
+    );
+    assert!(
+        !head.contains("ses_huge"),
+        "the 20,000-character-title row cannot fit the default budget: {text}"
+    );
+    assert!(
+        text.contains("records_returned: 3") && text.contains("records_total: 4"),
+        "the marker states the cut: {text}"
+    );
+    let written = whole_listing(&text);
+    assert!(
+        written.contains("ses_huge") && written.contains("ses_alpha"),
+        "the overflow file carries the rows the budget could not: {written}"
     );
     reap(&mut mcp);
 }
 
 #[test]
-fn an_overflowing_json_response_is_never_torn() {
+fn an_overflowing_listing_returns_the_prefix_array_and_the_marker() {
     let (mut mcp, _dir) = spawn();
-    // A budget too small for even the first row is the one listing the byte
-    // budget cannot satisfy: the whole listing goes to flood control, whose
-    // contract is that JSON is never torn.
+    // A budget too small for even the first row: the meta record leads, zero
+    // row records fit, and the marker follows the never-torn array prefix.
+    // The old "an overflowing JSON response returns the marker alone" rule is
+    // dead — the array prefix always returns.
     let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
     assert!(!err, "the overflowing list still succeeds: {text}");
     assert!(
@@ -398,13 +421,35 @@ fn an_overflowing_json_response_is_never_torn() {
         "a listing that cannot fit its budget overflows and returns the marker: {text}"
     );
     assert!(
-        !text.trim_start().starts_with('['),
-        "an overflowing JSON response must NOT return torn JSON"
+        text.trim_start().starts_with('['),
+        "the array prefix always returns — never the marker alone: {text}"
     );
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
+    let array: serde_json::Value =
+        serde_json::from_str(head.trim()).expect("the array prefix parses as JSON — never torn");
+    let rows = array.as_array().expect("the prefix is an array");
+    assert_eq!(
+        rows.len(),
+        1,
+        "a 100-byte budget fits the meta record alone: {rows:?}"
+    );
+    assert_eq!(rows[0]["type"], "meta", "record 0 is the meta: {rows:?}");
     let path = marker_path(&text);
     let written = std::fs::read_to_string(&path).unwrap();
-    serde_json::from_str::<serde_json::Value>(&written)
-        .expect("the overflow file carries the whole, untorn JSON");
+    let lines: Vec<&str> = written.lines().collect();
+    assert!(!lines.is_empty(), "the overflow file carries the records");
+    for line in &lines {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
+    let first: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|e| panic!("the file's record 0 parses ({e}): {}", lines[0]));
+    assert_eq!(
+        first["type"], "meta",
+        "record 0 of the file is the meta record: {}",
+        lines[0]
+    );
     assert!(
         written.contains("ses_huge"),
         "the file has the huge session"
@@ -442,74 +487,113 @@ fn whole_listing(text: &str) -> String {
     }
 }
 
-/// The listing cap and its held-back statement (the scope contract): the
-/// listing renders as many of the most recent rows of the window as its
-/// `max_bytes` response budget holds — never more than the 200 rows the store
-/// query bounds — and states how many rows the window holds but did not
-/// print. A default call returns rows: the budget, not the 16 KiB flood cap,
-/// decides the row count.
+/// The listing cap (the scope contract): the listing streams one `type=row`
+/// record per session, most recent first — as many of the most recent rows of
+/// the window as its `max_bytes` response budget holds, never more than the
+/// 200 rows the store query bounds. A 250-row window over the 16 KiB default
+/// overflows: the fitting-prefix array is followed by the EOF marker, whose
+/// `records_returned`/`records_total` state the cut (the rows the window
+/// holds but the response did not print are `window_count -
+/// records_returned`), and the overflow file carries every row, one per line.
 #[test]
-fn list_sessions_renders_what_the_budget_holds_and_names_the_held_back_count() {
+fn list_sessions_renders_the_row_records_the_budget_holds() {
     let (mut mcp, _dir) = spawn_fixture(|root| build_listing_fixture(root, 250));
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
     assert!(
-        !text.contains("--- [EOF-TRUNCATED] ---"),
-        "the default listing fits its own budget: {text}"
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "250 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
     );
-    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
-    let sessions = v["sessions"].as_array().unwrap_or_else(|| {
-        panic!(
-            "the listing must render its rows under `sessions`: {}",
-            &text[..text.len().min(400)]
-        )
-    });
-    assert!(
-        !sessions.is_empty(),
-        "a default call returns rows, not an empty table: {text}"
-    );
-    assert!(
-        sessions.len() <= 200,
-        "the listing must render at most the 200 rows the query bounds, got {}",
-        sessions.len()
-    );
-    assert!(
-        text.len() <= 16_384,
-        "the rendered listing must fit the default budget, got {} bytes",
-        text.len()
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let v: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let array = v.as_array().expect("the prefix is an array");
+    let meta = &array[0];
+    assert_eq!(meta["type"], "meta", "record 0 is the meta: {meta}");
+    assert_eq!(
+        meta["tool"], "list_sessions",
+        "record 0 names the tool: {meta}"
     );
     assert_eq!(
-        v["window_count"].as_u64(),
+        meta["window_count"].as_u64(),
         Some(250),
-        "the listing must state how many rows the window holds, not just print rows"
+        "the meta states how many rows the window holds: {meta}"
     );
     assert_eq!(
-        v["held_back"].as_u64(),
-        Some(250 - sessions.len() as u64),
-        "the listing must state the rows the window holds but did not print"
+        meta["max_bytes"].as_u64(),
+        Some(16_384),
+        "the meta states the budget that decided the cut: {meta}"
     );
+    let rows = &array[1..];
+    assert!(
+        !rows.is_empty(),
+        "an overflowing listing still returns usable rows: {text}"
+    );
+    assert!(
+        rows.len() < 250,
+        "the budget cut the stream: fewer rows returned than the window holds"
+    );
+    assert!(
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
+    );
+    for record in rows {
+        assert_eq!(record["type"], "row", "every data record is a row");
+    }
     assert_eq!(
-        sessions[0]["session_id"].as_str(),
+        rows[0]["session_id"].as_str(),
         Some("ses_listing0000000000000000000000000aa"),
         "the first row must be the most recent session of the window"
     );
-
-    // A bigger budget buys a bigger slice of the same window: the row count
-    // is derived from the budget, not from a fixed cap.
-    let (err, wider) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 262_144}));
-    assert!(!err, "a wider budget succeeds: {wider}");
-    let wide: Value = serde_json::from_str(&wider).expect("whole JSON");
-    let wide_rows = wide["sessions"].as_array().unwrap().len();
     assert!(
-        wide_rows > sessions.len(),
-        "a wider budget must return more rows: {} vs {}",
-        wide_rows,
-        sessions.len()
+        text.contains("records_returned: ") && text.contains("records_total: 200"),
+        "the marker states the cut against the window: {text}"
+    );
+    let written = whole_listing(&text);
+    let file_rows: Vec<Value> = written
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| {
+                panic!("every overflow-file line is one JSON object ({e}): {line}")
+            })
+        })
+        .collect();
+    assert_eq!(
+        file_rows.len(),
+        201,
+        "the file carries the meta plus the 200 rows the store query bounds"
     );
     assert_eq!(
-        wide["window_count"].as_u64(),
+        file_rows[200]["session_id"].as_str(),
+        Some("ses_listing1990000000000000000000000aa"),
+        "the oldest row the layer holds is in the file even though the response could not"
+    );
+
+    // A bigger budget buys the whole layer: the row count is derived from
+    // the budget, not from a fixed cap.
+    let (err, wider) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 262_144}));
+    assert!(!err, "a wider budget succeeds: {wider}");
+    assert!(
+        !wider.contains("--- [EOF-TRUNCATED] ---"),
+        "262 KiB holds all 200 rows: {wider}"
+    );
+    let wide: Value = serde_json::from_str(&wider).expect("whole JSON");
+    let wide_array = wide.as_array().unwrap();
+    assert_eq!(
+        wide_array[0]["window_count"].as_u64(),
         Some(250),
         "the window is the same window"
+    );
+    assert_eq!(
+        wide_array.len() - 1,
+        200,
+        "the wider budget returns every row the layer holds"
     );
     reap(&mut mcp);
 }
@@ -518,7 +602,7 @@ fn list_sessions_renders_what_the_budget_holds_and_names_the_held_back_count() {
 /// whole: the listing is never answered with an empty table, and the overflow
 /// file carries the untorn JSON the marker points at.
 #[test]
-fn a_budget_too_small_for_one_row_still_floods_whole() {
+fn a_budget_too_small_for_one_row_leaves_the_rows_in_the_file() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
     assert!(!err, "the oversized listing still succeeds: {text}");
@@ -527,12 +611,21 @@ fn a_budget_too_small_for_one_row_still_floods_whole() {
         "a row larger than the budget overflows and returns the marker: {text}"
     );
     let written = whole_listing(&text);
-    let v: Value =
-        serde_json::from_str(&written).expect("the overflow file carries the whole, untorn JSON");
+    let rows: Vec<Value> = written
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| {
+                panic!("every overflow-file line is one JSON object ({e}): {line}")
+            })
+        })
+        .collect();
     assert!(
-        v["sessions"].as_array().is_some_and(|rows| rows
-            .iter()
-            .any(|r| r["session_id"] == "ses_huge000000000000000000000000d")),
+        rows.iter().any(|r| r["type"] == "meta"),
+        "record 0 of the file is the meta record: {rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r["session_id"] == "ses_huge000000000000000000000000d"),
         "the overflow file carries the rows a 16 KiB budget could not: {written}"
     );
     reap(&mut mcp);
@@ -550,28 +643,35 @@ fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
     assert!(
-        !text.contains("--- [EOF-TRUNCATED] ---"),
-        "the default listing fits its own budget: {text}"
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "500 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
     );
-    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
-    let sessions = v["sessions"]
-        .as_array()
-        .expect("rows under `sessions`")
-        .clone();
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let v: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let array = v.as_array().expect("the prefix is an array");
+    let meta = &array[0];
+    let sessions = &array[1..];
     assert!(
-        text.len() <= 16_384,
-        "the rendered listing must fit the default budget, got {} bytes",
-        text.len()
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
     );
     assert_eq!(
-        v["window_count"].as_u64(),
+        meta["window_count"].as_u64(),
         Some(500),
         "the window holds the 200 parents and the 300 children"
     );
-    assert_eq!(
-        v["held_back"].as_u64(),
-        Some(500 - sessions.len() as u64),
-        "the listing states the rows the window holds but did not print"
+    let held_back = 500 - sessions.len() as u64;
+    assert!(
+        held_back > 0,
+        "a 16 KiB budget cannot hold 500 rows: {} rendered",
+        sessions.len()
     );
     assert!(
         sessions.len() >= 30,
@@ -579,18 +679,18 @@ fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
          more than the 3 rows the unbounded array allowed; rendered {} of 500",
         sessions.len()
     );
-    // 30 is this fixture's measured ceiling, not a chosen target: a lean row is
-    // ~550 bytes pretty-printed, so the budget and not any cap is what ends the
-    // listing. The unused tail is smaller than one more row would need.
+    // 30 is this fixture's measured floor, not a chosen target: a lean row is
+    // a few hundred bytes compact, so the budget and not any cap is what ends
+    // the listing. The unused tail is smaller than one more row would need.
     let lean_bytes = serde_json::to_string(&sessions[1]).unwrap().len();
     assert!(
         lean_bytes < 700,
         "a lean row stays under 700 bytes whatever the store holds, got {lean_bytes}"
     );
     assert!(
-        16_384 - text.len() < 1_024,
+        16_384 - head.len() < 1_024,
         "the budget is saturated: the unused tail cannot hold another row, got {} bytes",
-        16_384 - text.len()
+        16_384 - head.len()
     );
 
     // The fan-out row itself: bounded ids, the true count beside them, and the
@@ -599,6 +699,10 @@ fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
         .iter()
         .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
         .expect("the newest parent is the first rendered row");
+    assert_eq!(
+        parent["type"], "row",
+        "the parent is a row record: {parent}"
+    );
     let ids = parent["child_sessions"]
         .as_array()
         .expect("child_sessions is an array");
@@ -639,21 +743,28 @@ fn one_row_with_five_thousand_children_still_returns_a_listing() {
     let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
     assert!(!err, "list_sessions succeeds: {text}");
     assert!(
-        !text.contains("--- [EOF-TRUNCATED] ---"),
-        "a 5,000-child row must not overflow the listing into the marker: {text}"
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "5,001 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
     );
-    let v: Value = serde_json::from_str(&text).expect("the listing response is whole, untorn JSON");
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
     assert!(
-        text.len() <= 16_384,
-        "the response fits the default budget, got {} bytes",
-        text.len()
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
     );
-    let parent = v["sessions"]
+    let parsed: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let parent = parsed
         .as_array()
-        .expect("rows under `sessions`")
+        .expect("the prefix is an array")
         .iter()
         .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
-        .expect("the parent is rendered");
+        .expect("the parent is rendered — the newest row leads the stream");
     assert_eq!(
         parent["child_session_count"].as_u64(),
         Some(5_000),
@@ -663,6 +774,12 @@ fn one_row_with_five_thousand_children_still_returns_a_listing() {
         parent["child_sessions"].as_array().map(Vec::len),
         Some(10),
         "the ids are bounded; the count is what tells the caller how much was held back"
+    );
+    let written = whole_listing(&text);
+    let file_lines = written.lines().count();
+    assert_eq!(
+        file_lines, 201,
+        "the file carries the meta plus the 200 rows the store query bounds (the window's 5,001 rows exceed the layer cap)"
     );
     reap(&mut mcp);
 }

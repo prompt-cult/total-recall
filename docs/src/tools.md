@@ -123,17 +123,31 @@ the skills-directory path and the env var.
 
 MCP: `hours_back` (a window in hours, `1` or more; `0` or omitted = the
 240-hour default), `directory` (substring), `all: true` (the whole store),
-`max_bytes` (the response budget, default 16,384). `window_count` is how many
-rows the window holds, `held_back` how many of them the response did not
-print, and `max_bytes` the budget that decided it.
+`max_bytes` (the response budget, default 16,384). A record stream: a bare
+compact JSON array whose element 0 is the meta record
+`{"type":"meta","tool":"list_sessions","window_count":N,"max_bytes":N}` —
+`window_count` is how many rows the window holds, `max_bytes` the budget
+that decided the cut — followed by one `type=row` record per listed
+session, most recent first:
+
+```json
+[{"type":"meta","tool":"list_sessions","window_count":250,"max_bytes":16384},
+ {"type":"row","session_id":"ses_…","title":"…","start_time":"…", …}]
+```
+
+When the budget cuts the stream, the fitting-prefix array is followed by the
+[EOF marker](#flood-control), whose `records_returned` / `records_total`
+state the cut: the rows the window holds but the response did not print are
+`window_count - records_returned`. The overflow file carries every row, one
+per line.
 
 CLI: `total-recall --harness <h> list [--json|--markdown] [--hours N]` —
 `--hours 0` (the default) is the unbounded full listing stream; `--hours N`
 with `N >= 1` is the scoped listing (at most the 200 most recent rows of the
 window, held-back count on stderr).
 
-Each entry: `session_id`, `title`, `start_time`, `end_time`, `file_size`,
-`line_count`, `user_count`, `assistant_count`, `tool_count`,
+Each row record: `session_id`, `title`, `start_time`, `end_time`,
+`file_size`, `line_count`, `user_count`, `assistant_count`, `tool_count`,
 `has_compaction`, `directory`, `parent_session_id`, `child_sessions`,
 `child_session_count`, `has_tantivy_index`, `aliases`, `alias_count`,
 `notice` and `read_error` when present.
@@ -165,11 +179,11 @@ index rather than the payload silently appearing empty.
 
 The listing is bounded the way the scope contract says: most recent rows
 first, at most the 200 the store query bounds and as many of those as
-`max_bytes` holds, with the held-back count stated. A default
-`list_sessions` returns rows, never the flood cap's overflow marker; when a
-single row is larger than the whole budget the response is handed to flood
-control whole, which writes it out and returns the marker — the escape hatch
-every other report has. The bound lives where the data lives — the OpenCode
+`max_bytes` holds, cut at a record boundary. A default `list_sessions`
+returns rows, never the flood cap's overflow marker; when a single row is
+larger than the whole budget the response is the meta record alone followed
+by the marker, and the overflow file carries every row as JSONL. The bound
+lives where the data lives — the OpenCode
 implementation pushes the window, the directory substring and the row cap
 into SQL, so
 aggregates are computed only for the listed rows (through the store's
