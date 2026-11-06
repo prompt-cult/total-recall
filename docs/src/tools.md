@@ -237,31 +237,33 @@ treated as corrupt and recomputed.
 
 ## Bounded output
 
-`extract_messages`, `extract_user_messages` and `extract_by_type` return a
-JSON envelope, never a bare array, so a large session can never exceed what an
-MCP client can hold:
+`extract_messages`, `extract_user_messages` and `extract_by_type` are record
+streams like every other record-shaped tool: a bare compact JSON array whose
+element 0 is the meta record carrying the paging inputs, followed by one
+record per extracted entry. The window (`offset`/`limit`) and the per-record
+clamp (`max_record_bytes`) are applied before the stream; the byte fit is
+flood control's — over `max_bytes` the fitting-prefix array is followed by the
+[EOF marker](#flood-control), whose `records_returned` / `records_total`
+state the cut, and the overflow file carries every record in the window, one
+per line. The old "even one record exceeds max_bytes" hard error is dead: a
+record that cannot fit the response returns via the file, never as an error.
 
 ```json
-{ "session_id": "…", "harness": "vibe", "full": false,
-  "bounds": { "total_records": 7525, "returned_records": 100, "offset": 7425,
-              "limit": 100, "next_offset": null, "truncated": true,
-              "truncation_reason": "record_limit", "max_bytes": 8388608,
-              "bytes": 153220, "clamped_record_indices": [],
-              "notice": "TRUNCATED: returned records 7425..7525 of 7525 …" },
-  "messages": [ … ] }
+[{"type":"meta","tool":"extract_messages","session_id":"…","harness":"vibe",
+  "full":false,
+  "bounds":{"total_records":7525,"offset":7425,"limit":100,
+            "max_bytes":8388608,"clamped_record_indices":[]}},
+ {"type":"message","role":"user","content":"…","injected":false, …}]
 ```
 
-
-Omit `offset` for the most recent `limit`; pass `offset` (from `0`) and follow
-`bounds.next_offset` to page the whole session in bounded chunks.
-`truncated` and `notice` always state when output was cut and why
-(`record_limit` / `byte_cap` / `record_clamp`, comma-joined). An empty result
-window — an empty session, or paging past the end — never signals truncation.
-The payload is emitted as compact JSON and bounding is computed on that same
-compact serialization, so the cap holds exactly. When even one record cannot
-fit under the budget, the tool emits a descriptive error instead of silently
-breaking the cap: raise `max_bytes`, or set `max_record_bytes` to enable the
-clamp.
+Omit `offset` for the most recent `limit`; page by passing `offset` (from
+`0`) and stepping by the records the response returned — the array's record
+count under the cap, the marker's `records_returned` over it. When that
+count is short of the window's `limit`, the cut reasons were `record_limit`
+(the window itself), `byte_cap` (the budget), or `record_clamp` (a record
+was clamped — its index is in `bounds.clamped_record_indices`). An empty
+result window — an empty session, or paging past the end — returns the meta
+record alone.
 
 ### `extract_messages`
 
@@ -273,8 +275,9 @@ CLI: `total-recall --harness <h> --session <id> extract [--full] [--limit N]
 
 `session_id`, plus `limit`, `offset`, `max_bytes`, `max_record_bytes`. There is
 no `full`: user messages are always derived from the whole rollout.
-Injected (synthetic) user records are skipped; the envelope is identical to
-`extract_messages` with `user_messages` in place of `messages`.
+Injected (synthetic) user records are skipped; the stream is identical to
+`extract_messages` with the meta record naming
+`tool: extract_user_messages`.
 
 CLI: `total-recall --harness <h> --session <id> user-messages`.
 

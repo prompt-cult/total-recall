@@ -939,7 +939,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: extract messages from a session as a bounded JSON envelope. Output is capped (default most-recent-100, 8 MiB ceiling); bounds carries next_offset to page large sessions and an explicit truncation notice."
+        description = "Total-recall MCP tool: extract messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_messages\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per message (clamped by max_record_bytes, its window-relative index in bounds.clamped_record_indices when clamped). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
     )]
     async fn extract_messages(
         &self,
@@ -969,27 +969,25 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
 
-        let json = match bounded_messages_envelope(
-            &session_id,
-            self.harness(),
-            params.full,
-            "messages",
-            messages,
-            limit,
-            offset,
-            max_bytes,
-            max_record_bytes,
-        ) {
-            Ok(json) => json,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        // Bounded extraction: the envelope is this tool's flood control
-        // (limit/max_bytes/max_record_bytes + truncation notices); no cap.
-        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        // Bounded extraction: the sink is this tool's flood control
+        // (limit/max_bytes/max_record_bytes); no cap on top.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            bounded_message_records(
+                "extract_messages",
+                &session_id,
+                self.harness(),
+                params.full,
+                messages,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
     }
 
     #[tool(
-        description = "Total-recall MCP tool: extract verbatim user messages from a session as a bounded JSON envelope. Output is capped (default most-recent-100, 8 MiB ceiling); bounds carries next_offset to page and an explicit truncation notice."
+        description = "Total-recall MCP tool: extract verbatim user messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_user_messages\",…,\"bounds\":{…}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per user message (injected synthetic records skipped; clamped by max_record_bytes). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
     )]
     async fn extract_user_messages(
         &self,
@@ -1025,22 +1023,20 @@ impl TotalRecallServer {
             .filter(|m| m.role == "user" && !m.injected)
             .collect();
 
-        let json = match bounded_messages_envelope(
-            &session_id,
-            self.harness(),
-            false,
-            "user_messages",
-            user,
-            limit,
-            offset,
-            max_bytes,
-            max_record_bytes,
-        ) {
-            Ok(json) => json,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        // Bounded extraction: the envelope is this tool's flood control.
-        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        // Bounded extraction: the sink is this tool's flood control.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            bounded_message_records(
+                "extract_user_messages",
+                &session_id,
+                self.harness(),
+                false,
+                user,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
     }
 
     #[tool(
@@ -2074,90 +2070,75 @@ fn read_window(
     }
 }
 
-/// Build a bounded JSON envelope around a window of messages. Selects the
-/// window (tail when `offset` is None, else an index range), clamps oversized
-/// records, fits as many as the byte budget allows, and emits a compact JSON
-/// object `{ session_id, harness, full, bounds, <records_key>: [...] }` whose
-/// serialized size never exceeds `max_bytes` (bounding is computed on the same
-/// compact serialization that is emitted, so pretty-printing cannot inflate
-/// the payload past the contract). Truncation is always signalled in
-/// `bounds.notice` / `bounds.truncated`. Errors when even one record cannot
-/// fit under the budget (fix: raise `max_bytes` or enable the clamp).
+/// Build the bounded record stream behind `extract_messages` and
+/// `extract_user_messages`. Selects the window (tail when `offset` is None,
+/// else an index range), clamps oversized records, then streams through the
+/// sink: the meta record carries the paging inputs (`bounds`: total_records,
+/// offset, limit, max_bytes, clamped_record_indices) and every data record is
+/// a `type=message` record. The byte fit is the sink's — over `max_bytes` the
+/// fitting-prefix array is followed by the EOF marker whose
+/// `records_returned`/`records_total` state the cut, and the `.jsonl` file
+/// carries every record in the window. The old "even one record exceeds
+/// max_bytes" hard error is dead: a record that cannot fit returns via the
+/// file, never as an error.
 #[allow(clippy::too_many_arguments)]
-fn bounded_messages_envelope(
+fn bounded_message_records(
+    tool: &str,
     session_id: &str,
     harness: &str,
     full: bool,
-    records_key: &str,
     messages: Vec<crate::RolloutMessage>,
     limit: usize,
     offset: Option<usize>,
     max_bytes: usize,
     max_record_bytes: usize,
-) -> Result<String, String> {
+) -> String {
     let total = messages.len();
     let (start, end) = crate::bound::window(total, offset, limit);
     let windowed = &messages[start..end];
 
     // Clamp oversized records; remember which (window-relative) indices.
     let mut clamped_indices = Vec::new();
-    let mut sized: Vec<crate::bound::SizedRecord> = Vec::with_capacity(windowed.len());
-    for (i, m) in windowed.iter().cloned().enumerate() {
-        let mut m = m;
+    let mut clamped = Vec::with_capacity(windowed.len());
+    for (i, mut m) in windowed.iter().cloned().enumerate() {
         if crate::bound::clamp_message(&mut m, max_record_bytes) {
             clamped_indices.push(i);
         }
-        let json = serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string());
-        let bytes = json.len();
-        sized.push(crate::bound::SizedRecord { json, bytes });
+        clamped.push(m);
     }
 
-    // Fit under the byte budget (reserving room for the envelope keys).
-    let budget = max_bytes.saturating_sub(crate::bound::ENVELOPE_RESERVE);
-    if sized
-        .first()
-        .is_some_and(|r| r.bytes.saturating_add(1) > budget)
-    {
-        return Err(format!(
-            "even one record ({}) exceeds max_bytes ({}) after the envelope reserve; raise max_bytes or set max_record_bytes to enable the clamp",
-            sized[0].bytes, max_bytes
-        ));
-    }
-    let fit = crate::bound::fit_count(&sized, budget);
-    // record_limit truncation: the requested window could not be satisfied in
-    // full — tail mode dropped leading records (start>0), or offset mode
-    // couldn't reach the end (end<total).
-    let record_limit_hit = start > 0 || end < total;
-    let byte_cap_hit = fit < sized.len();
-    let kept = &sized[..fit];
-    let bytes: usize = kept.iter().map(|r| r.bytes).sum();
-
-    let bounds = crate::bound::finalize_bounds(
-        total,
-        start,
-        limit,
-        fit,
-        record_limit_hit,
-        byte_cap_hit,
-        clamped_indices,
-        max_bytes,
-        bytes,
-    );
-
-    let records: Vec<serde_json::Value> = kept
-        .iter()
-        .map(|r| serde_json::from_str(&r.json).unwrap_or(serde_json::Value::Null))
-        .collect();
-
-    let mut envelope = serde_json::json!({
+    let mut sink = crate::jsonl_sink::JsonlSink::new(tool, session_id, max_bytes);
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": tool,
         "session_id": session_id,
         "harness": harness,
         "full": full,
-        "bounds": bounds,
-    });
-    envelope[records_key] = serde_json::Value::Array(records);
+        "bounds": {
+            "total_records": total,
+            "offset": start,
+            "limit": limit,
+            "max_bytes": max_bytes,
+            "clamped_record_indices": clamped_indices,
+        },
+    }));
+    for m in &clamped {
+        sink.push(&MessageRecord {
+            record_type: "message",
+            message: m,
+        });
+    }
+    sink.finish()
+}
 
-    Ok(serde_json::to_string(&envelope).unwrap_or_else(|_| "{}".to_string()))
+/// One message stream record: the message's own serde fields flattened under
+/// the record stream's `type` discriminator.
+#[derive(serde::Serialize)]
+struct MessageRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    message: &'a crate::RolloutMessage,
 }
 
 /// Assemble the `extract_by_type` line-format report. Line 1 is a `#`-prefixed

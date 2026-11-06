@@ -156,29 +156,31 @@ fn extract_messages_is_bounded_with_truncation_notice() {
         "payload under ceiling, got {}",
         text.len()
     );
-    let env: serde_json::Value = serde_json::from_str(&text).expect("envelope is valid JSON");
-    let bounds = env.get("bounds").expect("bounds present");
+    let array: serde_json::Value =
+        serde_json::from_str(&text).expect("the response is a bare record array");
+    let records = array.as_array().expect("an array");
+    let meta = &records[0];
+    assert_eq!(meta["type"], "meta", "record 0 is the meta: {meta}");
+    assert_eq!(meta["tool"], "extract_messages", "{meta}");
+    let bounds = meta
+        .get("bounds")
+        .expect("the meta carries the paging inputs");
     assert_eq!(
-        bounds.get("truncated").and_then(|v| v.as_bool()),
-        Some(true)
-    );
-    assert!(
-        !bounds
-            .get("notice")
-            .and_then(|n| n.as_str())
-            .unwrap_or("")
-            .is_empty(),
-        "notice non-empty"
+        bounds.get("total_records").and_then(|n| n.as_u64()),
+        Some(3000),
+        "the meta states the session's record count: {bounds}"
     );
     assert_eq!(
-        bounds.get("returned_records").and_then(|n| n.as_u64()),
+        bounds.get("limit").and_then(|n| n.as_u64()),
         Some(100),
         "default limit 100"
     );
-    assert!(
-        env.get("messages").and_then(|m| m.as_array()).is_some(),
-        "messages array present"
-    );
+    assert!(bounds.get("clamped_record_indices").is_some(), "{bounds}");
+    let messages = &records[1..];
+    assert_eq!(messages.len(), 100, "the default window is 100 records");
+    for record in messages {
+        assert_eq!(record["type"], "message", "{record}");
+    }
     reap_mcp(&mut child, &cwd);
 }
 
@@ -189,7 +191,8 @@ fn extract_messages_next_offset_pages_through_session() {
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
 
-    // Page 1: offset 0, limit 100
+    // Page 1: offset 0, limit 100. The next offset is derived from what the
+    // response returned: offset + record count.
     let p1 = call_tool(
         &mut reader,
         &mut stdin,
@@ -199,14 +202,15 @@ fn extract_messages_next_offset_pages_through_session() {
             "session_id": "51a9645a", "full": true, "offset": 0, "limit": 100
         }),
     );
-    let b1: serde_json::Value = serde_json::from_str(&result_text(&p1)).unwrap();
-    let next = b1
-        .pointer("/bounds/next_offset")
-        .and_then(|n| n.as_u64())
-        .expect("next_offset");
+    let a1: serde_json::Value = serde_json::from_str(&result_text(&p1)).unwrap();
+    let records1 = a1.as_array().unwrap();
+    assert_eq!(records1[0]["bounds"]["offset"], 0, "{records1:?}");
+    assert_eq!(records1[0]["bounds"]["total_records"], 250, "{records1:?}");
+    assert_eq!(records1.len() - 1, 100, "the page returns limit records");
+    let next = records1.len() - 1;
     assert_eq!(next, 100);
 
-    // Page 2: follow next_offset
+    // Page 2: follow the derived offset.
     let p2 = call_tool(
         &mut reader,
         &mut stdin,
@@ -216,31 +220,15 @@ fn extract_messages_next_offset_pages_through_session() {
             "session_id": "51a9645a", "full": true, "offset": next, "limit": 100
         }),
     );
-    let b2: serde_json::Value = serde_json::from_str(&result_text(&p2)).unwrap();
-    assert_eq!(
-        b2.pointer("/bounds/offset").and_then(|n| n.as_u64()),
-        Some(100)
-    );
-    assert_eq!(
-        b2.pointer("/bounds/next_offset").and_then(|n| n.as_u64()),
-        Some(200)
-    );
+    let a2: serde_json::Value = serde_json::from_str(&result_text(&p2)).unwrap();
+    let records2 = a2.as_array().unwrap();
+    assert_eq!(records2[0]["bounds"]["offset"].as_u64(), Some(100));
 
     // Distinct pages, no overlap
-    let m1: std::collections::HashSet<String> = b1
-        .pointer("/messages")
-        .and_then(|m| m.as_array())
-        .unwrap()
-        .iter()
-        .map(|m| m.to_string())
-        .collect();
-    let m2: std::collections::HashSet<String> = b2
-        .pointer("/messages")
-        .and_then(|m| m.as_array())
-        .unwrap()
-        .iter()
-        .map(|m| m.to_string())
-        .collect();
+    let m1: std::collections::HashSet<String> =
+        records1[1..].iter().map(|m| m.to_string()).collect();
+    let m2: std::collections::HashSet<String> =
+        records2[1..].iter().map(|m| m.to_string()).collect();
     assert!(m1.is_disjoint(&m2), "pages must not overlap");
     reap_mcp(&mut child, &cwd);
 }
@@ -263,17 +251,26 @@ fn extract_user_messages_is_bounded() {
     );
     let text = result_text(&resp);
     assert!(text.len() <= 8 * 1024 * 1024, "user_messages under ceiling");
-    let env: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let array: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let records = array.as_array().unwrap();
     assert_eq!(
-        env.pointer("/bounds/truncated").and_then(|v| v.as_bool()),
-        Some(true)
+        records[0]["tool"].as_str(),
+        Some("extract_user_messages"),
+        "the meta names the tool: {records:?}"
     );
-    assert!(
-        env.get("user_messages")
-            .and_then(|m| m.as_array())
-            .is_some(),
-        "user_messages key present"
+    assert_eq!(
+        records[0]["bounds"]["total_records"].as_u64(),
+        Some(2000),
+        "every fixture record is a user record: {records:?}"
     );
+    for record in &records[1..] {
+        assert_eq!(record["type"], "message", "{record}");
+        assert_eq!(record["role"], "user", "user messages only: {record}");
+        assert_eq!(
+            record["injected"], false,
+            "injected records are skipped: {record}"
+        );
+    }
     reap_mcp(&mut child, &cwd);
 }
 
@@ -303,8 +300,9 @@ fn extract_messages_rejects_excessive_limit() {
 #[test]
 fn extract_messages_small_max_bytes_drives_byte_cap() {
     let root = scratch("bytecap");
-    // 3000 * ~2KB = 6MB; window default 100 records ~200KB; budget 50KB-8KB
-    // forces byte_cap truncation well inside the window.
+    // 3000 * ~2KB = 6MB; window default 100 records ~200KB; budget 50KB
+    // forces the byte cap inside the window: the fitting-prefix array plus
+    // the marker return, and the overflow file carries the whole window.
     make_big_session(&root, "session_20260915_095955_51a9645a", 3000, 2000);
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
     init(&mut reader, &mut stdin);
@@ -322,29 +320,52 @@ fn extract_messages_small_max_bytes_drives_byte_cap() {
         "not a tool error: {resp}"
     );
     let text = result_text(&resp);
-    let env: serde_json::Value = serde_json::from_str(&text).expect("envelope is valid JSON");
-    let b = env.get("bounds").unwrap();
-    assert_eq!(b.get("truncated").and_then(|v| v.as_bool()), Some(true));
-    // Both flags are legitimately true: the default limit-100 window cuts the
-    // 3000-record session, and the 50KB byte cap cuts inside that window.
     assert!(
-        b.get("truncation_reason")
-            .and_then(|v| v.as_str())
-            .unwrap()
-            .contains("byte_cap"),
-        "reason: {b}"
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "the byte cap overflows into the marker: {text}"
+    );
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    assert!(
+        head.len() <= 50000,
+        "the array prefix respects max_bytes, got {}",
+        head.len()
+    );
+    let array: serde_json::Value =
+        serde_json::from_str(&head).expect("the prefix parses — never torn");
+    let records = array.as_array().unwrap();
+    assert_eq!(records[0]["type"], "meta", "{records:?}");
+    let returned = records.len() - 1;
+    assert!(
+        returned < 100,
+        "byte cap cuts inside the window: {returned} records"
     );
     assert!(
-        b.get("returned_records").and_then(|n| n.as_u64()).unwrap() < 100,
-        "byte cap cuts inside the window"
+        text.contains("records_returned: ") && text.contains("records_total: 100"),
+        "the marker states the cut against the window: {text}"
     );
-    // Compact emission: bounding is computed on the same serialization that is
-    // emitted, so the contract holds exactly.
-    assert!(
-        text.len() <= 50000,
-        "envelope must respect max_bytes exactly, got {}",
-        text.len()
+    let path = text
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .unwrap()
+        .trim_start_matches("full_report: ")
+        .trim()
+        .to_string();
+    let written = std::fs::read_to_string(&path).unwrap();
+    let file_lines = written.lines().count();
+    assert_eq!(
+        file_lines, 101,
+        "the file carries the meta plus every record in the window"
     );
+    for line in written.lines() {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
     reap_mcp(&mut child, &cwd);
 }
 
@@ -364,26 +385,26 @@ fn extract_messages_offset_past_end_is_not_truncated() {
         }),
     );
     let text = result_text(&resp);
-    let env: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let b = env.get("bounds").unwrap();
+    let array: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let records = array.as_array().unwrap();
     assert_eq!(
-        b.get("truncated").and_then(|v| v.as_bool()),
-        Some(false),
-        "nothing cut: {b}"
+        records.len(),
+        1,
+        "an empty window is the meta record alone: {records:?}"
     );
-    assert_eq!(b.get("returned_records").and_then(|n| n.as_u64()), Some(0));
-    assert_eq!(
-        b.get("notice").and_then(|n| n.as_str()).unwrap_or("x"),
-        "",
-        "notice empty"
+    assert_eq!(records[0]["bounds"]["total_records"], 50, "{records:?}");
+    assert!(
+        !text.contains("EOF-TRUNCATED"),
+        "nothing was cut, no marker: {text}"
     );
     reap_mcp(&mut child, &cwd);
 }
 
 #[test]
-fn extract_messages_tiny_max_bytes_is_a_tool_error() {
-    // Even one record cannot fit under the budget: a descriptive tool error
-    // instead of silently breaking the cap.
+fn extract_messages_tiny_max_bytes_overflows_to_the_file() {
+    // The "even one record exceeds max_bytes" hard error is DEAD: the meta
+    // plus the marker return, and the file carries every record — the fix a
+    // caller used to be told to make by hand is now automatic.
     let root = scratch("tinycap");
     make_big_session(&root, "session_20260915_095955_51a9645a", 10, 500);
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
@@ -399,16 +420,32 @@ fn extract_messages_tiny_max_bytes_is_a_tool_error() {
     );
     assert_eq!(
         resp.pointer("/result/isError").and_then(|v| v.as_bool()),
-        Some(true)
+        Some(false),
+        "an overflowing extraction is NOT a tool error anymore: {resp}"
     );
     let text = result_text(&resp);
     assert!(
-        text.contains("even one record"),
-        "error names the fix: {text}"
+        text.contains("EOF-TRUNCATED") && text.contains("full_report"),
+        "the marker names the overflow file: {text}"
     );
-    assert!(
-        text.contains("max_record_bytes"),
-        "error names the clamp: {text}"
+    let path = text
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .unwrap()
+        .trim_start_matches("full_report: ")
+        .trim()
+        .to_string();
+    let written = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = written.lines().collect();
+    assert_eq!(
+        lines.len(),
+        11,
+        "the file carries the meta plus all 10 records the response could not"
     );
+    for line in &lines {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
     reap_mcp(&mut child, &cwd);
 }
