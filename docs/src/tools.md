@@ -180,14 +180,23 @@ the store holds.
 
 ### `profile_session`
 
-
 CLI: `total-recall --harness <h> --session <id> profile [--no-cache]`.
 
-Returns `session_id`, `file_size`, `line_count`, `first_ts`, `last_ts`,
-`role_counts`, `has_tantivy_index` and `interesting_events`. An interesting
-event carries `line_number`, `gap_lines`, `event_type` and `summary`;
-`event_type` is one of `Compaction`, `TodoCreate`, `TodoUpdate`, `TodoDelete`,
-`GitCommit`, `GitPush`, `GitTag`, `UserMessage`.
+A record stream: a bare compact JSON array whose element 0 is the meta
+record carrying the scalar profile fields, followed by one `type=event`
+record per interesting event:
+
+```json
+[{"type":"meta","tool":"profile_session","session_id":"ses_…","harness":"…",
+  "file_size":613026,"line_count":47,"first_ts":"…","last_ts":"…",
+  "role_counts":{"user":1,"assistant":13},"has_tantivy_index":false},
+ {"type":"event","line_number":4,"event_type":"UserMessage",
+  "summary":"…","gap_lines":4}]
+```
+
+An interesting event carries `line_number`, `gap_lines`, `event_type` and
+`summary`; `event_type` is one of `Compaction`, `TodoCreate`, `TodoUpdate`,
+`TodoDelete`, `GitCommit`, `GitPush`, `GitTag`, `UserMessage`.
 
 #### The profile cache
 

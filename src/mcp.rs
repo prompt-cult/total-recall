@@ -870,7 +870,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: profile a session — file size, line count, role counts, interesting events"
+        description = "Total-recall MCP tool: profile a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"profile_session\",\"session_id\":\"…\",\"harness\":\"…\",\"file_size\":N,\"line_count\":N,\"first_ts\":\"…\",\"last_ts\":\"…\",\"role_counts\":{…},\"has_tantivy_index\":bool}, followed by one {\"type\":\"event\",\"line_number\":N,\"event_type\":\"…\",\"summary\":\"…\",\"gap_lines\":N} record per interesting event (Compaction, TodoCreate, TodoUpdate, TodoDelete, GitCommit, GitPush, GitTag, UserMessage)."
     )]
     async fn profile_session(
         &self,
@@ -889,14 +889,9 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
         profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
-        let json = serde_json::to_string_pretty(&profile)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(capped_text(
-            "profile_session",
-            &session_id,
-            json,
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            profile_report(self.harness(), &profile),
+        )]))
     }
 
     #[tool(
@@ -1971,6 +1966,51 @@ pub(crate) fn cache_status_report(
         sink.push(&BlockRecord {
             record_type: "block",
             block,
+        });
+    }
+    sink.finish()
+}
+
+/// One profile event record: the interesting-event's own serde fields
+/// (line_number, event_type, summary, gap_lines) flattened under the record
+/// stream's `type` discriminator.
+#[derive(serde::Serialize)]
+struct EventRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    event: &'a crate::rollout::InterestingEvent,
+}
+
+/// The `profile_session` record stream: record 0 is the meta record carrying
+/// the scalar profile fields (file size, line count, the first/last
+/// timestamps, the role counts, the index flag), every data record is one
+/// interesting event. The same records stream as pure JSONL to the overflow
+/// file — over `max_bytes` the fitting-prefix array is followed by the EOF
+/// marker naming that file; under the cap the bare array alone is returned
+/// and nothing is retained.
+fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> String {
+    let mut sink = crate::jsonl_sink::JsonlSink::new(
+        "profile_session",
+        &profile.session_id,
+        crate::report_cap::DEFAULT_MAX_BYTES,
+    );
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "profile_session",
+        "session_id": profile.session_id,
+        "harness": harness,
+        "file_size": profile.file_size,
+        "line_count": profile.line_count,
+        "first_ts": profile.first_ts,
+        "last_ts": profile.last_ts,
+        "role_counts": profile.role_counts,
+        "has_tantivy_index": profile.has_tantivy_index,
+    }));
+    for event in &profile.interesting_events {
+        sink.push(&EventRecord {
+            record_type: "event",
+            event,
         });
     }
     sink.finish()
