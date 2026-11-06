@@ -239,6 +239,12 @@ async fn retry_after_zero_retries_without_waiting() {
     .await;
     let p = mock_provider(mock.url.clone());
 
+    // The bound is the exponential fallback's floor, not a tight wall-clock
+    // guess: honouring Retry-After: 0 sleeps nothing, while the fallback for
+    // two retries would sleep 1s + 2s = 3s. Three localhost round-trips cost
+    // milliseconds alone; under full-suite load they can exceed any tight
+    // bound (this test flaked at <1s twice), but only a REAL fallback sleep
+    // can push the elapsed past 3s — the load-robust form of the same pin.
     let t0 = Instant::now();
     let out = p.compact("system", "hello").await.expect("must succeed");
     let elapsed = t0.elapsed();
@@ -247,8 +253,8 @@ async fn retry_after_zero_retries_without_waiting() {
     // Retry-After: 0 is a server instruction to come back immediately; it
     // must override the exponential fallback (which would be 1s + 2s here).
     assert!(
-        elapsed < Duration::from_secs(1),
-        "Retry-After: 0 must not sleep, got {elapsed:?}"
+        elapsed < Duration::from_secs(3),
+        "Retry-After: 0 must not sleep the fallback (1s + 2s), got {elapsed:?}"
     );
 }
 
