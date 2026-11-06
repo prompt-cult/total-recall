@@ -256,20 +256,102 @@ fn all_true_reaches_the_whole_store_and_the_default_window_does_not() {
     reap(&mut mcp);
 }
 
+/// index_sessions' new-world record-stream contract: the response is a bare
+/// compact JSON array — element 0 is the meta record naming the tool, the
+/// scope and the selected count, every later element is an `indexed` record
+/// carrying `session_id` and `doc_count`, and the old
+/// "indexed <id> docs=<n>" prose line is dead. The default window still is
+/// the last day — the epoch-old session is outside it, and whole-store
+/// indexing remains the explicit `all: true` opt-in. Written RED.
 #[test]
-fn index_default_is_the_last_day_not_the_whole_store() {
+fn index_sessions_returns_the_bare_indexed_record_array() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = mcp.call("index_sessions", serde_json::json!({}));
     assert!(!err, "the natural index call succeeds: {text}");
     assert!(
-        !text.contains("indexed ses_old"),
+        !text.contains("docs="),
+        "the 'indexed <id> docs=<n>' prose line is gone: {text}"
+    );
+    let value: Value = serde_json::from_str(&text)
+        .expect("the response parses as a bare compact JSON array, no prose");
+    let array = value
+        .as_array()
+        .expect("the response is a record array, not joined prose lines");
+    let meta = array.first().expect("the meta record always leads");
+    assert_eq!(
+        meta["type"], "meta",
+        "element 0 carries the type discriminator: {meta}"
+    );
+    assert_eq!(
+        meta["tool"], "index_sessions",
+        "element 0 names the tool: {meta}"
+    );
+    assert_eq!(
+        meta["scope"], "all",
+        "an empty session_id is the unscoped 'all' scope: {meta}"
+    );
+    assert!(
+        meta["selected"].is_u64(),
+        "the meta record carries the selected count: {meta}"
+    );
+    for record in array[1..].iter() {
+        assert_eq!(
+            record["type"], "indexed",
+            "every data record is an indexed event: {record}"
+        );
+        assert!(
+            record["session_id"].is_string(),
+            "an indexed record names its session: {record}"
+        );
+        assert!(
+            record["doc_count"].is_u64(),
+            "an indexed record carries its document count: {record}"
+        );
+    }
+    assert_eq!(
+        meta["selected"].as_u64().unwrap_or(0) as usize,
+        array.len() - 1,
+        "the meta record's selected count matches the data records"
+    );
+    let ids: Vec<&str> = array[1..]
+        .iter()
+        .filter_map(|r| r["session_id"].as_str())
+        .collect();
+    assert!(
+        !ids.iter().any(|id| id.contains("ses_old")),
         "the default window is 24 hours, not the whole store: {text}"
     );
     let (err, text) = mcp.call("index_sessions", serde_json::json!({"all": true}));
     assert!(!err, "all: true indexing succeeds: {text}");
+    let value: Value = serde_json::from_str(&text).expect("all: true returns the array too");
+    let ids: Vec<&str> = value
+        .as_array()
+        .expect("the whole array shape holds on all: true")
+        .iter()
+        .skip(1)
+        .filter_map(|r| r["session_id"].as_str())
+        .collect();
     assert!(
-        text.contains("indexed ses_old"),
+        ids.iter().any(|id| id.contains("ses_old")),
         "whole-store indexing is the explicit opt-in: {text}"
+    );
+    let (err, text) = mcp.call(
+        "index_sessions",
+        serde_json::json!({"session_id": "ses_alpha"}),
+    );
+    assert!(!err, "a scoped index call succeeds: {text}");
+    let value: Value = serde_json::from_str(&text).expect("a scoped call returns the array too");
+    let array = value.as_array().expect("the array shape holds when scoped");
+    assert_eq!(
+        array[0]["scope"], "ses_alpha",
+        "the meta record names the requested scope: {array:?}"
+    );
+    assert!(
+        array[1..].iter().all(|r| r["session_id"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("ses_alpha")),
+        "the records cover only the requested scope: {array:?}"
     );
     reap(&mut mcp);
 }

@@ -430,8 +430,15 @@ Each session gets `<shadow root>/<session_id>/`, plus a
 `built_at`. Re-indexing a session replaces its index from scratch — the
 folder is disposable, can be deleted at any time, and MUST NOT be committed.
 
-MCP: `hours_back` defaults to 24 — the natural call indexes the last day,
-not the whole store; `all: true` is the explicit whole-store opt-in.
+MCP: the response is a JSONL record stream — a bare compact JSON array whose
+element 0 is the meta record
+`{"type":"meta","tool":"index_sessions","scope":"…","selected":N}` (`scope` is
+the requested session id, or `"all"` when unscoped), followed by one
+`{"type":"indexed","session_id":"…","doc_count":N}` record per indexed
+session. Unmatched session ids and a failed index return a tool error; they
+never enter the stream. `hours_back` defaults to 24 — the natural call indexes
+the last day, not the whole store; `all: true` is the explicit whole-store
+opt-in.
 
 CLI: `total-recall --harness <h> index [--sessions <id>…] [--hours 24]
 [--directory <substr>]`. `list` and `profile` carry the index presence flag

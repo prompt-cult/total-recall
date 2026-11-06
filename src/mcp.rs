@@ -741,7 +741,7 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 24 = the last day; directory; or all: true)."
+        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"index_sessions\",\"scope\":\"…\",\"selected\":N} and each later element is a record {\"type\":\"indexed\",\"session_id\":\"…\",\"doc_count\":N}; unresolved session ids and a failed index return a tool error and never enter the stream. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 24 = the last day; directory; or all: true)."
     )]
     async fn index_sessions(
         &self,
@@ -774,24 +774,42 @@ impl TotalRecallServer {
                 unmatched.join(", ")
             ))]));
         }
-        let mut lines = Vec::new();
+        // The record stream: the meta record carries the tool, the scope
+        // (the requested session id, or `all` when unscoped) and the
+        // selected count, each data record reports one indexed session —
+        // errors never touch the sink. On overflow the array prefix is
+        // followed by the EOF marker naming the streamed `.jsonl` file.
+        let scope = if params.session_id.is_empty() {
+            "all"
+        } else {
+            params.session_id.as_str()
+        };
+        let mut sink = crate::jsonl_sink::JsonlSink::new(
+            "index_sessions",
+            scope,
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        );
+        sink.push_meta(&serde_json::json!({
+            "type": "meta",
+            "tool": "index_sessions",
+            "scope": scope,
+            "selected": selected.len(),
+        }));
         for summary in &selected {
             match crate::index::index_session(adapter.as_ref(), &summary.session_id) {
-                Ok(stats) => lines.push(format!(
-                    "indexed {} docs={}",
-                    stats.session_id, stats.doc_count
-                )),
+                Ok(stats) => sink.push(&serde_json::json!({
+                    "type": "indexed",
+                    "session_id": stats.session_id,
+                    "doc_count": stats.doc_count,
+                })),
                 Err(e) => {
                     return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
                 }
             }
         }
-        Ok(capped_text(
-            "index_sessions",
-            &params.session_id,
-            lines.join("\n"),
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
 
     #[tool(
