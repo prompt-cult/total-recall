@@ -712,6 +712,48 @@ pub fn build_compaction_footer(full_messages: &[RolloutMessage], markers: &[usiz
 /// authoritative record first; the warning is appended last because the
 /// final tokens have the strongest influence on what the model does next.
 #[allow(clippy::too_many_arguments)]
+/// The named sections of the prior-period orientation, in the deliberate
+/// ordering for autoregressive LLMs (metadata first, ground truth next, LLM
+/// summaries middle, action last). The names are what the MCP layer streams
+/// as `type=section` records; `build_prior_period_output` renders the same
+/// sections as the composed CLI string.
+pub fn prior_period_sections(
+    state_summary: &str,
+    goals_summary: &str,
+    rollouts_table: &str,
+    plan_files: &str,
+    todo_log: &str,
+    commits: &str,
+    compaction_footer: &str,
+) -> Vec<(String, String)> {
+    vec![
+        // 1. Metadata: recent rollouts (sets the scene)
+        ("recent_rollouts".to_string(), rollouts_table.to_string()),
+        // 2. Metadata: plan/todo files (anchors current plan)
+        ("plan_files".to_string(), plan_files.to_string()),
+        // 3. Ground truth: the period's todo log
+        ("todo_log".to_string(), todo_log.to_string()),
+        // 4. Ground truth: the period's commits
+        ("commits".to_string(), commits.to_string()),
+        // 5. Substance: current state (what just happened)
+        ("state_summary".to_string(), state_summary.to_string()),
+        // 6. Substance: user goals/tasks/steers (steering signal)
+        ("goals_summary".to_string(), goals_summary.to_string()),
+        // 7. Metadata: compaction points (the period's boundaries)
+        (
+            "compaction_footer".to_string(),
+            compaction_footer.to_string(),
+        ),
+        // 8. Call to action (last, strongest influence on next token)
+        ("instructions".to_string(), INSTRUCTIONS.to_string()),
+        // 9. The fixed orientation warning, appended to every output
+        (
+            "orientation_warning".to_string(),
+            ORIENTATION_WARNING.to_string(),
+        ),
+    ]
+}
+
 pub fn build_prior_period_output(
     state_summary: &str,
     goals_summary: &str,
@@ -721,38 +763,21 @@ pub fn build_prior_period_output(
     commits: &str,
     compaction_footer: &str,
 ) -> String {
-    let sections = vec![
-        // 1. Metadata: recent rollouts (sets the scene)
-        rollouts_table.to_string(),
-        String::new(),
-        // 2. Metadata: plan/todo files (anchors current plan)
-        plan_files.to_string(),
-        String::new(),
-        // 3. Ground truth: the period's todo log
-        todo_log.to_string(),
-        String::new(),
-        // 4. Ground truth: the period's commits
-        commits.to_string(),
-        String::new(),
-        // 5. Substance: current state (what just happened)
-        "## Current State".to_string(),
-        String::new(),
-        state_summary.to_string(),
-        String::new(),
-        // 6. Substance: user goals/tasks/steers (steering signal)
-        "## User Goals, Tasks, and Steers".to_string(),
-        String::new(),
-        goals_summary.to_string(),
-        String::new(),
-        // 7. Metadata: compaction points (the period's boundaries)
-        compaction_footer.to_string(),
-        String::new(),
-        // 8. Call to action (last, strongest influence on next token)
-        INSTRUCTIONS.to_string(),
-        String::new(),
-        // 9. The fixed orientation warning, appended to every output
-        ORIENTATION_WARNING.to_string(),
-    ];
-
-    sections.join("\n")
+    prior_period_sections(
+        state_summary,
+        goals_summary,
+        rollouts_table,
+        plan_files,
+        todo_log,
+        commits,
+        compaction_footer,
+    )
+    .iter()
+    .map(|(name, text)| match name.as_str() {
+        "state_summary" => format!("## Current State\n\n{text}"),
+        "goals_summary" => format!("## User Goals, Tasks, and Steers\n\n{text}"),
+        _ => text.clone(),
+    })
+    .collect::<Vec<String>>()
+    .join("\n\n")
 }

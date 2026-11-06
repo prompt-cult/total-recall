@@ -17,9 +17,9 @@ use crate::{
     recall::{
         CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
         STATE_SYSTEM_PROMPT, build_commits_section, build_compaction_footer,
-        build_goals_prompt_bounded, build_plan_files_section, build_prior_period_output,
-        build_recent_rollouts_table, build_state_prompt_bounded, build_todo_log_section,
-        build_todo_log_unavailable, recent_steers,
+        build_goals_prompt_bounded, build_plan_files_section, build_recent_rollouts_table,
+        build_state_prompt_bounded, build_todo_log_section, build_todo_log_unavailable,
+        prior_period_sections, recent_steers,
     },
 };
 
@@ -1428,7 +1428,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "prior_period_summary",
-        description = "Total-recall MCP tool: an orientation summary of a prior period of work. The period is the work since the session's last compaction boundary — the work after that boundary; a session with no compaction points has no earlier period, so the summary covers the whole session up to now. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls."
+        description = "Total-recall MCP tool: an orientation summary of a prior period of work as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"prior_period_summary\",\"session_id\":\"…\",…the timing map…} carrying the session, the hours_back window and the timing fields (total_time_s, the message/user counts, the todo opens/closes/events/writes/baseline, commits_in_period, the recent-session and rollout-table counts, and what the prompt byte budgets dropped), followed by one {\"type\":\"section\",\"name\":\"…\",\"text\":\"…\"} record per composed section in the deliberate order: recent_rollouts, plan_files, todo_log, commits, state_summary, goals_summary, compaction_footer, instructions, orientation_warning. The period is the work since the session's last compaction boundary — the work after that boundary; a session with no compaction points has no earlier period, so the summary covers the whole session up to now. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every section, one per line."
     )]
     async fn prior_period_summary(
         &self,
@@ -1585,8 +1585,10 @@ impl TotalRecallServer {
             .filter(|tc| tc.contains("git commit"))
             .count();
 
-        // Assemble output
-        let output = build_prior_period_output(
+        // Assemble the record stream: the timing map is the meta record (the
+        // `<!-- timing -->` comment is dead), the composition's sections are
+        // `type=section` records in the deliberate order.
+        let sections = prior_period_sections(
             &state_summary,
             &goals_summary,
             &rollouts_table,
@@ -1596,9 +1598,8 @@ impl TotalRecallServer {
             &compaction_footer,
         );
 
-        // Log timing info as JSON prefix (for debugging), carrying what the
-        // prompt byte budgets dropped so a bounded prompt is never silent.
         let mut timing = serde_json::Map::from_iter([
+            ("hours_back".to_string(), serde_json::json!(hours)),
             (
                 "total_time_s".to_string(),
                 serde_json::json!(total_time.as_secs_f64()),
@@ -1637,15 +1638,30 @@ impl TotalRecallServer {
             ),
         ]);
         timing.extend(prompt_stats);
-        let timing_str = serde_json::to_string_pretty(&serde_json::Value::Object(timing))
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        Ok(capped_text(
-            "prior_period_summary",
-            &session_id,
-            format!("<!-- {} -->\n\n{}", timing_str, output),
-            max_bytes,
-        ))
+        let mut sink =
+            crate::jsonl_sink::JsonlSink::new("prior_period_summary", &session_id, max_bytes);
+        let mut meta = serde_json::Map::new();
+        meta.insert("type".to_string(), serde_json::json!("meta"));
+        meta.insert(
+            "tool".to_string(),
+            serde_json::json!("prior_period_summary"),
+        );
+        meta.insert("session_id".to_string(), serde_json::json!(session_id));
+        for (key, value) in timing {
+            meta.insert(key, value);
+        }
+        sink.push_meta(&serde_json::Value::Object(meta));
+        for (name, text) in &sections {
+            sink.push(&SectionRecord {
+                record_type: "section",
+                name,
+                text,
+            });
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
 
     #[tool(

@@ -68,6 +68,36 @@ fn the_orientation_warning_is_appended_last_to_every_output() {
     );
 }
 
+/// The record-stream contract: the composition is NAMED sections in the
+/// deliberate order — the names the MCP layer streams as `type=section`
+/// records, the warning last. Written RED (the fn is new).
+#[test]
+fn prior_period_sections_carry_the_deliberate_order_as_named_records() {
+    let sections = total_recall::recall::prior_period_sections(
+        "STATE", "GOALS", "ROLLOUTS", "PLANS", "TODOLOG", "COMMITS", "FOOTER",
+    );
+    let names: Vec<&str> = sections.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec![
+            "recent_rollouts",
+            "plan_files",
+            "todo_log",
+            "commits",
+            "state_summary",
+            "goals_summary",
+            "compaction_footer",
+            "instructions",
+            "orientation_warning",
+        ],
+        "the section order is the deliberate one: {names:?}"
+    );
+    assert_eq!(sections[0].1, "ROLLOUTS");
+    assert_eq!(sections[4].1, "STATE");
+    assert_eq!(sections[5].1, "GOALS");
+    assert_eq!(sections[8].1, ORIENTATION_WARNING);
+}
+
 #[test]
 fn the_orientation_warning_is_there_even_when_every_section_is_empty() {
     let output = build_prior_period_output("", "", "", "", "", "", "");

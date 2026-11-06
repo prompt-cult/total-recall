@@ -611,30 +611,38 @@ An orientation summary of a prior period of work. The period is the work
 boundary. A session with no compaction points has no earlier period, so the
 summary covers the whole session up to now.
 
-The output carries, in deliberate ordering for autoregressive LLMs (metadata
-first, ground truth next, LLM summaries middle, action last):
+The response is a record stream: a bare compact JSON array whose element 0
+is the meta record carrying the session, the window and the timing map
+(`total_time_s`, the message/user counts, the todo opens/closes/events/
+writes/baseline, `commits_in_period`, the recent-session and rollout-table
+counts, and what the prompt byte budgets dropped) — the `<!-- timing -->`
+comment is dead. The sections follow as `type=section` records, in the
+deliberate ordering for autoregressive LLMs (metadata first, ground truth
+next, LLM summaries middle, action last):
 
-1. Recent rollouts within `hours_back`, with the current session marked
-   SUMMARISED
-2. Plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
-3. The **todo log** of the period (opencode): items opened and closed with
-   timings, the state-change history (opened → in_progress →
-   completed/cancelled transitions), and a **churn note** when items open
-   faster than they close — starting new things without finishing old ones
-   may be causing churn — with the human's recent steers read into it. On a
-   harness without readable todowrite flushes the section says so instead of
-   failing or silently reading as "no todos".
-4. The **commits made in the period**: the git commit tool calls with their
-   timestamps.
-5. The current-state summary and the user's goals / tasks / steers (two
-   parallel Mercury 3 calls).
-6. A **compaction-points FYI footer**: the timestamps of the last few
-   compaction points with the message and line counts since each — FYI only;
-   mine the logs for anything deeper.
-7. The instructions, then a fixed **orientation warning** appended to every
+1. `recent_rollouts` — recent rollouts within `hours_back`, with the current
+   session marked SUMMARISED
+2. `plan_files` — plan/todo files from `.tmp/delegation/` and
+   `~/.vibe/plans/`
+3. `todo_log` — the **todo log** of the period (opencode): items opened and
+   closed with timings, the state-change history, and a **churn note** when
+   items open faster than they close — with the human's recent steers read
+   into it. On a harness without readable todowrite flushes the section says
+   so instead of failing or silently reading as "no todos".
+4. `commits` — the **commits made in the period**: the git commit tool calls
+   with their timestamps.
+5. `state_summary` and `goals_summary` — the current-state summary and the
+   user's goals / tasks / steers (two parallel Mercury 3 calls).
+6. `compaction_footer` — the **compaction-points FYI footer**: the
+   timestamps of the last few compaction points with the message and line
+   counts since each — FYI only; mine the logs for anything deeper.
+7. `instructions`, then a fixed `orientation_warning` appended to every
    output: summarising in-flight work in more detail is a fool's errand and
    a moral hazard — the model would trust the summary and not double-check —
    so the warning makes re-orientation the model's job.
+
+Over `max_bytes` the fitting-prefix array is followed by the EOF marker; the
+overflow file carries every section, one per line.
 
 CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider mistral]`.
 
