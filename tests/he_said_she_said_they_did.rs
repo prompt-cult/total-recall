@@ -270,6 +270,36 @@ fn call_he_said(mcp: &mut Mcp, args: Value) -> (bool, String) {
     mcp.call("he_said_she_said_they_did", args)
 }
 
+/// The whole record stream, whether it fit under the flood cap or overflowed
+/// into the marker's file.
+fn whole_stream(text: &str) -> String {
+    if let Some(line) = text.lines().find(|l| l.starts_with("full_report: ")) {
+        let path = line.trim_start_matches("full_report: ").trim();
+        std::fs::read_to_string(path).expect("readable overflow file")
+    } else {
+        text.to_string()
+    }
+}
+
+/// The record stream, parsed: the response is a bare compact JSON array —
+/// never torn — whose element 0 is the `type=meta` record. Returns
+/// (meta, data records).
+fn parsed_stream(text: &str) -> (Value, Vec<Value>) {
+    let value: Value = serde_json::from_str(text).unwrap_or_else(|e| {
+        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+    });
+    let array = value.as_array().unwrap_or_else(|| {
+        panic!("the response must be a bare JSON array — the ## prose sections are dead: {text:?}")
+    });
+    let meta = array.first().expect("record 0 is the meta record").clone();
+    assert_eq!(
+        meta.get("type").and_then(|t| t.as_str()),
+        Some("meta"),
+        "record 0 is the meta record: {meta}"
+    );
+    (meta, array[1..].to_vec())
+}
+
 #[test]
 fn tool_is_registered() {
     let (mut mcp, _dir) = spawn();
@@ -292,22 +322,32 @@ fn he_said_is_verbatim_user_text_without_synthetic_parts() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
-    assert!(text.contains("## HE SAID"), "{}", text);
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(meta["tool"], "he_said_she_said_they_did", "{meta}");
+    let he_said: Vec<&Value> = records.iter().filter(|r| r["type"] == "he_said").collect();
     assert!(
-        text.contains("Please run git status for me"),
-        "verbatim user text: {}",
-        text
+        he_said
+            .iter()
+            .any(|r| r["text"] == "Please run git status for me"),
+        "verbatim user text: {he_said:?}"
     );
     assert!(
-        !text.contains("environment hint injected"),
-        "synthetic part is skipped: {}",
-        text
+        records.iter().all(|r| !r["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("environment hint injected")),
+        "synthetic part is skipped: {records:?}"
     );
     assert!(
-        !text.contains("context compaction"),
-        "the injected compaction marker is not HE SAID content: {}",
-        text
+        records.iter().all(|r| !r["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("context compaction")),
+        "the injected compaction marker is not HE SAID content: {records:?}"
     );
+    for record in &he_said {
+        assert!(record.get("ts").is_some(), "{record}");
+    }
     reap(&mut mcp);
 }
 
@@ -316,21 +356,27 @@ fn she_said_is_assistant_text_only() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
-    assert!(text.contains("## SHE SAID"), "{}", text);
+    let (_meta, records) = parsed_stream(&text);
+    let she_said: Vec<&Value> = records.iter().filter(|r| r["type"] == "she_said").collect();
     assert!(
-        text.contains("Here is the branch state for you"),
-        "assistant text: {}",
-        text
+        she_said
+            .iter()
+            .any(|r| r["text"] == "Here is the branch state for you"),
+        "assistant text: {she_said:?}"
     );
     assert!(
-        !text.contains("reasoning about the branch"),
-        "thinking must never appear in SHE SAID: {}",
-        text
+        records.iter().all(|r| !r["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("reasoning about the branch")),
+        "thinking must never appear in SHE SAID: {records:?}"
     );
     assert!(
-        !text.contains("status output the build was clean"),
-        "tool results must never appear in SHE SAID: {}",
-        text
+        records.iter().all(|r| !r["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("status output the build was clean")),
+        "tool results must never appear in SHE SAID: {records:?}"
     );
     reap(&mut mcp);
 }
@@ -340,22 +386,29 @@ fn they_did_is_every_action_without_results() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
-    assert!(text.contains("## THEY DID"), "{}", text);
+    let (_meta, records) = parsed_stream(&text);
+    let they_did: Vec<&Value> = records.iter().filter(|r| r["type"] == "they_did").collect();
+    let calls: Vec<&str> = they_did.iter().filter_map(|r| r["call"].as_str()).collect();
     assert!(
-        text.contains("bash: git status"),
-        "built-in call by name+args: {}",
-        text
+        calls.iter().any(|c| c.contains("bash: git status")),
+        "built-in call by name+args: {calls:?}"
     );
     assert!(
-        text.contains("do_android_dream_of_electric_sheep("),
-        "MCP-style call: {}",
-        text
+        calls
+            .iter()
+            .any(|c| c.contains("do_android_dream_of_electric_sheep(")),
+        "MCP-style call: {calls:?}"
     );
-    assert!(text.contains("todowrite("), "todo action: {}", text);
     assert!(
-        !text.contains("status output the build was clean"),
-        "tool result never appears in THEY DID: {}",
-        text
+        calls.iter().any(|c| c.contains("todowrite(")),
+        "todo action: {calls:?}"
+    );
+    assert!(
+        records.iter().all(|r| !r["call"]
+            .as_str()
+            .unwrap_or("")
+            .contains("status output the build was clean")),
+        "tool result never appears in THEY DID: {records:?}"
     );
     reap(&mut mcp);
 }
@@ -365,10 +418,24 @@ fn compaction_boundary_is_inline() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
+    let (_meta, records) = parsed_stream(&text);
+    let boundary_at = records
+        .iter()
+        .position(|r| r["type"] == "compaction_boundary")
+        .expect("the boundary is a record: {records:?}");
+    let boundary = &records[boundary_at];
     assert!(
-        text.contains("COMPACTION BOUNDARY"),
-        "the boundary is named inline in the report: {}",
-        text
+        boundary["message"].is_u64(),
+        "the boundary names its 1-based message id: {boundary}"
+    );
+    assert!(boundary.get("ts").is_some(), "{boundary}");
+    // Inline at the point it occurred: the boundary is a record inside the
+    // THEY DID run — only said/did records precede it, no other boundary.
+    assert!(
+        records[..boundary_at]
+            .iter()
+            .all(|r| r["type"] == "he_said" || r["type"] == "she_said" || r["type"] == "they_did"),
+        "the boundary sits inside the THEY DID run: {records:?}"
     );
     reap(&mut mcp);
 }
@@ -378,29 +445,38 @@ fn context_carries_period_compaction_points_and_cache() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({"session_id": "ses_alpha"}));
     assert!(!err, "call succeeds: {text}");
+    let (meta, _records) = parsed_stream(&text);
     // The period: bounded by first and last message timestamps.
-    assert!(text.contains("PERIOD:"), "the period is stated: {}", text);
     assert!(
-        text.lines().any(|l| l.contains("## CONTEXT")),
-        "the context section exists: {}",
-        text
+        meta["period_first"].is_string() && meta["period_last"].is_string(),
+        "the period is stated in the meta: {meta}"
     );
     assert!(
-        text.contains("compaction points: 1"),
-        "the compaction-point count is stated: {}",
-        text
+        meta["messages"].is_u64(),
+        "the message count is stated: {meta}"
     );
-    // The summary-cache ledger was seeded with one block 1..=2, so the context
+    // The summary-cache ledger was seeded with one block 1..=2, so the meta
     // names the block and the high watermark (3): summarise_from id guarded.
-    assert!(
-        text.contains("1..=2"),
-        "the cached block's id range is stated: {}",
-        text
+    let points = meta["compaction_points"]
+        .as_array()
+        .expect("the compaction-point ids are stated: {meta}");
+    assert_eq!(
+        points.len(),
+        1,
+        "the compaction-point count is stated: {meta}"
     );
     assert!(
-        text.contains("high watermark, is 3"),
-        "the first unsummarised id is stated: {}",
-        text
+        points[0].is_u64(),
+        "the point is a 1-based message id: {meta}"
+    );
+    assert_eq!(
+        meta["cache_blocks"],
+        serde_json::json!(["1..=2"]),
+        "the cached block's id range is stated: {meta}"
+    );
+    assert_eq!(
+        meta["watermark"], 3,
+        "the first unsummarised id is stated: {meta}"
     );
     reap(&mut mcp);
 }
@@ -410,15 +486,17 @@ fn empty_session_id_resolves_the_most_recent_session() {
     let (mut mcp, _dir) = spawn();
     let (err, text) = call_he_said(&mut mcp, serde_json::json!({}));
     assert!(!err, "call succeeds: {text}");
-    assert!(
-        text.contains("ses_alpha0000000000000000000000aa"),
-        "the newest session is served by default: {}",
-        text
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(
+        meta["session_id"].as_str(),
+        Some("ses_alpha0000000000000000000000aa"),
+        "the newest session is served by default: {meta}"
     );
     assert!(
-        !text.contains("git in beta"),
-        "one report is one session: {}",
-        text
+        records
+            .iter()
+            .all(|r| !serde_json::to_string(r).unwrap().contains("git in beta")),
+        "one report is one session: {records:?}"
     );
     reap(&mut mcp);
 }
@@ -433,7 +511,7 @@ fn flood_control_eof_marker_names_the_overflow_file() {
     assert!(!err, "overflow is not an error: {text}");
     assert!(
         text.contains("EOF-TRUNCATED"),
-        "the EOF marker replaces the overflowed report: {}",
+        "the EOF marker follows the fitting-prefix array: {}",
         text
     );
     assert!(
@@ -441,6 +519,12 @@ fn flood_control_eof_marker_names_the_overflow_file() {
         "the overflow file is named: {}",
         text
     );
+    let written = whole_stream(&text);
+    for line in written.lines() {
+        serde_json::from_str::<Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
     reap(&mut mcp);
 }
 

@@ -1365,7 +1365,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "he_said_she_said_they_did",
-        description = "Total-recall MCP tool: one full, per-session report answering what did we say and do — the surface for why/how/when/else and follow-ups. HE SAID: the user's messages verbatim (synthetic/injected parts skipped). SHE SAID: the assistant's text parts only — explicitly not its thinking, explicitly not tool results. THEY DID: every action, kind-agnostic — built-in tool calls, MCP tool calls, plugin actions, todo actions — each as call name + arguments, tool results excluded, with compaction boundaries appearing inline at the point they occurred. A context section states the period the report covers, the compaction-point locations (1-based message ids), and where the existing summaries are: the summary-cache blocks and the high watermark (the first id a summarise_from may start at). Read-only, no LLM call. The session_id (partial match; empty = most recent) selects the session; the report is flood-capped at max_bytes."
+        description = "Total-recall MCP tool: one full, per-session report answering what did we say and do — the surface for why/how/when/else and follow-ups — as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"he_said_she_said_they_did\",\"session_id\":\"…\",\"harness\":\"…\",\"period_first\":\"…\",\"period_last\":\"…\",\"messages\":N,\"compaction_points\":[…],\"cache_blocks\":[…],\"watermark\":N} (the period the report covers, the compaction-point locations as 1-based message ids, the summary-cache blocks and the high watermark — the first id a summarise_from may start at), followed by the report's records in section order: {\"type\":\"he_said\",\"ts\":\"…\",\"text\":\"…\"} for the user's messages verbatim (synthetic/injected parts skipped), {\"type\":\"she_said\",\"ts\":\"…\",\"text\":\"…\"} for the assistant's text parts only — explicitly not its thinking, explicitly not tool results — {\"type\":\"they_did\",\"ts\":\"…\",\"call\":\"…\"} for every action, kind-agnostic, each as call name + arguments with tool results excluded, and {\"type\":\"compaction_boundary\",\"message\":N,\"ts\":\"…\"} inline at the point it occurred. Read-only, no LLM call. The session_id (partial match; empty = most recent) selects the session; over max_bytes the fitting-prefix array is followed by the EOF marker and the overflow file carries every record."
     )]
     async fn he_said_she_said_they_did(
         &self,
@@ -1398,19 +1398,16 @@ impl TotalRecallServer {
         let markers = adapter.compaction_markers(&messages);
         let status =
             crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
-        let text = he_said_she_said_they_did_report(
-            &session_id,
-            self.harness(),
-            &messages,
-            &markers,
-            &status,
-        );
-        Ok(capped_text(
-            "he_said_she_said_they_did",
-            &session_id,
-            text,
-            max_bytes,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            he_said_she_said_they_did_report(
+                &session_id,
+                self.harness(),
+                &messages,
+                &markers,
+                &status,
+                max_bytes,
+            ),
+        )]))
     }
 
     #[tool(
@@ -2269,98 +2266,109 @@ fn extract_by_type_report(
 /// carrying the period covered, the compaction-point locations and the
 /// summary-cache blocks. Pure render: no writes, no LLM call, no term
 /// matching; the caller resolved the session and read the store read-only.
+/// One said stream record (`he_said` / `she_said`): the ts and the verbatim
+/// text under the record stream's `type` discriminator.
+#[derive(serde::Serialize)]
+struct SaidRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    ts: &'a str,
+    text: &'a str,
+}
+
+/// One action stream record (`they_did`): the ts and the call name +
+/// arguments summary (a `tool_calls_summary` entry).
+#[derive(serde::Serialize)]
+struct ActionRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    ts: &'a str,
+    call: &'a str,
+}
+
+/// One compaction-boundary stream record, inline at the point it occurred:
+/// the boundary's 1-based message id and ts.
+#[derive(serde::Serialize)]
+struct BoundaryRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    message: usize,
+    ts: &'a str,
+}
+
 fn he_said_she_said_they_did_report(
     session_id: &str,
     harness: &str,
     messages: &[crate::RolloutMessage],
     markers: &[usize],
     status: &crate::summary_cache::CacheStatus,
+    max_bytes: usize,
 ) -> String {
     let n = messages.len();
     let (first, last) = crate::summary_cache::bounds(messages).unwrap_or_default();
-    let mut out = format!("# he_said_she_said_they_did — {session_id} ({harness})\n");
-    out += &format!("PERIOD: {first} .. {last} ({n} messages)\n\n");
-
-    out += "## HE SAID\n";
-    let mut said_any = false;
+    let mut sink =
+        crate::jsonl_sink::JsonlSink::new("he_said_she_said_they_did", session_id, max_bytes);
+    // The CONTEXT section is the meta record: the period, the compaction
+    // points (1-based message ids), the summary-cache blocks and the high
+    // watermark (the first id a summarise_from may start at).
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "he_said_she_said_they_did",
+        "session_id": session_id,
+        "harness": harness,
+        "period_first": first,
+        "period_last": last,
+        "messages": n,
+        "compaction_points": markers.iter().map(|i| i + 1).collect::<Vec<_>>(),
+        "cache_blocks": status
+            .blocks
+            .iter()
+            .map(|b| format!("{}..={}", b.from_id, b.to_id))
+            .collect::<Vec<_>>(),
+        "watermark": status.blocks.last().map(|b| b.to_id + 1).unwrap_or(1),
+    }));
+    // HE SAID: the user's messages verbatim, synthetic/injected parts skipped.
+    let zero = "0".to_string();
     for m in messages {
         if m.role != "user" || m.injected || m.content.is_empty() {
             continue;
         }
-        said_any = true;
-        out += &format!(
-            "[{}] {}\n",
-            m.timestamp.as_deref().unwrap_or("0"),
-            m.content
-        );
+        sink.push(&SaidRecord {
+            record_type: "he_said",
+            ts: m.timestamp.as_deref().unwrap_or(&zero),
+            text: &m.content,
+        });
     }
-    if !said_any {
-        out += "(no user text)\n";
-    }
-
-    out += "\n## SHE SAID\n";
-    let mut she_any = false;
+    // SHE SAID: the assistant's text parts only — never thinking, never tool
+    // results.
     for m in messages {
         if m.role != "assistant" || m.content.trim().is_empty() {
             continue;
         }
-        she_any = true;
-        out += &format!(
-            "[{}] {}\n",
-            m.timestamp.as_deref().unwrap_or("0"),
-            m.content
-        );
+        sink.push(&SaidRecord {
+            record_type: "she_said",
+            ts: m.timestamp.as_deref().unwrap_or(&zero),
+            text: &m.content,
+        });
     }
-    if !she_any {
-        out += "(no assistant text)\n";
-    }
-
-    out += "\n## THEY DID\n";
-    let mut did_any = false;
+    // THEY DID: every action as the call name + arguments summary, tool
+    // results excluded; the compaction boundary is inline at the point it
+    // occurred.
     for (i, m) in messages.iter().enumerate() {
         if markers.contains(&i) {
-            did_any = true;
-            out += &format!(
-                "--- COMPACTION BOUNDARY (message {} of {n}) [{}] ---\n",
-                i + 1,
-                m.timestamp.as_deref().unwrap_or("0")
-            );
+            sink.push(&BoundaryRecord {
+                record_type: "compaction_boundary",
+                message: i + 1,
+                ts: m.timestamp.as_deref().unwrap_or(&zero),
+            });
         }
         for call in &m.tool_calls_summary {
-            did_any = true;
-            out += &format!("[{}] {call}\n", m.timestamp.as_deref().unwrap_or("0"));
+            sink.push(&ActionRecord {
+                record_type: "they_did",
+                ts: m.timestamp.as_deref().unwrap_or(&zero),
+                call,
+            });
         }
     }
-    if !did_any {
-        out += "(no actions)\n";
-    }
-
-    out += "\n## CONTEXT\n";
-    let block_line = if status.blocks.is_empty() {
-        "no summary-cache blocks — the summarise_from guard starts at id 1".to_string()
-    } else {
-        let ranges: Vec<String> = status
-            .blocks
-            .iter()
-            .map(|b| format!("{}..={}", b.from_id, b.to_id))
-            .collect();
-        format!(
-            "{} block(s): id ranges {}",
-            status.blocks.len(),
-            ranges.join(", ")
-        )
-    };
-    let watermark = status.blocks.last().map(|b| b.to_id + 1).unwrap_or(1);
-    let marker_line = if markers.is_empty() {
-        "no compaction points — the store holds the whole dialogue from its start".to_string()
-    } else {
-        let ids: Vec<String> = markers.iter().map(|i| (i + 1).to_string()).collect();
-        format!("{} at message id(s) {}", markers.len(), ids.join(", "))
-    };
-    out += &format!("- period covered: ids 1..={n}, {first} .. {last}\n");
-    out += &format!("- compaction points: {marker_line}\n");
-    out += &format!(
-        "- summaries: {block_line}; the first unsummarised id, the high watermark, is {watermark}\n"
-    );
-    out
+    sink.finish()
 }
