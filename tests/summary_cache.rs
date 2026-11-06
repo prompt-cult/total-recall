@@ -18,7 +18,7 @@ use total_recall::RolloutAdapter;
 use total_recall::rollout::mock::MockAdapter;
 use total_recall::summary_cache;
 
-use common::scratch::{ScratchRoot, scratch};
+use common::scratch::{ScratchRoot, child_cwd, scratch};
 
 fn msg(role: &str, content: &str, timestamp: &str) -> String {
     serde_json::json!({
@@ -414,4 +414,253 @@ fn an_opencode_partial_id_resolves_canonically_and_serves_the_cache() {
     let status = summary_cache::status(&root, &canonical, &messages);
     assert!(status.tail.is_none(), "fully covered: {status:?}");
     assert_eq!(status.blocks.len(), 1);
+}
+
+// --- MCP stdio server: the record-stream contract ---------------------------
+//
+// The response shape is pinned at the MCP layer the same way
+// tests/todo_history.rs pins todo_history's: a spawned server over a fixture
+// SQLite store, the ledger seeded through the real append path before the
+// child starts.
+
+use std::path::Path;
+
+use rusqlite::Connection;
+use total_recall::rollout::opencode::OpenCodeAdapter;
+
+const SID: &str = "ses_summ0000000000000000000001aa";
+
+fn build_db_fixture(root: &Path) {
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+         VALUES (?1, NULL, '/Users/dev/summ', 'summary fixture', 1000, 4000)",
+        [SID],
+    )
+    .unwrap();
+    for (i, (role, text)) in [
+        ("user", "start the work"),
+        ("assistant", "working"),
+        ("user", "more work"),
+        ("assistant", "done"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mid = format!("msg{}", i + 1);
+        let t = 1000 * (i as i64 + 1);
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, ?4)",
+            rusqlite::params![
+                mid,
+                SID,
+                t,
+                serde_json::json!({"role": role, "time": {"created": t}}).to_string()
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+            rusqlite::params![
+                format!("part{}", i + 1),
+                mid,
+                SID,
+                t,
+                serde_json::json!({"type": "text", "text": text}).to_string()
+            ],
+        )
+        .unwrap();
+    }
+}
+
+struct Mcp {
+    child: std::process::Child,
+    reader: std::io::BufReader<std::process::ChildStdout>,
+    stdin: std::process::ChildStdin,
+    cwd: std::path::PathBuf,
+    next: u64,
+}
+
+impl Mcp {
+    fn send(&mut self, v: &serde_json::Value) {
+        use std::io::Write;
+        writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
+        self.stdin.flush().unwrap();
+    }
+
+    fn read_until_id(&mut self, id: u64) -> serde_json::Value {
+        use std::io::BufRead;
+        loop {
+            let mut line = String::new();
+            self.reader
+                .read_line(&mut line)
+                .expect("server stdout open");
+            if line.trim().is_empty() {
+                panic!("server closed stdout waiting for response {id}");
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+                && v.get("id").and_then(|i| i.as_u64()) == Some(id)
+            {
+                return v;
+            }
+        }
+    }
+
+    /// The call as a client sees it: `(is_error, text)`.
+    fn call(&mut self, name: &str, args: serde_json::Value) -> (bool, String) {
+        let id = self.next;
+        self.next += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": args}
+        }));
+        let result = self.read_until_id(id)["result"].clone();
+        let is_error = result["isError"].as_bool().unwrap_or(false);
+        (
+            is_error,
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        )
+    }
+}
+
+/// A server over a fixture store whose ledger carries `blocks` seeded blocks
+/// (0 = nothing cached, the tail starts at id 1).
+fn spawn_mcp_with_blocks(blocks: usize) -> (Mcp, common::scratch::ScratchRoot) {
+    let dir = scratch(&format!("summary_cache_mcp_{blocks}"));
+    build_db_fixture(&dir);
+    let adapter = OpenCodeAdapter::with_root(dir.join("fixture.db"));
+    let messages = adapter.read_session_mmap(SID).unwrap();
+    assert_eq!(messages.len(), 4, "fixture: four messages");
+    let shadow = adapter.shadow_index_root();
+    if blocks >= 1 {
+        summary_cache::append_block(&shadow, SID, 1, &messages[..2], "first summary").unwrap();
+    }
+    if blocks >= 2 {
+        summary_cache::append_block(&shadow, SID, 3, &messages[2..], "delta summary").unwrap();
+    }
+    let cwd = child_cwd("summary_cache_mcp");
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+        .args(["--harness", "opencode", "mcp"])
+        .current_dir(&cwd)
+        .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn mcp");
+    let reader = std::io::BufReader::new(child.stdout.take().unwrap());
+    let stdin = child.stdin.take().unwrap();
+    let mut mcp = Mcp {
+        child,
+        reader,
+        stdin,
+        cwd,
+        next: 1,
+    };
+    mcp.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                   "clientInfo": {"name": "summary-cache-test", "version": "0"}}
+    }));
+    let _ = mcp.read_until_id(0);
+    mcp.send(&serde_json::json!({
+        "jsonrpc": "2.0", "method": "notifications/initialized"
+    }));
+    (mcp, dir)
+}
+
+fn reap(mcp: &mut Mcp) {
+    mcp.child.kill().ok();
+    mcp.child.wait().ok();
+    let _ = std::fs::remove_dir_all(&mcp.cwd);
+}
+
+/// The record stream, parsed: the response is a bare compact JSON array —
+/// never torn — whose element 0 is the `type=meta` record. Returns
+/// (meta, data records).
+fn parsed_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+    });
+    let array = value.as_array().unwrap_or_else(|| {
+        panic!(
+            "the response must be a bare JSON array — the old pretty-object shape is dead: {text:?}"
+        )
+    });
+    let meta = array.first().expect("record 0 is the meta record").clone();
+    assert_eq!(
+        meta.get("type").and_then(|t| t.as_str()),
+        Some("meta"),
+        "record 0 is the meta record: {meta}"
+    );
+    (meta, array[1..].to_vec())
+}
+
+#[test]
+fn summary_cache_streams_the_bare_array_with_meta_tail_and_block_records() {
+    let (mut mcp, _dir) = spawn_mcp_with_blocks(1);
+    let (is_error, text) = mcp.call(
+        "summary_cache",
+        serde_json::json!({"session_id": "ses_summ"}),
+    );
+    assert!(!is_error, "introspection must not error: {text}");
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(meta["tool"].as_str(), Some("summary_cache"), "{meta}");
+    assert_eq!(
+        meta["session_id"].as_str(),
+        Some(SID),
+        "the meta names the canonical session: {meta}"
+    );
+    let tail = &meta["tail"];
+    assert!(tail.is_object(), "ids 3..=4 are uncovered: {meta}");
+    assert_eq!(tail["from_id"], 3, "{meta}");
+    assert_eq!(tail["count"], 2, "{meta}");
+    assert_eq!(records.len(), 1, "one block record: {records:?}");
+    let block = &records[0];
+    assert_eq!(block["type"].as_str(), Some("block"), "{block}");
+    assert_eq!(block["from_id"], 1, "{block}");
+    assert_eq!(block["to_id"], 2, "{block}");
+    assert!(block.get("part_file").is_some(), "{block}");
+    assert!(block.get("tokens_est").is_some(), "{block}");
+    reap(&mut mcp);
+}
+
+#[test]
+fn summary_cache_fully_covered_session_has_a_null_tail() {
+    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+    let (is_error, text) = mcp.call(
+        "summary_cache",
+        serde_json::json!({"session_id": "ses_summ"}),
+    );
+    assert!(!is_error, "{text}");
+    let (meta, records) = parsed_stream(&text);
+    assert!(
+        meta["tail"].is_null(),
+        "a fully covered session has no tail: {meta}"
+    );
+    assert_eq!(records.len(), 2, "two block records: {records:?}");
+    assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
+    assert_eq!(records[1]["to_id"], 4, "{records:?}");
+    reap(&mut mcp);
 }

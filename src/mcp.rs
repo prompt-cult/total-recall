@@ -1218,7 +1218,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "summary_cache",
-        description = "Total-recall MCP tool: inspect a session's summary cache — the cached blocks (from_id/from_ts/to_id/to_ts id ranges, user/assistant/tool/thinking counts, chars, token estimate, part file) plus the unsummarised tail (the first uncovered id and what a summarise from there would cost), or tail: null when everything is covered. Read-only: never calls the LLM, never writes. The session_id (partial match; empty = most recent) resolves first; an invalid or short legacy ledger is dropped as empty."
+        description = "Total-recall MCP tool: inspect a session's summary cache as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summary_cache\",\"session_id\":\"…\",\"tail\":{…}|null} carrying the unsummarised tail (the first uncovered id and what a summarise from there would cost; null when everything is covered), followed by one {\"type\":\"block\",\"from_id\":…,…,\"part_file\":\"…\"} record per cached block (id ranges, user/assistant/tool/thinking counts, chars, token estimate, part file). A session with no blocks returns the meta record with tail and zero block records. Read-only: never calls the LLM, never writes. The session_id (partial match; empty = most recent) resolves first; an invalid or short legacy ledger is dropped as empty."
     )]
     async fn summary_cache(
         &self,
@@ -1237,14 +1237,9 @@ impl TotalRecallServer {
         };
         let status =
             crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
-        let json = serde_json::to_string_pretty(&status)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(capped_text(
-            "summary_cache",
-            &session_id,
-            json,
-            crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            cache_status_report("summary_cache", &status),
+        )]))
     }
 
     #[tool(
@@ -1938,6 +1933,49 @@ fn todo_history_report(
             action: &e.action,
             todo: &e.todo,
             status: &e.status,
+        });
+    }
+    sink.finish()
+}
+
+/// One cache-status block record: the block's own serde fields (from_id/
+/// from_ts/to_id/to_ts, the user/assistant/tool/thinking counts, chars,
+/// tokens_est, part_file) flattened under the record stream's `type`
+/// discriminator.
+#[derive(serde::Serialize)]
+struct BlockRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    block: &'a crate::summary_cache::Block,
+}
+
+/// The shared cache-status → record-stream render behind `summary_cache` and
+/// `cache_delete_latest`. Record 0 is the meta record carrying the session
+/// and the unsummarised tail (`null` when every message is covered); every
+/// data record is one cached block. The same records stream as pure JSONL to
+/// the overflow file — over `max_bytes` the fitting-prefix array is followed
+/// by the EOF marker naming that file; under the cap the bare array alone is
+/// returned and nothing is retained.
+pub(crate) fn cache_status_report(
+    tool: &str,
+    status: &crate::summary_cache::CacheStatus,
+) -> String {
+    let mut sink = crate::jsonl_sink::JsonlSink::new(
+        tool,
+        &status.session_id,
+        crate::report_cap::DEFAULT_MAX_BYTES,
+    );
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": tool,
+        "session_id": status.session_id,
+        "tail": serde_json::to_value(&status.tail).unwrap_or(serde_json::Value::Null),
+    }));
+    for block in &status.blocks {
+        sink.push(&BlockRecord {
+            record_type: "block",
+            block,
         });
     }
     sink.finish()

@@ -493,27 +493,26 @@ orphaned part files may be clobbered later.
 
 ### `summary_cache`
 
-Read-only introspection: resolve the session, read the ledger, and return
+Read-only introspection as a record stream: resolve the session, read the
+ledger, and return a bare compact JSON array whose element 0 is the meta
+record — carrying the session and the unsummarised tail — and each later
+element one cached block:
 
 ```json
-{
-  "session_id": "ses_…",
-  "blocks": [
-    {"from_id": 1, "from_ts": "…", "to_id": 4, "to_ts": "…", "user": 2,
-     "assistant": 2, "tool": 0, "thinking": 0, "chars": 1200,
-     "tokens_est": 300, "part_file": "…/part_001_004.md"}
-  ],
-  "tail": {"from_id": 5, "from_ts": "…", "count": 2, "user": 1,
-           "assistant": 1, "tool": 0, "thinking": 0, "chars": 400,
-           "tokens_est": 100}
-}
+[{"type":"meta","tool":"summary_cache","session_id":"ses_…",
+  "tail":{"from_id":5,"from_ts":"…","count":2,"user":1,"assistant":1,
+          "tool":0,"thinking":0,"chars":400,"tokens_est":100}},
+ {"type":"block","from_id":1,"from_ts":"…","to_id":4,"to_ts":"…","user":2,
+  "assistant":2,"tool":0,"thinking":0,"chars":1200,"tokens_est":300,
+  "part_file":"…/part_001_004.md"}]
 ```
 
 `tail` is the first unsummarised id (the last block's `to_id + 1`, or 1 with
 no blocks) plus the count, type counts, chars and token estimate over the
 messages from there to the session's end — what a summarise would cost.
-`tail` is `null` when every message is already covered. The tool never
-calls the LLM and never writes.
+`tail` is `null` when every message is already covered. A session with no
+blocks returns the meta record with `tail` and zero block records — never an
+empty unexplained array. The tool never calls the LLM and never writes.
 
 CLI: `total-recall --harness <h> --session <id> summary-cache`.
 
