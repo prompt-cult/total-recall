@@ -790,8 +790,41 @@ async fn main() -> Result<()> {
             hours,
             directory.as_deref(),
         ) {
-            Ok(report) => {
-                print!("{}", report);
+            Ok(outcome) => {
+                let mut out = format!(
+                    "# do-android-dream-of-electric-sheep — query: {}\n",
+                    outcome.query
+                );
+                let mut header = format!(
+                    "{} sessions searched, {} with hits, {} not indexed (run index first)",
+                    outcome.sessions_searched,
+                    outcome.sessions_with_hits,
+                    outcome.not_indexed.len()
+                );
+                if !outcome.unmatched.is_empty() {
+                    header += &format!(
+                        ", {} unmatched session ids: {}",
+                        outcome.unmatched.len(),
+                        outcome.unmatched.join(", ")
+                    );
+                }
+                for line in &outcome.corrupt {
+                    header += &format!("\ncorrupt index: {line}");
+                }
+                out += &header;
+                out.push('\n');
+                for hit in &outcome.hits {
+                    let role = if hit.in_thinking {
+                        format!("{} (thinking)", hit.role.to_uppercase())
+                    } else {
+                        hit.role.to_uppercase()
+                    };
+                    out += &format!(
+                        "{} | {:.4} | {} | {} | {}\n",
+                        hit.session_id, hit.score, hit.timestamp, role, hit.fragment
+                    );
+                }
+                print!("{out}");
                 let _ = std::io::stdout().flush();
             }
             Err(e) => {

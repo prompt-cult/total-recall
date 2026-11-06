@@ -364,16 +364,19 @@ fn test_opencode_reasoning_e2e_indexed_and_searchable_as_thinking() {
     assert_eq!(stats.session_id, "ses_fixture0001aaaa");
     assert!(stats.doc_count > 0);
 
-    let report = index::search(&adapter, &[], "electriczebra", 0, None).unwrap();
+    let outcome = index::search(&adapter, &[], "electriczebra", 0, None).unwrap();
     assert!(
-        report.contains("electriczebra"),
-        "search must find the reasoning term:\n{}",
-        report
+        outcome
+            .hits
+            .iter()
+            .any(|h| h.fragment.contains("electriczebra")),
+        "search must find the reasoning term:\n{:?}",
+        outcome.hits
     );
     assert!(
-        report.contains("ASSISTANT (thinking)"),
-        "reasoning hit must be marked as thinking:\n{}",
-        report
+        outcome.hits.iter().any(|h| h.in_thinking),
+        "reasoning hit must be marked as thinking:\n{:?}",
+        outcome.hits
     );
 }
 

@@ -827,7 +827,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "do_android_dream_of_electric_sheep",
-        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes, merging top hits per session by score. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Sessions without an index are reported as not indexed (run index_sessions first)."
+        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"do_android_dream_of_electric_sheep\",\"query\":\"…\",\"scope\":\"…\",\"sessions_searched\":N,\"sessions_with_hits\":N,\"not_indexed\":[…],\"unmatched\":[…],\"corrupt\":[…]}, followed by one {\"type\":\"hit\",\"session_id\":\"…\",\"score\":F,\"ts\":\"…\",\"role\":\"…\",\"thinking\":bool,\"fragment\":\"…\"} record per hit, relevance-ordered (top hits per session merged by score). The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Sessions without an index are named in the meta record's not_indexed (run index_sessions first); a corrupt index is named in corrupt — neither is fatal."
     )]
     async fn do_android_dream_of_electric_sheep(
         &self,
@@ -865,6 +865,11 @@ impl TotalRecallServer {
         } else {
             vec![params.session_id.clone()]
         };
+        let scope = if params.session_id.is_empty() {
+            "window"
+        } else {
+            params.session_id.as_str()
+        };
         match crate::index::search(
             adapter.as_ref(),
             &sessions,
@@ -872,12 +877,38 @@ impl TotalRecallServer {
             hours,
             params.directory.as_deref(),
         ) {
-            Ok(report) => Ok(capped_text(
-                "do_android_dream_of_electric_sheep",
-                &params.session_id,
-                report,
-                max_bytes,
-            )),
+            Ok(outcome) => {
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "do_android_dream_of_electric_sheep",
+                    scope,
+                    max_bytes,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "do_android_dream_of_electric_sheep",
+                    "query": outcome.query,
+                    "scope": scope,
+                    "sessions_searched": outcome.sessions_searched,
+                    "sessions_with_hits": outcome.sessions_with_hits,
+                    "not_indexed": outcome.not_indexed,
+                    "unmatched": outcome.unmatched,
+                    "corrupt": outcome.corrupt,
+                }));
+                for hit in &outcome.hits {
+                    sink.push(&HitRecord {
+                        record_type: "hit",
+                        session_id: &hit.session_id,
+                        score: hit.score,
+                        timestamp: &hit.timestamp,
+                        role: &hit.role,
+                        in_thinking: hit.in_thinking,
+                        fragment: &hit.fragment,
+                    });
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
     }
@@ -1810,6 +1841,23 @@ fn line_selectors(
         start,
         end,
     })
+}
+
+/// One search-hit stream record: the hit's fields with the record stream's
+/// `type` discriminator; `timestamp`/`in_thinking` surface as `ts`/`thinking`
+/// per the documented hit-record shape.
+#[derive(serde::Serialize)]
+struct HitRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    session_id: &'a str,
+    score: f32,
+    #[serde(rename = "ts")]
+    timestamp: &'a str,
+    role: &'a str,
+    #[serde(rename = "thinking")]
+    in_thinking: bool,
+    fragment: &'a str,
 }
 
 /// One listing row record: the row's own serde fields (session_id, title,

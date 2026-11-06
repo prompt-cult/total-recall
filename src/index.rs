@@ -182,13 +182,31 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
     })
 }
 
-struct Hit {
-    score: f32,
-    session_id: String,
-    timestamp: String,
-    role: String,
-    fragment: String,
-    in_thinking: bool,
+/// One search hit: the document's score, its session and message context,
+/// and the matched-text fragment. `in_thinking` is true when the term
+/// matched only a message's thinking content.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Hit {
+    pub score: f32,
+    pub session_id: String,
+    pub timestamp: String,
+    pub role: String,
+    pub fragment: String,
+    pub in_thinking: bool,
+}
+
+/// The structured search outcome behind `do_android_dream_of_electric_sheep`:
+/// relevance-ordered hits plus the counts the record stream's meta record
+/// carries. The prose rendering died with the JSONL cutover — the MCP layer
+/// streams these as records; the CLI renders its own human-facing table.
+pub struct SearchOutcome {
+    pub query: String,
+    pub sessions_searched: usize,
+    pub sessions_with_hits: usize,
+    pub not_indexed: Vec<String>,
+    pub unmatched: Vec<String>,
+    pub corrupt: Vec<String>,
+    pub hits: Vec<Hit>,
 }
 
 fn query_tokens(query: &str) -> Vec<String> {
@@ -240,7 +258,7 @@ pub fn search(
     query: &str,
     hours_back: u64,
     directory: Option<&str>,
-) -> Result<String, String> {
+) -> Result<SearchOutcome, String> {
     if query.trim().is_empty() {
         return Err(
             "do-android-dream-of-electric-sheep requires a tantivy query in `query`".to_string(),
@@ -257,13 +275,13 @@ pub fn search(
 
     let tokens = query_tokens(query);
     let mut hits: Vec<Hit> = Vec::new();
-    let mut unindexed = 0usize;
+    let mut not_indexed: Vec<String> = Vec::new();
     let mut corrupt: Vec<String> = Vec::new();
     let mut sessions_with_hits = 0usize;
 
     for summary in &selected {
         if !index_exists(adapter, &summary.session_id) {
-            unindexed += 1;
+            not_indexed.push(summary.session_id.clone());
             continue;
         }
         let dir = session_index_dir(adapter, &summary.session_id);
@@ -329,37 +347,13 @@ pub fn search(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let mut out = format!("# do-android-dream-of-electric-sheep — query: {}\n", query);
-    let mut header = format!(
-        "{} sessions searched, {} with hits, {} not indexed (run index first)",
-        selected.len(),
+    Ok(SearchOutcome {
+        query: query.to_string(),
+        sessions_searched: selected.len(),
         sessions_with_hits,
-        unindexed
-    );
-    if !unmatched.is_empty() {
-        header += &format!(
-            ", {} unmatched session ids: {}",
-            unmatched.len(),
-            unmatched.join(", ")
-        );
-    }
-    for line in &corrupt {
-        header += &format!("\ncorrupt index: {}", line);
-    }
-    out += &header;
-    out.push('\n');
-
-    for hit in &hits {
-        let role = if hit.in_thinking {
-            format!("{} (thinking)", hit.role.to_uppercase())
-        } else {
-            hit.role.to_uppercase()
-        };
-        out += &format!(
-            "{} | {:.4} | {} | {} | {}\n",
-            hit.session_id, hit.score, hit.timestamp, role, hit.fragment
-        );
-    }
-
-    Ok(out)
+        not_indexed,
+        unmatched,
+        corrupt,
+        hits,
+    })
 }

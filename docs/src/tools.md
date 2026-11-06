@@ -480,17 +480,27 @@ alongside their usual output.
 
 Searches the per-session indexes with a `QueryParser` over the `content` and
 `thinking` fields, merging the top 10 hits per session into one ranking
-ordered by score. The session_id resolves to the most recent match;
-an unmatched id is reported in the header, not fatal. Sessions without an index
-are listed as not indexed and skipped; a corrupt index is reported in the
-header, not fatal. Run `index_sessions` first.
+ordered by score, returned as a record stream: a bare compact JSON array
+whose element 0 is the meta record
+`{"type":"meta","tool":"do_android_dream_of_electric_sheep","query":"…",
+"scope":"…","sessions_searched":N,"sessions_with_hits":N,
+"not_indexed":["…"],"unmatched":["…"],"corrupt":["…"]}`, followed by one
+`type=hit` record per hit, relevance-ordered:
 
-Hit lines carry the matched text and are marked `thinking` when the term
-matched only a message's thinking content:
+```json
+[{"type":"meta","tool":"do_android_dream_of_electric_sheep","query":"alpha",
+  "scope":"window","sessions_searched":1,"sessions_with_hits":1,
+  "not_indexed":[],"unmatched":[],"corrupt":[]},
+ {"type":"hit","session_id":"ses_f5a4ea5e","score":0.5395,
+  "ts":"2026-09-19T10:02:00Z","role":"assistant","thinking":true,
+  "fragment":"contemplating the electric sheep dream"}]
+```
 
-```
-ses_f5a4ea5e | 0.5395 | 2026-09-19T10:02:00Z | ASSISTANT (thinking) | contemplating the electric sheep dream
-```
+The session_id resolves to the most recent match; an unmatched id is
+reported in the meta record's `unmatched`, not fatal. Sessions without an
+index are listed in `not_indexed` and skipped (run `index_sessions` first);
+a corrupt index is reported in `corrupt`, not fatal. A hit carries
+`thinking: true` when the term matched only a message's thinking content.
 
 CLI: `total-recall --harness opencode do-android-dream-of-electric-sheep
 --query 'shadow AND index' [--sessions <id>…] [--hours 48] [--directory <substr>]`.
