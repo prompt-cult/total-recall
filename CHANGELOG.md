@@ -5,6 +5,18 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-11-06
+
+### Changed
+
+- The `retry_after_zero_retries_without_waiting` test's bound moved from a
+  tight wall-clock guess (`elapsed < 1s` — flaked twice under full-suite
+  load, the three localhost round-trips alone can exceed a second) to the
+  exponential fallback's floor (`elapsed < 3s` — the 1s + 2s the fallback
+  would sleep). The pinned property is unchanged: honouring `Retry-After: 0`
+  sleeps nothing, and only a real fallback-sleep regression can push the
+  elapsed past 3s. No production code changed.
+
 ## [0.21.0] - 2026-11-06
 
 ### Changed
