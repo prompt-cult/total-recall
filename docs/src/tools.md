@@ -333,9 +333,10 @@ the edits between consecutive list states, one compact JSON object per
 line, in ts order:
 
 ```
-{"ts":"2026-10-08T04:14:18Z","action":"added","todo":"item00: ship the fix","status":"pending"}
-{"ts":"2026-10-08T04:20:02Z","action":"in_progress","todo":"item00: ship the fix","status":"in_progress"}
-{"ts":"2026-10-08T04:31:47Z","action":"removed","todo":"item01: later"}
+{"type":"meta","tool":"todo_history","session_id":"ses_ee8e8f72","harness":"opencode","full":true,"events":3,"max_bytes":16384}
+{"type":"todo_edit","ts":"2026-10-08T04:14:18Z","action":"added","todo":"item00: ship the fix","status":"pending"}
+{"type":"todo_edit","ts":"2026-10-08T04:20:02Z","action":"in_progress","todo":"item00: ship the fix","status":"in_progress"}
+{"type":"todo_edit","ts":"2026-10-08T04:31:47Z","action":"removed","todo":"item01: later"}
 ```
 
 `action` is `added` (first sight of an item), `updated` (reworded, same
@@ -345,10 +346,15 @@ dropped it — `status` is omitted on a removal). Item identity is the
 `itemNN:` slug prefix this repo's sessions carry, else the full content
 string. Folding the events reproduces the flushes. `full` defaults to true
 — the whole rollout's todo history; `false` reads from the last compaction
-point. The MCP report carries a `#`-prefixed header line (filter it with
-`grep -v '^#'`); the CLI streams the bare JSONL, unbounded. The report is
-flood-capped at `max_bytes` (default 16384, 8 MiB ceiling) with the EOF
-marker and overflow file. Opencode only: every other harness refuses with
+point. On the MCP stream every record carries a `type` discriminator: the
+array opens with the meta record
+`{"type":"meta","tool":"todo_history","session_id":"…","harness":"…","full":bool,"events":N,"max_bytes":N}`,
+followed by one `{"type":"todo_edit", …}` record per edit. Over `max_bytes`
+(default 16384, 8 MiB ceiling) the
+fitting-prefix array continues into the EOF marker naming the overflow
+`.jsonl` file, which holds ALL records as pure JSONL — every line parses
+with `jq`. Under the cap nothing is retained. The CLI streams the bare
+JSONL events, unbounded. Opencode only: every other harness refuses with
 an explicit error, never an empty list.
 
 CLI: `total-recall --harness opencode --session <id> todo-history [--no-full]`.

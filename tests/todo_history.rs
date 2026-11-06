@@ -1,9 +1,11 @@
 //! #686: `todo_history` — a rollout's todowrite flushes replayed as a JSONL
 //! stream of edit events, one compact JSON object per line
-//! (`{"ts":…,"action":…,"todo":…[,"status":…]}`), in ts order. The pure diff
-//! core, the opencode adapter (fixture store, never the live DB), the
-//! default-harness refusal, the real MCP stdio server, and the CLI subcommand
-//! are all covered here. Written RED, before the implementation existed.
+//! (`{"ts":…,"action":…,"todo":…[,"status":…]}`), in ts order. The MCP tool
+//! serves them as a bare JSON array — element 0 a `type=meta` record, every
+//! later element a `type=todo_edit` record. The pure diff core, the opencode
+//! adapter (fixture store, never the live DB), the default-harness refusal,
+//! the real MCP stdio server, and the CLI subcommand are all covered here.
+//! Written RED, before the implementation existed.
 
 mod common;
 
@@ -596,21 +598,43 @@ fn reap(mcp: &mut Mcp) {
     let _ = std::fs::remove_dir_all(&mcp.cwd);
 }
 
-/// The report's header and raw event lines: everything after the `#` header.
-fn report_events(text: &str) -> (Value, Vec<String>) {
-    let mut lines = text.lines();
-    let header_line = lines.next().expect("the report has a header line");
-    assert!(
-        header_line.starts_with('#'),
-        "the header is #-prefixed: {header_line}"
+/// The record stream, parsed: the response is a bare compact JSON array —
+/// never torn — whose element 0 is the `type=meta` record and every later
+/// element a `type=todo_edit` record carrying `ts`, `action` and `todo`.
+/// Returns (meta, data records).
+fn parsed_stream(text: &str) -> (Value, Vec<Value>) {
+    let root: Value = serde_json::from_str(text).expect("the response parses as a JSON document");
+    let items: Vec<Value> = root
+        .as_array()
+        .expect("the response is a bare JSON array")
+        .clone();
+    assert!(!items.is_empty(), "element 0 is the meta record: {text}");
+    let meta = items[0].clone();
+    assert_eq!(
+        meta["type"], "meta",
+        "element 0 carries the meta discriminator: {meta}"
     );
-    let header: Value =
-        serde_json::from_str(header_line.trim_start_matches('#')).expect("header is JSON");
-    let events: Vec<String> = lines.map(str::to_string).collect();
-    for line in &events {
-        let _: Value = serde_json::from_str(line).expect("each event line is JSON");
+    for rec in &items[1..] {
+        assert_eq!(
+            rec["type"], "todo_edit",
+            "every data record carries the todo_edit discriminator: {rec}"
+        );
+        for field in ["ts", "action", "todo"] {
+            assert!(
+                rec.get(field).is_some(),
+                "a todo_edit record carries {field}: {rec}"
+            );
+        }
     }
-    (header, events)
+    (meta, items[1..].to_vec())
+}
+
+/// An expected event line pinned in the two-sink contract: the same fields,
+/// plus the `type` discriminator the record stream adds.
+fn expected_record(line: &str) -> Value {
+    let mut v: Value = serde_json::from_str(line).expect("a documented event line");
+    v["type"] = json!("todo_edit");
+    v
 }
 
 #[test]
@@ -641,22 +665,31 @@ fn todo_history_is_served_with_its_schema() {
 }
 
 #[test]
-fn todo_history_emits_the_event_stream_with_a_header() {
+fn todo_history_streams_the_bare_array_with_meta_first() {
     let (mut mcp, _dir) = spawn_mcp();
     let (err, text) = mcp.call("todo_history", json!({"session_id": "ses_todo"}));
     assert!(!err, "the call succeeds: {text}");
-    let (header, events) = report_events(&text);
-    // The header names the session as the caller asked for it; the adapter
+    let (meta, records) = parsed_stream(&text);
+    // The meta names the session as the caller asked for it; the adapter
     // resolves the partial id internally (the house session-tool form).
-    assert_eq!(header["session_id"].as_str(), Some("ses_todo"));
-    assert_eq!(header["harness"].as_str(), Some("opencode"));
+    assert_eq!(meta["tool"], "todo_history");
+    assert_eq!(meta["session_id"].as_str(), Some("ses_todo"));
+    assert_eq!(meta["harness"].as_str(), Some("opencode"));
+    assert_eq!(meta["full"], json!(true), "full defaults to true");
+    assert_eq!(meta["events"], json!(7));
     assert_eq!(
-        header["full"].as_bool(),
-        Some(true),
-        "full defaults to true"
+        meta["max_bytes"],
+        json!(16384),
+        "the meta states the cap the response obeyed"
     );
-    assert_eq!(header["events"].as_u64(), Some(7));
-    assert_eq!(events, expected_lines());
+    assert_eq!(
+        records,
+        expected_lines()
+            .iter()
+            .map(|l| expected_record(l))
+            .collect::<Vec<_>>(),
+        "one todo_edit record per event, in ts order"
+    );
     reap(&mut mcp);
 }
 
@@ -668,14 +701,10 @@ fn todo_history_full_false_slices_at_the_compaction() {
         json!({"session_id": "ses_todo", "full": false}),
     );
     assert!(!err, "the call succeeds: {text}");
-    let (header, events) = report_events(&text);
-    assert_eq!(header["full"].as_bool(), Some(false));
-    assert_eq!(
-        header["events"].as_u64(),
-        Some(1),
-        "only post-compaction edits"
-    );
-    assert_eq!(events, vec![EXPECTED_EVENT_LINES[5].to_string()]);
+    let (meta, records) = parsed_stream(&text);
+    assert_eq!(meta["full"], json!(false));
+    assert_eq!(meta["events"], json!(1), "only post-compaction edits");
+    assert_eq!(records, vec![expected_record(EXPECTED_EVENT_LINES[5])]);
     reap(&mut mcp);
 }
 
@@ -684,13 +713,39 @@ fn todo_history_empty_session_id_resolves_to_the_most_recent_session() {
     let (mut mcp, _dir) = spawn_mcp();
     let (err, text) = mcp.call("todo_history", json!({}));
     assert!(!err, "the call succeeds: {text}");
-    let (header, events) = report_events(&text);
+    let (meta, records) = parsed_stream(&text);
     assert_eq!(
-        header["session_id"].as_str(),
+        meta["session_id"].as_str(),
         Some("ses_todo0000000000000000000001aa"),
-        "the most recent session by time_updated: {header}"
+        "the most recent session by time_updated: {meta}"
     );
-    assert_eq!(events.len(), 7);
+    assert_eq!(records.len(), 7);
+    reap(&mut mcp);
+}
+
+/// Under the cap the response is the bare array alone and NOTHING is
+/// retained: the streamed file (opened on every call) is deleted on finish.
+#[test]
+fn todo_history_under_the_cap_retains_no_overflow_file() {
+    let (mut mcp, _dir) = spawn_mcp();
+    let pid = mcp.child.id();
+    let (err, text) = mcp.call("todo_history", json!({"session_id": "ses_todo"}));
+    assert!(!err, "the call succeeds: {text}");
+    let (_, records) = parsed_stream(&text);
+    assert_eq!(records.len(), 7, "the whole stream fits the default cap");
+    let needle = format!("_{pid}_");
+    let leftovers: Vec<String> = std::fs::read_dir(total_recall::report_cap::temp_root())
+        .expect("the temp root is readable")
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            name.starts_with("todo_history_") && name.ends_with(".jsonl") && name.contains(&needle)
+        })
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "no overflow file survives an under-cap call: {leftovers:?}"
+    );
     reap(&mut mcp);
 }
 
@@ -733,14 +788,14 @@ fn todo_history_rejects_out_of_range_max_bytes_in_the_house_form() {
 }
 
 #[test]
-fn todo_history_report_is_flood_capped_with_marker_and_overflow_file() {
+fn todo_history_over_the_cap_is_prefix_array_marker_and_pure_jsonl_file() {
     let (mut mcp, _dir) = spawn_mcp();
-    // The full report is ~700 bytes; 512 caps it mid-stream.
+    // The full array (meta + 7 events) is ~1 KB; 512 caps it mid-stream.
     let (err, text) = mcp.call(
         "todo_history",
         json!({"session_id": "ses_todo", "max_bytes": 512}),
     );
-    assert!(!err, "a capped report is not an error: {text}");
+    assert!(!err, "a capped stream is not an error: {text}");
     assert!(
         text.contains("--- [EOF-TRUNCATED] ---"),
         "the marker is present: {text}"
@@ -758,21 +813,64 @@ fn todo_history_report_is_flood_capped_with_marker_and_overflow_file() {
         "the returned head respects the cap: {} bytes",
         head.len()
     );
-    assert!(head.starts_with('#'), "the head keeps the header line");
+    // The prefix is a valid JSON array cut at a record boundary — never torn.
+    let root: Value = serde_json::from_str(head).expect("the prefix array is valid JSON");
+    let items = root
+        .as_array()
+        .expect("the stream opens as a bare array, records only")
+        .clone();
+    assert!(!items.is_empty(), "the prefix keeps the meta record");
+    assert_eq!(items[0]["type"], "meta");
+    assert_eq!(items[0]["tool"], "todo_history");
+    assert_eq!(
+        items[0]["events"],
+        json!(7),
+        "the meta reports the whole stream, capped or not"
+    );
+    assert!(
+        items.len() >= 2,
+        "at least one event joins the fitting prefix: {} elements",
+        items.len()
+    );
+    assert!(
+        items.len() < 8,
+        "the stream is capped: {} of 8 records held",
+        items.len()
+    );
 
     let path_line = text
         .lines()
         .find(|l| l.starts_with("full_report: "))
         .expect("the marker names the full report path");
     let path = std::path::PathBuf::from(path_line.trim_start_matches("full_report: ").trim());
-    let whole = std::fs::read_to_string(&path).expect("the overflow file exists");
-    for expected in EXPECTED_EVENT_LINES {
-        assert!(
-            whole.contains(expected),
-            "the file holds every event: {whole}"
-        );
-    }
-    assert!(whole.starts_with('#'), "the file holds the header too");
+    let whole = std::fs::read_to_string(&path).expect("the overflow .jsonl exists");
+    assert!(
+        !whole.contains('#'),
+        "the file is pure JSONL — no `#` lines anywhere: {whole}"
+    );
+    let file: Vec<Value> = whole
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("every line parses as JSON — jq-clean"))
+        .collect();
+    assert_eq!(
+        file.len(),
+        8,
+        "meta + every event, even the ones the response dropped: {whole}"
+    );
+    assert_eq!(
+        file.iter().filter(|r| r["type"] == "todo_edit").count(),
+        7,
+        "the file holds all 7 events"
+    );
+    assert_eq!(
+        file[0], items[0],
+        "the file opens with the same meta record"
+    );
+    assert_eq!(
+        file[..items.len()],
+        items[..],
+        "the streamed prefix matches the response prefix"
+    );
     let _ = std::fs::remove_file(&path);
     reap(&mut mcp);
 }

@@ -1174,7 +1174,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "todo_history",
-        description = "Total-recall MCP tool: recover a session rollout's todo-list edits as a JSONL event stream — one compact JSON object per line {\"ts\",\"action\",\"todo\"[,\"status\"]}, in ts order. Replays every todowrite flush and emits the edits between consecutive list states: added, updated, the new status on a status change, or removed. full defaults to true (the whole rollout)."
+        description = "Total-recall MCP tool: recover a session rollout's todo-list edits as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"todo_history\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"events\":N,\"max_bytes\":N}, followed by one {\"type\":\"todo_edit\",\"ts\":\"…\",\"action\":\"…\",\"todo\":\"…\"[,\"status\":\"…\"]} record per edit, in ts order. Replays every todowrite flush and emits the edits between consecutive list states: added, updated, the new status on a status change, or removed. full defaults to true (the whole rollout)."
     )]
     async fn todo_history(
         &self,
@@ -1207,10 +1207,13 @@ impl TotalRecallServer {
             Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         };
         let events = crate::todo_history::diff_todo_states(&writes);
-        let text =
-            todo_history_report(&session_id, self.harness(), params.full, &events, max_bytes);
-        // The report can overflow: flood control caps it at max_bytes.
-        Ok(capped_text("todo_history", &session_id, text, max_bytes))
+        // The record stream through the shared sink at the caller's
+        // max_bytes: meta record 0, one todo_edit record per event. Errors
+        // (bad bounds, an unresolved session, a failed read) never enter the
+        // sink — everything above returned before the stream was built.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            todo_history_report(&session_id, self.harness(), params.full, &events, max_bytes),
+        )]))
     }
 
     #[tool(
@@ -1889,13 +1892,28 @@ fn listing_envelope(rows: &[&crate::ListingRow], window_count: usize, max_bytes:
     .unwrap_or_else(|_| "{}".to_string())
 }
 
-/// Assemble the `todo_history` report. Line 1 is a `#`-prefixed compact-JSON
-/// header carrying the session, harness, window, event count and byte cap;
-/// each subsequent line is one edit event, compact JSON, in ts order. The
-/// `#` prefix keeps the stream filterable (`grep -v '^#'`) and keeps flood
-/// control's line-boundary cut honest — an overflowing report returns the
-/// header plus as many whole event lines as `max_bytes` holds, then the EOF
-/// marker naming the overflow file.
+/// One `todo_edit` stream record: the event's fields plus the record
+/// stream's `type` discriminator, `status` omitted on a removal exactly as
+/// the pure JSONL event line omits it.
+#[derive(serde::Serialize)]
+struct TodoEditRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    ts: &'a str,
+    action: &'a str,
+    todo: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: &'a Option<String>,
+}
+
+/// Assemble the `todo_history` response through the dual-stream sink at the
+/// tool's `max_bytes` param. Record 0 is the meta record
+/// `{"type":"meta","tool":"todo_history","session_id":"…","harness":"…", "full":bool,"events":N,"max_bytes":N}`;
+/// every data record is a `todo_edit` — the event's fields plus the `type` discriminator — in ts
+/// order. The same records stream as pure JSONL to the overflow file:
+/// over `max_bytes` the fitting-prefix array is followed by the EOF marker
+/// naming that file, which holds ALL records; under the cap the bare array
+/// alone is returned and nothing is retained.
 fn todo_history_report(
     session_id: &str,
     harness: &str,
@@ -1903,22 +1921,26 @@ fn todo_history_report(
     events: &[crate::todo_history::TodoEditEvent],
     max_bytes: usize,
 ) -> String {
-    let header = serde_json::json!({
+    let mut sink = crate::jsonl_sink::JsonlSink::new("todo_history", session_id, max_bytes);
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "todo_history",
         "session_id": session_id,
         "harness": harness,
         "full": full,
         "events": events.len(),
         "max_bytes": max_bytes,
-    });
-    let mut out = String::new();
-    out.push('#');
-    out.push_str(&serde_json::to_string(&header).unwrap_or_else(|_| "{}".to_string()));
-    out.push('\n');
+    }));
     for e in events {
-        out.push_str(&serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string()));
-        out.push('\n');
+        sink.push(&TodoEditRecord {
+            record_type: "todo_edit",
+            ts: &e.ts,
+            action: &e.action,
+            todo: &e.todo,
+            status: &e.status,
+        });
     }
-    out
+    sink.finish()
 }
 
 /// Render one session's Q/A pairs for `extract_qa_pairs`: pairs in
