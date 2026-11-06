@@ -636,18 +636,22 @@ fn capped_text(tool: &str, scope: &str, text: String, max_bytes: usize) -> CallT
 impl TotalRecallServer {
     #[tool(
         name = "harness",
-        description = "Total-recall MCP tool: report which harness this server is bound to"
+        description = "Total-recall MCP tool: report which harness this server is bound to as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"harness\",\"harness\":\"…\"}, with no data records; the binding is the whole payload."
     )]
     async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
-        let json = serde_json::json!({ "harness": self.harness });
-        let json = serde_json::to_string_pretty(&json)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(capped_text(
+        let mut sink = crate::jsonl_sink::JsonlSink::new(
             "harness",
-            "harness",
-            json,
+            self.harness(),
             crate::report_cap::DEFAULT_MAX_BYTES,
-        ))
+        );
+        sink.push_meta(&serde_json::json!({
+            "type": "meta",
+            "tool": "harness",
+            "harness": self.harness
+        }));
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
 
     #[tool(

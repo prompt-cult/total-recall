@@ -366,3 +366,102 @@ fn mcp_sheep_errors_on_empty_query() {
 
     reap_mcp(&mut child, &cwd);
 }
+
+/// The `harness` tool's new-world record-stream contract: the response text is
+/// a bare compact JSON array — element 0 is the meta record carrying the
+/// harness name, and the array has exactly one element (the binding is the
+/// whole payload). The old pretty-object shape is dead; no compat shim.
+#[test]
+fn mcp_harness_tool_returns_the_bare_meta_array() {
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("opencode");
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1.0" }
+            }
+        }),
+    );
+    let init = read_response(&mut reader, 1);
+    assert!(
+        init.get("result").is_some(),
+        "initialize must succeed: {init}"
+    );
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }),
+    );
+
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "harness",
+                "arguments": {}
+            }
+        }),
+    );
+    let call = read_response(&mut reader, 2);
+    let result = call
+        .pointer("/result")
+        .expect("tools/call response must contain result");
+    assert!(
+        !result
+            .get("isError")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        "a plain binding report must not be a tool-level error: {result}"
+    );
+    let content_text: String = result
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    let value: serde_json::Value = serde_json::from_str(&content_text).unwrap_or_else(|e| {
+        panic!("the response must parse as BARE JSON, no prefix ({e}): {content_text:?}")
+    });
+    let array = value
+        .as_array()
+        .expect("the response must be a bare JSON array - the old pretty-object shape is dead");
+    assert_eq!(
+        array.len(),
+        1,
+        "the binding is the whole payload: exactly one element, got: {array:?}"
+    );
+    let meta = &array[0];
+    assert_eq!(
+        meta.get("type").and_then(|t| t.as_str()),
+        Some("meta"),
+        "element 0 carries the type discriminator: {meta}"
+    );
+    assert_eq!(
+        meta.get("tool").and_then(|t| t.as_str()),
+        Some("harness"),
+        "element 0 names the tool: {meta}"
+    );
+    assert_eq!(
+        meta.get("harness").and_then(|h| h.as_str()),
+        Some("opencode"),
+        "element 0 carries the harness name: {meta}"
+    );
+
+    reap_mcp(&mut child, &cwd);
+}

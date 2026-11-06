@@ -102,9 +102,11 @@ stderr so stdout stays machine-parseable.
 
 ### `harness`
 
-No parameters. Returns the harness this server is bound to, as JSON. The
-cheapest confirmation that a registration is right. No CLI equivalent — the CLI
-takes `--harness` explicitly.
+No parameters. Returns the harness this server is bound to as a JSONL record
+stream: a bare compact JSON array whose element 0 is the meta record
+`{"type":"meta","tool":"harness","harness":"…"}`, with no data records — the
+binding is the whole payload. The cheapest confirmation that a registration is
+right. No CLI equivalent — the CLI takes `--harness` explicitly.
 
 ### `help`
 
