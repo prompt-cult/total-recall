@@ -1,10 +1,11 @@
-//! Flood control: every MCP response that can overflow the caller's context
-//! is capped. An overflowing response is written whole to a private file
-//! under the user's temp directory, the returned text is cut at a line
-//! boundary (JSON is never torn — the marker returns alone), and the marker
-//! names the tool, byte counts, line count, the full file's path, the prune
-//! policy, and the file's line histogram (the vendored line_histogram.awk).
-//! Written RED, before the module existed.
+//! Flood control for the TEXT path: `help` (the skill markdown) and
+//! `line_histogram` (the awk table) keep the text cap — every record-shaped
+//! tool streams through the JSONL sink instead. An overflowing text response
+//! is written whole to a private file under the user's temp directory, the
+//! returned text is cut at a line boundary (a `{`-starting text gets the cut
+//! too — the JSON-never-torn rule is dead), and the marker names the tool,
+//! byte counts, line count, the full file's path, the prune policy, and the
+//! file's line histogram (the vendored line_histogram.awk).
 //!
 //! File-system-coupled assertions live in ONE test (`overflow_file_lifecycle`)
 //! because the temp root is shared, tests run concurrently in one process,
@@ -129,18 +130,28 @@ fn the_marker_carries_the_line_histogram() {
     );
 }
 
+/// The JSON-never-torn rule is DEAD: a text response that happens to start
+/// with `{` gets the line-boundary cut like any text — the marker never
+/// returns alone on the text path. (The record-shaped tools stream through
+/// the sink; nothing routed here is JSON any more.)
 #[test]
-fn json_is_never_torn_the_marker_returns_alone() {
+fn a_json_looking_text_response_gets_the_line_cut_not_the_marker_alone() {
     let out = cap(json_input(), 64);
+    let head = out.split("--- [EOF-TRUNCATED] ---").next().unwrap();
     assert!(
-        out.starts_with("--- [EOF-TRUNCATED] ---"),
-        "an overflowing JSON response must return the marker ALONE, got: {}",
-        &out[..out.len().min(120)]
+        !head.is_empty() && head.len() <= 64,
+        "a {{-starting text gets the cut at or under the cap, got {} bytes",
+        head.len()
+    );
+    assert!(head.ends_with('\n'), "the cut falls on a line boundary");
+    assert!(
+        out.contains("--- [EOF-TRUNCATED] ---"),
+        "the marker follows the cut head: {out}"
     );
 }
 
-/// The single owner of every file-system assertion: a text report and a JSON
-/// response overflow, their files carry the whole content (the JSON parses),
+/// The single owner of every file-system assertion: a text report and a
+/// json-looking text response overflow, their files carry the whole content,
 /// the files are private (mode 600), a past cutoff prunes nothing, a future
 /// cutoff prunes the overflow reports but never the vendored awk script.
 /// ctime cannot be backdated portably, so the cutoff moves, not the files.
@@ -171,10 +182,15 @@ fn overflow_file_lifecycle() {
 
     let out_json = cap(json.clone(), 64);
     let json_path = path_from_marker(&out_json);
-    assert!(json_path.exists(), "the json overflow file exists");
+    assert!(
+        json_path.exists(),
+        "the json-looking text overflow file exists"
+    );
     let written = std::fs::read_to_string(&json_path).unwrap();
-    assert_eq!(written, json, "the overflow file carries the whole JSON");
-    serde_json::from_str::<serde_json::Value>(&written).expect("the overflow JSON file must parse");
+    assert_eq!(
+        written, json,
+        "the overflow file carries the whole json-looking text"
+    );
 
     // precondition for the script-survival assertion below: the histogram
     // ran while capping, so the vendored script was staged.

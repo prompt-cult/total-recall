@@ -613,19 +613,13 @@ fn envelope_bounds(
     Ok((limit, offset, max_bytes, max_record_bytes))
 }
 
-/// Every tool's success text that can overflow WITHOUT its own bound passes
-/// through here: flood control is generic and open-ended, so a tool added
-/// tomorrow inherits the cap by calling this like every other tool does.
-/// Under `max_bytes` the text is returned untouched; over it the whole text
-/// is written to a private temp file and the return carries an EOF marker
-/// with the line histogram.
-///
-/// The bounded-extraction tools (`extract_messages`,
-/// `extract_user_messages`, `extract_by_type`) do NOT route through here:
-/// their responses carry their own envelope — `limit`, `offset`, `max_bytes`
-/// and `max_record_bytes` per call with an 8 MiB hard ceiling, explicit
-/// truncation notices and `next_offset` paging — which is their flood
-/// control. Double-capping would strangle the documented envelope contract.
+/// The TEXT path's success route — `help` (the skill markdown) and
+/// `line_histogram` (the awk table), the two tools whose outputs are
+/// genuinely not record streams. Under `max_bytes` the text is returned
+/// untouched; over it the whole text is written to a private temp file and
+/// the return is the line-boundary cut plus an EOF marker with the line
+/// histogram. Every record-shaped tool streams through the JSONL sink
+/// instead and never routes through here.
 fn capped_text(tool: &str, scope: &str, text: String, max_bytes: usize) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(crate::report_cap::cap_report(
         tool, scope, text, max_bytes,
@@ -656,7 +650,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "help",
-        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the standard capped_text flood-control path. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build."
+        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the text flood-control path — capped at max_bytes, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build."
     )]
     async fn help_tool(
         &self,

@@ -1,13 +1,16 @@
 //! Flood control for tool responses.
 //!
-//! Every MCP tool response that can overflow the caller's context passes
-//! through [`cap_report`]: a response under `max_bytes` is returned
-//! untouched; an overflowing response is written whole to a private file
-//! under the user's temp directory, the returned text is cut at a line
-//! boundary (JSON responses are never torn — the marker returns alone),
-//! and it ends with a line-oriented EOF marker naming the tool, the byte
-//! counts, the line count, the full file's path, the prune policy and the
-//! file's line histogram.
+//! Every record-shaped MCP tool response streams through
+//! [`crate::jsonl_sink::JsonlSink`] — the dual-stream record-boundary cut
+//! with pure-JSONL overflow files. [`cap_report`] is the surviving TEXT path
+//! for exactly two tools whose outputs are genuinely not record streams:
+//! `help` (the skill markdown) and `line_histogram` (the awk table). A text
+//! response under `max_bytes` is returned untouched; an overflowing response
+//! is written whole to a private `.md` file under the user's temp directory,
+//! the returned text is cut at a line boundary, and it ends with a
+//! line-oriented EOF marker naming the tool, the byte counts, the line
+//! count, the full file's path, the prune policy and the file's line
+//! histogram.
 //!
 //! The line histogram comes from the vendored `scripts/line_histogram.awk`
 //! (embedded at compile time), invoked with a direct `awk -f` spawn — the
@@ -207,15 +210,17 @@ pub fn overflow_file(tool: &str, scope: &str, ext: &str) -> PathBuf {
     ))
 }
 
-/// Flood control: cap `content` at `max_bytes`.
+/// Flood control for the two text-path tools — `help` (the skill markdown)
+/// and `line_histogram` (the awk table). Every record-shaped tool streams
+/// through [`crate::jsonl_sink::JsonlSink`] instead; nothing routed here is
+/// JSON any more.
 ///
 /// Under the cap the content is returned untouched. Over it, the full
 /// content is written to a private file (mode 600) under [`temp_root`], and
-/// the return is the content cut at a line boundary — unless the content
-/// is JSON, which is never torn: an overflowing JSON response returns the
-/// marker alone. The marker is line-oriented and names the tool, the
-/// returned and total byte counts, the total line count, the full file's
-/// path, the prune policy, and the file's line histogram.
+/// the return is the content cut at a line boundary, followed by the
+/// line-oriented marker naming the tool, the returned and total byte counts,
+/// the total line count, the full file's path, the prune policy, and the
+/// file's line histogram.
 ///
 /// Every capped call first prunes overflow files older than 24 hours.
 pub fn cap_report(tool: &str, scope: &str, content: String, max_bytes: usize) -> String {
@@ -233,24 +238,16 @@ pub fn cap_report(tool: &str, scope: &str, content: String, max_bytes: usize) ->
     write_private(&path, &content);
     let total_lines = content.lines().count();
 
-    let trimmed = content.trim_start();
-    let is_json = trimmed.starts_with('[') || trimmed.starts_with('{');
-    let head = if is_json {
-        // JSON is never torn: the marker returns alone and the whole,
-        // parseable JSON lives in the overflow file.
-        String::new()
-    } else {
-        // cut at a line boundary at or under the cap
-        let mut cut = max_bytes.min(total);
-        let bytes = content.as_bytes();
-        while cut > 0 && bytes[cut - 1] != b'\n' {
-            cut -= 1;
-        }
-        if cut == 0 {
-            cut = max_bytes.min(total);
-        }
-        content[..cut].to_string()
-    };
+    // cut at a line boundary at or under the cap
+    let mut cut = max_bytes.min(total);
+    let bytes = content.as_bytes();
+    while cut > 0 && bytes[cut - 1] != b'\n' {
+        cut -= 1;
+    }
+    if cut == 0 {
+        cut = max_bytes.min(total);
+    }
+    let head = content[..cut].to_string();
     let returned = head.len();
 
     let histogram = line_histogram(&path, None, None, None, None)
