@@ -1,6 +1,7 @@
 pub mod bound;
 pub mod harness;
 pub mod index;
+pub mod jsonl_sink;
 pub mod mcp;
 pub mod mercury;
 pub mod profile_cache;

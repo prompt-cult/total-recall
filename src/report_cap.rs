@@ -34,9 +34,10 @@ pub fn temp_root() -> PathBuf {
     std::env::temp_dir().join("total-recall")
 }
 
-/// Remove overflow report files (`.md`) older than `cutoff` from
-/// [`temp_root`]. The vendored awk script is never pruned. Trivial by
-/// design: no manifest, no locks — a sweep per capped call.
+/// Remove overflow report files (`.md`) and streamed JSONL overflow files
+/// (`.jsonl`) older than `cutoff` from [`temp_root`]. The vendored awk script
+/// is never pruned. Trivial by design: no manifest, no locks — a sweep per
+/// capped call.
 pub fn prune_older_than(cutoff: SystemTime) {
     prune_older_than_in(&temp_root(), cutoff);
 }
@@ -55,7 +56,11 @@ pub fn prune_older_than_in(root: &Path, cutoff: SystemTime) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_none_or(|e| e != "md") {
+        // The overflow files come in two flavors: the surviving text-path
+        // reports (`.md`) and the dual-stream JSONL sinks (`.jsonl`). Both
+        // are pruned on the same policy; anything else — in particular the
+        // vendored awk script — is left alone.
+        if path.extension().is_none_or(|e| e != "md" && e != "jsonl") {
             continue;
         }
         let Ok(meta) = entry.metadata() else {
@@ -184,7 +189,7 @@ pub fn line_histogram(
 /// alone collides; pid separates processes, the counter separates calls.
 static OVERFLOW_SEQ: AtomicU64 = AtomicU64::new(0);
 
-fn overflow_file(tool: &str, scope: &str) -> PathBuf {
+pub fn overflow_file(tool: &str, scope: &str, ext: &str) -> PathBuf {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -198,7 +203,7 @@ fn overflow_file(tool: &str, scope: &str) -> PathBuf {
     };
     let pid = std::process::id();
     temp_root().join(format!(
-        "{clean_tool}_{clean_scope}_{millis}_{pid}_{seq}.md"
+        "{clean_tool}_{clean_scope}_{millis}_{pid}_{seq}.{ext}"
     ))
 }
 
@@ -224,7 +229,7 @@ pub fn cap_report(tool: &str, scope: &str, content: String, max_bytes: usize) ->
         return content;
     }
 
-    let path = overflow_file(tool, scope);
+    let path = overflow_file(tool, scope, "md");
     write_private(&path, &content);
     let total_lines = content.lines().count();
 
