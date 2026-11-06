@@ -5,6 +5,58 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-11-06
+
+### Changed
+
+- **BREAKING, no migration path (alpha software, hard cutover): every
+  record-shaped MCP response is now a bare compact JSON array** cut at a
+  record boundary — element 0 is the meta record
+  `{"type":"meta","tool":"…",…}` and every later element is a data record
+  with a `type` discriminator (#450-#467). One record stream feeds two
+  sinks: the response array and, on overflow, a pure-JSONL file
+  (`$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600, 24h
+  prune) that carries ALL records even when the response is capped — so
+  `rg` finds, `jq` extracts (`select(.type=="row")`), and
+  `line_histogram` profiles the overflow. The old pretty-JSON-blob
+  responses, the `#`-header streams, the `type,timestamp,json` lines, the
+  marker-alone-for-JSON rule and the "even one record exceeds max_bytes"
+  error are gone.
+- `list_sessions` (#457): row records through the sink; the O(n²)
+  measured-fit loop is dead — and the sink's per-record admission ends
+  head-of-line blocking: one oversized row drops to the file while the
+  lean rows behind it still return. The meta carries `window_count` +
+  `max_bytes`; the cut is `records_returned`/`records_total` in the marker.
+- `extract_messages` / `extract_user_messages` / `extract_by_type`
+  (#461, #462): the single-line JSON envelope is dead — records + sidecar,
+  the paging inputs in the meta's `bounds`, overflow to the file instead
+  of the hard error.
+- `he_said_she_said_they_did` (#460): the `## HE SAID` prose report is
+  `he_said`/`she_said`/`they_did`/`compaction_boundary` records; the
+  CONTEXT section is the meta record.
+- `do_android_dream_of_electric_sheep` (#459): `index::search` returns a
+  structured `SearchOutcome`; hits stream as `type=hit` records
+  (`ts`/`thinking` fields); the CLI renders its own table.
+- `summarise_from` (#463) and `prior_period_summary` (#464): composed
+  parts stream as `type=section` records; the prior-period timing map is
+  the meta record (the `<!-- timing -->` comment is dead).
+- `harness`, `index_sessions`, `todo_history`, `summary_cache`,
+  `cache_delete_latest`, `profile_session`, `extract_qa_pairs`
+  (#451-#456, #458): the same record-stream contract.
+- Text-path survival (#465): `help` and `line_histogram` keep the text
+  cap (cut at a line boundary, `.md` overflow); `cap_report`'s
+  JSON-never-torn branch is deleted.
+- The skill carries the JSONL profiling recipes (#466): the sed marker
+  strip, `rg` find, `jq` extract, `line_histogram` profile and the
+  `fdfind` sweep — with the line-histogram article and gist linked.
+
+### Added
+
+- `jsonl_sink`: the dual-stream flood-control primitive (#450) — one
+  record stream, two sinks (the MCP array + the JSONL file).
+- `mise.toml`: binds the release binary as a mise tool
+  (`github:prompt-cult/total-recall = latest`).
+
 ## [0.20.0] - 2026-11-02
 
 ### Removed
