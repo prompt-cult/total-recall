@@ -207,7 +207,7 @@ pub struct QaPairsParams {
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
         range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
@@ -226,7 +226,7 @@ pub struct TodoHistoryParams {
     #[serde(default = "default_true")]
     pub full: bool,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
         range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
@@ -275,7 +275,7 @@ pub struct PriorPeriodSummaryParams {
     #[serde(default = "default_hours")]
     pub hours_back: i64,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
         range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
@@ -299,7 +299,7 @@ pub struct HeSaidSheSaidTheyDidParams {
     #[serde(default)]
     pub session_id: String,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
         range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]
@@ -438,7 +438,7 @@ pub struct SheepParams {
     #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
     pub directory: Option<String>,
     #[schemars(
-        description = "Flood-control cap on the returned report, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. An overflowing report is written whole to a private temp file and the return carries an EOF marker with its line histogram.",
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
         range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
     )]
     #[serde(default = "default_max_bytes")]

@@ -1,6 +1,9 @@
 //! Bounded extraction: shared primitives that keep any tool result under a
-//! hard byte ceiling so a large session can never crash an MCP client. Used by
-//! `extract_messages`, `extract_user_messages`, and `extract_by_type`.
+//! hard byte ceiling so a large session can never crash a client. The MCP
+//! record streams fit through the JSONL sink (`crate::jsonl_sink`); these
+//! primitives serve the CLI's own bounded extraction (stdout is a stream the
+//! `--max-bytes` flag bounds) and the window/clamp accounting the MCP layer
+//! shares.
 
 /// Default number of records returned when the caller gives no explicit bound.
 pub const DEFAULT_RECORD_LIMIT: usize = 100;
@@ -14,8 +17,6 @@ pub const MAX_BYTES_CEILING: usize = DEFAULT_MAX_BYTES;
 /// Per-record clamp for `content`/`thinking`, guarding a pathological
 /// multi-MiB single record. 0 = no clamp.
 pub const DEFAULT_MAX_RECORD_BYTES: usize = 256 * 1024;
-/// Reserve left for the envelope keys around the records.
-pub const ENVELOPE_RESERVE: usize = 8 * 1024;
 
 use crate::rollout::truncate_chars;
 use serde::Serialize;
