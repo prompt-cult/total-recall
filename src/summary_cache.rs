@@ -350,16 +350,96 @@ pub fn through_marker(shadow_root: &Path, session_id: &str) -> Option<CacheThrou
         })
 }
 
+/// One composed section of a summarise: the part's name (its ordinal and
+/// the id range/ts it covers) and its text. The cache footer is a named
+/// section too.
+pub struct Section {
+    pub name: String,
+    pub text: String,
+}
+
+/// The structured summarise outcome behind `summarise_from`: the composed
+/// sections plus the from_id the call ran with.
+pub struct SummariseOutcome {
+    pub from_id: u64,
+    pub sections: Vec<Section>,
+}
+
+/// The ledger's blocks as composed sections, oldest first, each named by its
+/// ordinal and the id range and timestamps it covers.
+fn sections_from_ledger(ledger: &[Block]) -> Vec<Section> {
+    ledger
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            let text = std::fs::read_to_string(&b.part_file).unwrap_or_default();
+            Section {
+                name: format!(
+                    "part {}: {} → {} (ids {}..{})",
+                    i + 1,
+                    b.from_ts,
+                    b.to_ts,
+                    b.from_id,
+                    b.to_id
+                ),
+                text: text.trim().to_string(),
+            }
+        })
+        .collect()
+}
+
 /// The explicit `summarise_from` flow, MCP and CLI: the caller names the id
 /// to start from and the guard refuses anything that
 /// is not exactly the first unsummarised id — one past the last block's
 /// `to_id`, or 1 with no blocks — in the house form naming the expected id.
+/// Returns the composed string (the CLI's human-facing form); the MCP layer
+/// streams [`summarise_from_sections`] instead.
 pub async fn summarise_from_id(
     adapter: &dyn crate::RolloutAdapter,
     session_id: &str,
     from_id: u64,
     requested_provider: Option<&str>,
 ) -> Result<String, String> {
+    let outcome = summarise_from_sections(adapter, session_id, from_id, requested_provider).await?;
+    Ok(render_outcome(&outcome))
+}
+
+/// The composed string for one outcome: the sections in order under their
+/// `###` names, then the `summary cache:` footer line. The untimestamped
+/// fallback's single `summary` section renders bare — the whole-session
+/// summary was never a `###` part and the CLI's output for it is unchanged.
+fn render_outcome(outcome: &SummariseOutcome) -> String {
+    let mut out = String::new();
+    for section in &outcome.sections {
+        if section.name == "summary_cache" {
+            out.push_str("\n\n---\nsummary cache: ");
+            out.push_str(&section.text);
+        } else if section.name == "summary" {
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(&section.text);
+        } else {
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str("### ");
+            out.push_str(&section.name);
+            out.push_str("\n\n");
+            out.push_str(&section.text);
+        }
+    }
+    out
+}
+
+/// The structured `summarise_from` flow: the same guard, the same store
+/// writes, the composed parts as named sections plus the cache footer.
+pub async fn summarise_from_sections(
+    adapter: &dyn crate::RolloutAdapter,
+    session_id: &str,
+    from_id: u64,
+    requested_provider: Option<&str>,
+) -> Result<SummariseOutcome, String> {
     let messages = adapter
         .read_session_mmap(session_id)
         .map_err(|e| e.to_string())?;
@@ -376,7 +456,7 @@ pub async fn summarise_from_id(
             ledger.last().map(|b| b.to_id).unwrap_or(0)
         ));
     }
-    summarise_delta(
+    summarise_delta_sections(
         &shadow_root,
         session_id,
         &messages,
@@ -388,34 +468,48 @@ pub async fn summarise_from_id(
 
 /// The shared delta path behind `summarise_from`:
 /// summarise messages `from_id..=max id`, store the block, return the
-/// composed parts plus the footer. A tail with no timestamps cannot key a
+/// composed sections plus the footer. A tail with no timestamps cannot key a
 /// block, so it falls back to a whole-session summarise that touches no
 /// files — the same rule an untimestamped session has always had.
-async fn summarise_delta(
+async fn summarise_delta_sections(
     shadow_root: &Path,
     session_id: &str,
     messages: &[crate::RolloutMessage],
     from_id: u64,
     requested_provider: Option<&str>,
-) -> Result<String, String> {
+) -> Result<SummariseOutcome, String> {
     let Some((first_ts, last_ts)) = bounds(messages) else {
-        return summarise_whole(requested_provider, messages.to_vec()).await;
+        let text = summarise_whole(requested_provider, messages.to_vec()).await?;
+        return Ok(SummariseOutcome {
+            from_id,
+            sections: vec![Section {
+                name: "summary".to_string(),
+                text,
+            }],
+        });
     };
     let slice = &messages[(from_id - 1) as usize..];
     if slice.is_empty() {
         // The caller asked to start past the session's end: everything is
         // covered, so the composition is the answer and no provider runs.
         let ledger = read_ledger(&ledger_path(shadow_root, session_id));
-        let mut out = compose(&ledger);
-        out.push_str(&format!(
-            "\n\n---\nsummary cache: {} part(s), {first_ts} → {last_ts}",
-            ledger.len()
-        ));
-        return Ok(out);
+        let mut sections = sections_from_ledger(&ledger);
+        sections.push(Section {
+            name: "summary_cache".to_string(),
+            text: format!("{} part(s), {first_ts} → {last_ts}", ledger.len()),
+        });
+        return Ok(SummariseOutcome { from_id, sections });
     }
     if bounds(slice).is_none() {
         // The uncovered tail carries no timestamps: it cannot key a block.
-        return summarise_whole(requested_provider, messages.to_vec()).await;
+        let text = summarise_whole(requested_provider, messages.to_vec()).await?;
+        return Ok(SummariseOutcome {
+            from_id,
+            sections: vec![Section {
+                name: "summary".to_string(),
+                text,
+            }],
+        });
     }
 
     let text = llm_summary(requested_provider, slice).await?;
@@ -423,12 +517,12 @@ async fn summarise_delta(
         .map_err(|e| format!("summary cache write failed: {e}"))?;
 
     let ledger = read_ledger(&ledger_path(shadow_root, session_id));
-    let mut out = compose(&ledger);
-    out.push_str(&format!(
-        "\n\n---\nsummary cache: {} part(s), {first_ts} → {last_ts}",
-        ledger.len()
-    ));
-    Ok(out)
+    let mut sections = sections_from_ledger(&ledger);
+    sections.push(Section {
+        name: "summary_cache".to_string(),
+        text: format!("{} part(s), {first_ts} → {last_ts}", ledger.len()),
+    });
+    Ok(SummariseOutcome { from_id, sections })
 }
 
 async fn llm_summary(

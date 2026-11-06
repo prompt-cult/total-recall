@@ -565,9 +565,20 @@ last cached block's `to_id`, or `1` with no blocks. Anything else is an
 error in the house form naming the expected id, so a caller that has not
 seen `summary_cache` cannot guess. On success the messages from `from_id`
 to the session's end are summarised, stored as a new block (part file plus
-ledger row), and the tool returns the composed parts — each named
-`### part N: from_ts → to_ts (ids from_id..to_id)` — plus the
-`summary cache:` footer with the new block counted in.
+ledger row), and the tool returns a record stream: a bare compact JSON
+array whose element 0 is the meta record
+`{"type":"meta","tool":"summarise_from","session_id":"…","from_id":N}`,
+followed by one `type=section` record per composed part and the cache
+footer as a named section:
+
+```json
+[{"type":"meta","tool":"summarise_from","session_id":"ses_…","from_id":5},
+ {"type":"section","name":"part 1: … → … (ids 1..4)","text":"…"},
+ {"type":"section","name":"summary_cache","text":"2 part(s), … → …"}]
+```
+
+A call whose tail is already covered (everything summarised) serves the
+cache without an LLM call — the same section records, nothing written.
 
 Rollback is explicit too: `cache_delete_latest` deletes the newest block
 (ledger row and part file) and returns the new cache status; call it twice

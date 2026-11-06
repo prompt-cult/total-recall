@@ -719,3 +719,66 @@ fn cache_delete_latest_rolls_back_through_the_record_stream() {
     );
     reap(&mut mcp);
 }
+
+/// summarise_from's record-stream contract on the covered-tail path (no LLM
+/// call, the cache serves): the meta names the tool and the from_id, every
+/// composed part is a section record, and the cache footer is a named
+/// section. The guard error path is unchanged (a separate pin).
+#[test]
+fn summarise_from_streams_section_records_on_the_covered_tail() {
+    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+    // Two blocks cover ids 1..=4 of the 4-message fixture: from_id 5 is
+    // past the end — the covered tail serves the cache without an LLM.
+    let (is_error, text) = mcp.call(
+        "summarise_from",
+        serde_json::json!({"session_id": "ses_summ", "from_id": 5}),
+    );
+    assert!(!is_error, "the covered tail serves the cache: {text}");
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("the response parses as BARE JSON ({e}): {text:?}"));
+    let array = value
+        .as_array()
+        .expect("the response is a bare record array");
+    let meta = &array[0];
+    assert_eq!(meta["type"], "meta", "{meta}");
+    assert_eq!(meta["tool"], "summarise_from", "{meta}");
+    assert_eq!(meta["session_id"], SID, "{meta}");
+    assert_eq!(meta["from_id"], 5, "{meta}");
+    let sections = &array[1..];
+    assert_eq!(
+        sections.len(),
+        3,
+        "two composed parts plus the cache footer: {sections:?}"
+    );
+    for section in sections {
+        assert_eq!(section["type"], "section", "{section}");
+        assert!(section.get("name").is_some(), "{section}");
+        assert!(section.get("text").is_some(), "{section}");
+    }
+    assert!(
+        sections[0]["name"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("part 1:"),
+        "the part names carry the id range: {sections:?}"
+    );
+    assert_eq!(
+        sections[2]["name"].as_str(),
+        Some("summary_cache"),
+        "the cache footer is a named section: {sections:?}"
+    );
+    assert!(
+        sections[2]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("2 part(s)"),
+        "the footer counts the blocks: {sections:?}"
+    );
+    assert!(
+        serde_json::to_string(&array)
+            .unwrap()
+            .contains("first summary"),
+        "the part texts are the composed parts: {array:?}"
+    );
+    reap(&mut mcp);
+}

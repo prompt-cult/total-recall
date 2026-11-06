@@ -1278,7 +1278,7 @@ impl TotalRecallServer {
 
     #[tool(
         name = "summarise_from",
-        description = "Total-recall MCP tool: summarise a session from an explicit 1-based message id. The guard: from_id must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks — anything else is an error naming the expected id, so run summary_cache first. On success the messages from from_id to the session's end are summarised, stored as a new block, and the composed parts plus the cache footer are returned. Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
+        description = "Total-recall MCP tool: summarise a session from an explicit 1-based message id, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summarise_from\",\"session_id\":\"…\",\"from_id\":N}, followed by one {\"type\":\"section\",\"name\":\"part N: from_ts → to_ts (ids from..to)\",\"text\":\"…\"} record per composed part and the cache footer as a named section (name summary_cache). The guard: from_id must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks — anything else is an error naming the expected id, so run summary_cache first. On success the messages from from_id to the session's end are summarised and stored as a new block; a tail that is already covered serves the cache without an LLM call. Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
     )]
     async fn summarise_from(
         &self,
@@ -1304,15 +1304,37 @@ impl TotalRecallServer {
                 "No sessions found".to_string(),
             )]));
         }
-        match crate::summary_cache::summarise_from_id(adapter.as_ref(), &session_id, from_id, None)
-            .await
+        match crate::summary_cache::summarise_from_sections(
+            adapter.as_ref(),
+            &session_id,
+            from_id,
+            None,
+        )
+        .await
         {
-            Ok(text) => Ok(capped_text(
-                "summarise_from",
-                &session_id,
-                text,
-                crate::report_cap::DEFAULT_MAX_BYTES,
-            )),
+            Ok(outcome) => {
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "summarise_from",
+                    &session_id,
+                    crate::report_cap::DEFAULT_MAX_BYTES,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "summarise_from",
+                    "session_id": session_id,
+                    "from_id": outcome.from_id,
+                }));
+                for section in &outcome.sections {
+                    sink.push(&SectionRecord {
+                        record_type: "section",
+                        name: &section.name,
+                        text: &section.text,
+                    });
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
     }
@@ -1861,6 +1883,16 @@ struct RowRecord<'a> {
     record_type: &'a str,
     #[serde(flatten)]
     row: &'a crate::ListingRow,
+}
+
+/// One summarise section record: the composed part's name and text under the
+/// record stream's `type` discriminator; the cache footer is a named section.
+#[derive(serde::Serialize)]
+struct SectionRecord<'a> {
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    name: &'a str,
+    text: &'a str,
 }
 
 /// One `todo_edit` stream record: the event's fields plus the record
