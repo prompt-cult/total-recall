@@ -5,6 +5,38 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-11-07
+
+### Added
+
+- **`chat_with_mercury` (MCP) / `chat` (CLI) — the one-call key check**
+  (#508, prompt-cult/total-recall#50). One call that chats with Mercury 3 and
+  returns the response, the speed and the tokens as data. THE KEY GUARD RUNS
+  FIRST: a missing or EMPTY `INCEPTION_API_KEY` is refused at the front door
+  with the three setup places named — the MCP config's
+  `mcp.total-recall.environment` block, `export INCEPTION_API_KEY=…` in the
+  shell, a `.env` at or above the working directory — and the request is
+  never attempted (no more mid-flow key failures misread as a broken setup).
+  Params: `message` (required), `max_tokens` (default 4000, ceiling 32000),
+  `system` (optional). The MCP response is the record-stream contract: meta
+  `{model, max_tokens}` + `{"type":"reply","text":…,"elapsed_s":…,
+  "prompt_tokens":…,"completion_tokens":…,"total_tokens":…,"finish_reason":…}`.
+  The provider gains `MercuryProvider::chat_once` (single-shot, same
+  429/5xx handling) and the response parser now reads `usage`. CLI:
+  `total-recall chat <message> [--max-tokens N] [--system …]` prints the
+  reply, the elapsed time and the token counts. Docs: `docs/src/tools.md`,
+  `docs/src/mcp-setup.md` (the key-check story), the skill table +
+  key-check recipe.
+
+### Fixed
+
+- The Mercury 3 reasoning-budget failure (#507, 5e4d320): the completion
+  budget was 4000 while Mercury 3's encrypted reasoning draws from the same
+  budget first — a big prompt starved content and returned the vague "no
+  content". Now max_tokens 32000 (probed live: accepted, and the model
+  reasons LESS with headroom), and the no-content error names
+  `finish_reason` and the knob instead of nothing.
+
 ## [0.21.1] - 2026-11-06
 
 ### Changed
