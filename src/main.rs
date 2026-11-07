@@ -84,7 +84,7 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// List rollouts for a harness: `--hours N >= 1` is the scoped listing
     /// (the window and the 200-row cap applied where the data lives, held-back
@@ -145,6 +145,21 @@ pub enum Command {
     /// the work after that boundary
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
+    /// THE one-call key check: chat once with Mercury and print the reply,
+    /// the elapsed time and the token counts. Missing or empty
+    /// INCEPTION_API_KEY fails at the front door naming the setup places —
+    /// the request is never attempted
+    Chat {
+        /// The text to send to Mercury
+        message: String,
+        /// The completion budget for the reply, tokens (default 4000,
+        /// ceiling 32000 — a reasoning model draws from the budget first)
+        #[arg(long)]
+        max_tokens: Option<u32>,
+        /// Optional system prompt
+        #[arg(long)]
+        system: Option<String>,
+    },
     /// Build/refresh per-session tantivy shadow indexes
     Index {
         /// Session ID (partial match, repeatable). Empty = all rollouts within --hours.
@@ -328,6 +343,58 @@ async fn main() -> Result<()> {
         let server = total_recall::mcp::TotalRecallServer::with_harness(harness);
         let service = server.serve(stdio()).await?;
         service.waiting().await?;
+        return Ok(());
+    }
+
+    // `chat` is harness-free: it never touches the rollout stores, so it sits
+    // beside `mcp` and ahead of the --harness requirement.
+    if let Some((message, max_tokens, system)) = match &cli.command {
+        Command::Chat {
+            message,
+            max_tokens,
+            system,
+        } => Some((message.clone(), *max_tokens, system.clone())),
+        _ => None,
+    } {
+        let max_tokens = match max_tokens {
+            Some(n) if n > 32000 => {
+                eprintln!("error: max_tokens {n} exceeds the 32000 ceiling");
+                std::process::exit(2);
+            }
+            other => other.unwrap_or(4000),
+        };
+        if let Err(e) = total_recall::mercury::check_inception_key() {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+        let provider = provider_for(None).unwrap_or_else(|e| {
+            eprintln!("error: {e:#}");
+            std::process::exit(2);
+        });
+        match provider
+            .chat_once(system.as_deref().unwrap_or(""), &message, max_tokens)
+            .await
+        {
+            Ok(outcome) => {
+                println!("{}", outcome.text);
+                println!(
+                    "--- {}s elapsed, {} prompt + {} completion = {} tokens, finish_reason: {}",
+                    format_args!("{:.2}", outcome.elapsed_s),
+                    outcome.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                    outcome
+                        .usage
+                        .as_ref()
+                        .map(|u| u.completion_tokens)
+                        .unwrap_or(0),
+                    outcome.usage.as_ref().map(|u| u.total_tokens).unwrap_or(0),
+                    outcome.finish_reason.as_deref().unwrap_or("unknown"),
+                );
+            }
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                std::process::exit(2);
+            }
+        }
         return Ok(());
     }
 
@@ -834,6 +901,7 @@ async fn main() -> Result<()> {
         },
 
         Command::Mcp => {}
+        Command::Chat { .. } => {}
     }
 
     Ok(())

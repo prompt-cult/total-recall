@@ -16,6 +16,7 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 
 | MCP tool | CLI | What it does |
 |---|---|---|
+| `total-recall_chat_with_mercury` | `chat` | THE one-call key check: chat with Mercury 3, get the response, the speed and the tokens (`elapsed_s`, the token counts, `finish_reason`) as `type=reply` records; missing or empty key fails at the front door naming the setup places |
 | `total-recall_summary_cache` | `summary-cache` | read-only introspection of a session's summary cache as a record stream: meta carries the unsummarised tail, then one `type=block` record per cached block. Never calls the LLM |
 | `total-recall_summarise_from` | `summarise-from` | Mercury 3 structured summary from an explicit 1-based message id; the guard requires the first unsummarised id (one past the last cached block's `to_id`, or 1) and errors naming it otherwise; returns `type=section` records per composed part + the cache footer |
 | `total-recall_cache_delete_latest` | `cache-delete-latest` | roll the summary cache back one block (newest ledger row + part file deleted) and return the same record stream as summary_cache; no blocks = error |
@@ -120,6 +121,22 @@ Sweep the recent overflow files (the fdfind one-liner):
 fdfind -H -t f -e jsonl --changed-within 1d . "$TMPDIR/total-recall" \
   | while read -r f; do echo "=== $f ==="; total-recall line-histogram "$f"; done
 ```
+
+## The key-check recipe
+
+Before blaming a missing key for an LLM-backed tool's failure, make the
+one-call check:
+
+```bash
+total-recall chat "hello"
+```
+
+Or the MCP form, `chat_with_mercury` with `{"message": "hello"}`. The reply
+record carries the response, `elapsed_s`, the token counts and
+`finish_reason` — key, response, speed and tokens in one call. Missing or
+empty key: the error names the three setup places (the MCP environment
+block, `export INCEPTION_API_KEY=…` in the shell, a `.env` at or above the
+working directory) and no request is attempted.
 
 References: [Line histogram — the file profiler you didn't know you
 needed](https://dev.to/simbo1905/line-histogram-the-file-profiler-you-didnt-know-you-needed-38oi)

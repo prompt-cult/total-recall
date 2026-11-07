@@ -41,8 +41,19 @@ The registration snippet's environment block carries two entries:
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
 tools, `index_sessions`,
 `do_android_dream_of_electric_sheep`, `he_said_she_said_they_did`, `help`) need
-no key. Only `prior_period_summary`
-reads it.
+no key. `prior_period_summary`, `summarise_from` and
+`chat_with_mercury` read it.
+
+## The one-call key check
+
+`chat_with_mercury` is THE way to check the key is installed and working: one
+call that chats with Mercury 3 and returns the response, the speed and the
+tokens as data (`elapsed_s`, `prompt_tokens`, `completion_tokens`,
+`total_tokens`, `finish_reason`). If the key is missing or empty the tool
+fails at the front door with the setup places named — the MCP environment
+block above, `export INCEPTION_API_KEY=…` in the shell, or a `.env` at or
+above the working directory — and never attempts the request. The CLI
+form: `total-recall chat "hello"`.
 
 ### Mistral Vibe
 

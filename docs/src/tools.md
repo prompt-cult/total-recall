@@ -595,6 +595,35 @@ total-recall --harness <h> --session <id> cache-delete-latest
 
 ## LLM-backed tools
 
+### `chat_with_mercury`
+
+The one-call key check: chat with Mercury 3 and see the response, the speed
+and the tokens. The cheapest possible check that `INCEPTION_API_KEY` is
+installed and working — run it at the front door, never mid-flow.
+
+Params: `message` (required, the text to send), `max_tokens` (optional,
+default 4000, ceiling 32000), `system` (optional).
+
+THE KEY GUARD RUNS FIRST: before any request is built the key is read
+(env, then the `.env` walk-up) — missing or EMPTY and the call is refused
+with the house error naming the three setup places, and no request is ever
+attempted:
+
+1. the MCP config's `mcp.total-recall.environment` block
+   (see `docs/src/mcp-setup.md`) — for the MCP tools;
+2. `export INCEPTION_API_KEY=…` in the shell (zshenv) — for the CLI;
+3. a `.env` at or above the working directory.
+
+The response is a record stream: a bare compact JSON array whose element 0
+is `{"type":"meta","tool":"chat_with_mercury","model":"mercury-3","max_tokens":N}`,
+followed by one `{"type":"reply","text":"…","elapsed_s":F,"prompt_tokens":N,
+"completion_tokens":N,"total_tokens":N,"finish_reason":"…"}` record — the
+response, the speed and the tokens, as data. Over `max_bytes` the
+fitting-prefix array is followed by the EOF marker as everywhere else.
+
+CLI: `total-recall chat <message> [--max-tokens N] [--system …]` — prints
+the reply, the elapsed time and the token counts (human-facing stdout).
+
 ### `prior_period_summary`
 
 An orientation summary of a prior period of work. The period is the work

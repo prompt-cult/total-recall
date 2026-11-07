@@ -151,6 +151,7 @@ struct ChatMessage {
 #[derive(Debug, Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
+    usage: Option<Usage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +163,51 @@ struct Choice {
 #[derive(Debug, Deserialize)]
 struct ResponseMessage {
     content: Option<String>,
+}
+
+/// The token accounting the API returns with every completion.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Usage {
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
+}
+
+/// One one-shot chat completion: the reply text, the wall-clock time it took,
+/// the token accounting and the API's `finish_reason`. The shape
+/// `chat_with_mercury` returns as data — the response, the speed, the tokens.
+#[derive(Debug, Clone)]
+pub struct ChatOnce {
+    pub text: String,
+    pub elapsed_s: f64,
+    pub usage: Option<Usage>,
+    pub finish_reason: Option<String>,
+}
+
+/// The house key-guard error: names WHERE to set `INCEPTION_API_KEY`, for
+/// whichever path the caller came in by. An EMPTY key string is the same as
+/// missing. This runs BEFORE any provider construction, so the setup help is
+/// never buried under a mid-flow API failure.
+pub fn check_inception_key() -> Result<(), String> {
+    let _ = dotenvy::dotenv();
+    let key = std::env::var("INCEPTION_API_KEY");
+    match key {
+        Ok(k) if !k.trim().is_empty() => Ok(()),
+        Ok(_) => Err(missing_key_error("set but EMPTY")),
+        Err(_) => Err(missing_key_error("not set")),
+    }
+}
+
+fn missing_key_error(state: &str) -> String {
+    format!(
+        "INCEPTION_API_KEY is {state}. Set it in one of three places, then retry: \
+(1) the MCP client config's mcp environment block — see docs/src/mcp-setup.md; \
+(2) export INCEPTION_API_KEY=… in the shell (zshenv) — for the CLI; \
+(3) a .env file at or above the working directory. Use `chat_with_mercury` (CLI: `chat`) to verify."
+    )
 }
 
 /// Mercury 3 provider for compaction.
@@ -235,6 +281,119 @@ impl MercuryProvider {
     /// Send one prompt through the guarded request path.
     pub async fn compact(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         self.send_guarded(system_prompt, user_prompt).await
+    }
+
+    /// One-shot chat completion with the response's own `max_tokens` budget:
+    /// the thin variant of [`MercuryProvider::compact`] — no batch machinery,
+    /// no input-cap theatre (a chat message is small by construction) — but
+    /// the same 429/5xx handling, and the same no-content diagnostics as
+    /// `send_guarded` (finish_reason named, the knob pointed at). Returns the
+    /// [`ChatOnce`] record the `chat_with_mercury` tool returns as data.
+    pub async fn chat_once(&self, system: &str, user: &str, max_tokens: u32) -> Result<ChatOnce> {
+        let system = redact_secrets(system);
+        let user = redact_secrets(user);
+        #[cfg(feature = "mercury")]
+        let is_mercury_api = self.api_url == MERCURY_API_URL;
+        #[cfg(not(feature = "mercury"))]
+        let is_mercury_api = false;
+        let request = ChatRequest {
+            model: self.model.clone(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user,
+                },
+            ],
+            temperature: 0.1,
+            max_tokens,
+            reasoning_effort: if is_mercury_api {
+                Some("low".to_string())
+            } else {
+                None
+            },
+        };
+
+        let client = reqwest::Client::new();
+        let started = std::time::Instant::now();
+        let mut retries_429 = 0usize;
+        let mut retries_5xx = 0usize;
+        loop {
+            let resp = client
+                .post(&self.api_url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .timeout(REQUEST_TIMEOUT)
+                .send()
+                .await?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if retries_429 >= MAX_429_RETRIES {
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!(
+                        "Mercury rate limit: still 429 Too Many Requests after {MAX_429_RETRIES} retries: {}",
+                        body
+                    ));
+                }
+                retries_429 += 1;
+                let fallback = Duration::from_secs(1 << (retries_429 - 1));
+                let delay = retry_after_or(resp.headers(), fallback);
+                tracing::warn!(
+                    "Mercury 429 (retry {retries_429}/{MAX_429_RETRIES}); backing off {:?}",
+                    delay
+                );
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+            if status.is_server_error() {
+                if retries_5xx >= MAX_5XX_RETRIES {
+                    let body = resp.text().await.unwrap_or_default();
+                    return Err(anyhow!(
+                        "Mercury API error {} after {MAX_5XX_RETRIES} retries: {}",
+                        status,
+                        body
+                    ));
+                }
+                retries_5xx += 1;
+                tracing::warn!(
+                    "Mercury 5xx {} (retry {retries_5xx}/{MAX_5XX_RETRIES}); retrying in {:?}",
+                    status,
+                    RETRY_5XX_DELAY
+                );
+                tokio::time::sleep(RETRY_5XX_DELAY).await;
+                continue;
+            }
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                return Err(anyhow!("Mercury API error {}: {}", status, body));
+            }
+            let chat_response: ChatResponse = resp.json().await?;
+            let choice = chat_response
+                .choices
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("Mercury returned no choices"))?;
+            let finish_reason = choice.finish_reason;
+            let text = match choice.message.content {
+                Some(content) => content,
+                None => {
+                    return Err(anyhow!(
+                        "Mercury returned no content (finish_reason: {}; a reasoning model can consume the completion budget before any content is produced — raise max_tokens)",
+                        finish_reason.as_deref().unwrap_or("unknown")
+                    ));
+                }
+            };
+            return Ok(ChatOnce {
+                text,
+                elapsed_s: started.elapsed().as_secs_f64(),
+                usage: chat_response.usage,
+                finish_reason,
+            });
+        }
     }
 
     /// Run several prompts through the guarded request path under a

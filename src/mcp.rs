@@ -256,6 +256,22 @@ pub struct SummariseFromParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct ChatWithMercuryParams {
+    #[schemars(description = "The text to send to Mercury 3.")]
+    pub message: String,
+    #[schemars(
+        description = "The completion budget for the reply, tokens (a reasoning model draws from it first). Default 4000; ceiling 32000.",
+        range(min = 1, max = 32000)
+    )]
+    #[serde(default)]
+    pub max_tokens: Option<i64>,
+    #[schemars(description = "Optional system prompt.")]
+    #[serde(default)]
+    pub system: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CacheDeleteLatestParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -1330,6 +1346,74 @@ impl TotalRecallServer {
                 )]))
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[tool(
+        name = "chat_with_mercury",
+        description = "Total-recall MCP tool: THE one-call key check — chat once with Mercury 3 and get the response, the speed and the tokens as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"chat_with_mercury\",\"model\":\"mercury-3\",\"max_tokens\":N}, followed by {\"type\":\"reply\",\"text\":\"…\",\"elapsed_s\":F,\"prompt_tokens\":N,\"completion_tokens\":N,\"total_tokens\":N,\"finish_reason\":\"…\"}. The key guard runs FIRST: INCEPTION_API_KEY missing or empty and the call is refused with the setup places named — the MCP environment block (docs/src/mcp-setup.md), export INCEPTION_API_KEY=… in the shell, or a .env at/above the working directory — and the request is never attempted. Params: message (required), max_tokens (default 4000, ceiling 32000), system (optional)."
+    )]
+    async fn chat_with_mercury(
+        &self,
+        Parameters(params): Parameters<ChatWithMercuryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The key guard first: the request is never built without the key, so
+        // the failure is always the front-door setup help, never mid-flow.
+        if let Err(e) = crate::mercury::check_inception_key() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
+        }
+        let max_tokens = match number(
+            "chat_with_mercury",
+            "max_tokens",
+            params.max_tokens.unwrap_or(4000),
+            1,
+            32000,
+            "pass max_tokens from 1 to 32000, or omit it for the default 4000",
+        ) {
+            Ok(v) => v as u32,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let provider = match provider_for(None) {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{e:#}"
+                ))]));
+            }
+        };
+        match provider
+            .chat_once(&params.system, &params.message, max_tokens)
+            .await
+        {
+            Ok(outcome) => {
+                let usage = outcome.usage;
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "chat_with_mercury",
+                    "chat",
+                    crate::report_cap::DEFAULT_MAX_BYTES,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "chat_with_mercury",
+                    "model": "mercury-3",
+                    "max_tokens": max_tokens,
+                }));
+                sink.push(&serde_json::json!({
+                    "type": "reply",
+                    "text": outcome.text,
+                    "elapsed_s": outcome.elapsed_s,
+                    "prompt_tokens": usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                    "completion_tokens": usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                    "total_tokens": usage.as_ref().map(|u| u.total_tokens).unwrap_or(0),
+                    "finish_reason": outcome.finish_reason,
+                }));
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "{e:#}"
+            ))])),
         }
     }
 
