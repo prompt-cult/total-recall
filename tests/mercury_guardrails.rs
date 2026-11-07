@@ -21,6 +21,10 @@ struct Step {
     status: u16,
     retry_after: Option<String>,
     delay_ms: u64,
+    /// A raw JSON body override: when set, it is served verbatim instead of
+    /// the standard `chat_json` shape — for pinning the response shapes the
+    /// real vendor produces (e.g. Mercury 3's reasoning-first null content).
+    body: Option<String>,
 }
 
 fn step(status: u16) -> Step {
@@ -28,6 +32,17 @@ fn step(status: u16) -> Step {
         status,
         retry_after: None,
         delay_ms: 0,
+        body: None,
+    }
+}
+
+/// A step serving a raw JSON body verbatim — the response-shape pins.
+fn step_body(status: u16, body: &str) -> Step {
+    Step {
+        status,
+        retry_after: None,
+        delay_ms: 0,
+        body: Some(body.to_string()),
     }
 }
 
@@ -144,7 +159,10 @@ async fn spawn_mock(steps: Vec<Step>) -> MockServer {
                 if s.delay_ms > 0 {
                     tokio::time::sleep(Duration::from_millis(s.delay_ms)).await;
                 }
-                let body = chat_json(&content);
+                let body = match &s.body {
+                    Some(raw) => raw.clone(),
+                    None => chat_json(&content),
+                };
                 let reason = match s.status {
                     200 => "OK",
                     429 => "Too Many Requests",
@@ -184,6 +202,7 @@ fn step_with_retry_after(status: u16, retry_after: &str) -> Step {
         status,
         retry_after: Some(retry_after.to_string()),
         delay_ms: 0,
+        body: None,
     }
 }
 
@@ -448,6 +467,7 @@ async fn compact_batch_runs_in_parallel_and_returns_input_order() {
         status: 200,
         retry_after: None,
         delay_ms: 100,
+        body: None,
     }])
     .await;
     let p = mock_provider(mock.url.clone());
@@ -504,4 +524,37 @@ async fn batch_with_oversized_prompt_errs_naming_index() {
     let msg = format!("{err:#}");
     assert!(msg.contains("index 1"), "must name offending index: {msg}");
     assert_eq!(mock.request_count(), 0, "cap check happens before sending");
+}
+
+/// Mercury 3's reasoning-first shape, probed live against the real API
+/// (2026-11-06): the completion budget is consumed by ENCRYPTED reasoning
+/// (`reasoning_details`, `reasoning_tokens`) before any content is produced,
+/// and when the budget runs out mid-reasoning the response carries
+/// `"content": null` with `finish_reason: "length"`. The old error —
+/// "Mercury returned no content" — was so vague an agent misread it as a
+/// missing INCEPTION_API_KEY. The error must name the finish_reason and the
+/// knob. Written RED.
+#[tokio::test]
+async fn a_null_content_length_finish_error_names_the_completion_budget() {
+    let mock = spawn_mock(vec![step_body(
+        200,
+        r#"{"choices":[{"message":{"role":"assistant","content":null},"finish_reason":"length"}]}"#,
+    )])
+    .await;
+    let p = mock_provider(mock.url.clone());
+
+    let err = p.compact("system", "hello").await.expect_err("must err");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("length"),
+        "the error must name the finish_reason: {msg}"
+    );
+    assert!(
+        msg.contains("max_tokens"),
+        "the error must name the knob that fixes it: {msg}"
+    );
+    assert!(
+        msg.contains("reason"),
+        "the error must say WHY (the reasoning budget): {msg}"
+    );
 }

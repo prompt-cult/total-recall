@@ -156,6 +156,7 @@ struct ChatResponse {
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: ResponseMessage,
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,7 +348,13 @@ impl MercuryProvider {
                 },
             ],
             temperature: 0.1,
-            max_tokens: 4000,
+            // Mercury 3 reasons (encrypted, server-side) before it writes:
+            // the reasoning draws from this budget first, and a budget it can
+            // exhaust returns content: null. 4000 was Mercury 2.5's setting;
+            // probed live 2026-11-06 that 32000 is accepted and the model
+            // reasons LESS with the headroom (71 tokens vs 114 on a trivial
+            // prompt). Usage is billed on actual tokens.
+            max_tokens: 32000,
             reasoning_effort,
         };
 
@@ -408,12 +415,27 @@ impl MercuryProvider {
             }
 
             let chat_response: ChatResponse = resp.json().await?;
-            return chat_response
+            let choice = chat_response
                 .choices
                 .into_iter()
                 .next()
-                .and_then(|c| c.message.content)
-                .ok_or_else(|| anyhow!("Mercury returned no content"));
+                .ok_or_else(|| anyhow!("Mercury returned no choices"))?;
+            match choice.message.content {
+                Some(content) => return Ok(content),
+                None => {
+                    // Mercury 3 is a reasoning model: the completion budget is
+                    // consumed by ENCRYPTED reasoning (reasoning_details)
+                    // before any content is produced, and a budget that runs
+                    // out mid-reasoning returns content: null with
+                    // finish_reason "length". Name the finish_reason and the
+                    // knob — never a vague "no content" an agent can misread
+                    // as a missing INCEPTION_API_KEY.
+                    return Err(anyhow!(
+                        "Mercury returned no content (finish_reason: {}; a reasoning model can consume the completion budget before any content is produced — raise max_tokens)",
+                        choice.finish_reason.as_deref().unwrap_or("unknown")
+                    ));
+                }
+            }
         }
     }
 }
