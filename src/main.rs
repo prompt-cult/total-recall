@@ -22,14 +22,18 @@ use total_recall::{
 #[command(name = "total-recall")]
 #[command(version)]
 #[command(about = "Total-recall MCP tool for log mining of session rollouts")]
-#[command(long_about = "Total-recall MCP tool for log mining of session rollouts as a long-term memory store.
+#[command(
+    long_about = "Total-recall MCP tool for log mining of session rollouts as a long-term memory store.
 
 This tool is intended to be run as an MCP server in a harness (`total-recall mcp`): \
 MCP is the preferred mode. Every CLI action listed below is also available over the \
 MCP interface, so a harness agent never needs the CLI at all.
 
-Run `total-recall skill` (CLI) or the `skill` MCP tool for the full usage guide.")]
-#[command(after_help = "Run `total-recall skill` (CLI) or the `skill` MCP tool for the full tool-surface and usage guide. The `mcp` subcommand is the preferred mode: run as an MCP server in a harness, with every CLI action also available over the MCP interface.")]
+Run `total-recall skill` (CLI) or the `skill` MCP tool for the full usage guide."
+)]
+#[command(
+    after_help = "Run `total-recall skill` (CLI) or the `skill` MCP tool for the full tool-surface and usage guide. The `mcp` subcommand is the preferred mode: run as an MCP server in a harness, with every CLI action also available over the MCP interface."
+)]
 pub struct Cli {
     /// Which harness to use (vibe | opencode). Required for list/profile/extract/user-messages; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
@@ -362,8 +366,8 @@ async fn main() -> Result<()> {
             use clap::CommandFactory;
             Cli::command().render_help().to_string()
         };
-        let server = total_recall::mcp::TotalRecallServer::with_harness(harness)
-            .with_cli_help(cli_help);
+        let server =
+            total_recall::mcp::TotalRecallServer::with_harness(harness).with_cli_help(cli_help);
         let service = server.serve(stdio()).await?;
         service.waiting().await?;
         return Ok(());
@@ -440,10 +444,7 @@ async fn main() -> Result<()> {
         let md = match std::fs::read_to_string(&path) {
             Ok(md) => md,
             Err(_) => {
-                eprintln!(
-                    "error: cannot read the skill at {}",
-                    path.display()
-                );
+                eprintln!("error: cannot read the skill at {}", path.display());
                 std::process::exit(2);
             }
         };
