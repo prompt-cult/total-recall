@@ -22,6 +22,14 @@ use total_recall::{
 #[command(name = "total-recall")]
 #[command(version)]
 #[command(about = "Total-recall MCP tool for log mining of session rollouts")]
+#[command(long_about = "Total-recall MCP tool for log mining of session rollouts as a long-term memory store.
+
+This tool is intended to be run as an MCP server in a harness (`total-recall mcp`): \
+MCP is the preferred mode. Every CLI action listed below is also available over the \
+MCP interface, so a harness agent never needs the CLI at all.
+
+Run `total-recall skill` (CLI) or the `skill` MCP tool for the full usage guide.")]
+#[command(after_help = "Run `total-recall skill` (CLI) or the `skill` MCP tool for the full tool-surface and usage guide. The `mcp` subcommand is the preferred mode: run as an MCP server in a harness, with every CLI action also available over the MCP interface.")]
 pub struct Cli {
     /// Which harness to use (vibe | opencode). Required for list/profile/extract/user-messages; optional for mcp (falls back to HARNESS env var).
     #[arg(long, global = true)]
@@ -188,6 +196,16 @@ pub enum Command {
         #[arg(long)]
         directory: Option<String>,
     },
+    /// Print the release's skills/total-recall/SKILL.md — the tool surface
+    /// and usage guide (what the MCP `skill` tool serves through the text
+    /// flood-control path)
+    Skill {
+        /// Byte cap on the output. 0 = unbounded (default; stdout is a
+        /// stream). Over the cap the text is cut at a line boundary and the
+        /// overflow file (with its line histogram) is named on stdout.
+        #[arg(long, default_value_t = 0)]
+        max_bytes: usize,
+    },
     /// Start as an MCP server on stdio
     Mcp,
 }
@@ -340,7 +358,12 @@ async fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        let server = total_recall::mcp::TotalRecallServer::with_harness(harness);
+        let cli_help = {
+            use clap::CommandFactory;
+            Cli::command().render_help().to_string()
+        };
+        let server = total_recall::mcp::TotalRecallServer::with_harness(harness)
+            .with_cli_help(cli_help);
         let service = server.serve(stdio()).await?;
         service.waiting().await?;
         return Ok(());
@@ -394,6 +417,43 @@ async fn main() -> Result<()> {
                 eprintln!("error: {e:#}");
                 std::process::exit(2);
             }
+        }
+        return Ok(());
+    }
+
+    // `skill` is harness-free too: it prints the usage guide, never touches
+    // the rollout stores.
+    if let Command::Skill { max_bytes } = cli.command {
+        let env = std::env::var("TOTAL_RECALL_SKILL_PATH").ok();
+        let exe = std::env::current_exe().unwrap_or_default();
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let path = total_recall::mcp::resolve_skill_path(env.as_deref(), &exe, &home)
+            .unwrap_or_else(|p| {
+                eprintln!(
+                    "error: cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
+                    p.display()
+                );
+                std::process::exit(2);
+            });
+        let md = match std::fs::read_to_string(&path) {
+            Ok(md) => md,
+            Err(_) => {
+                eprintln!(
+                    "error: cannot read the skill at {}",
+                    path.display()
+                );
+                std::process::exit(2);
+            }
+        };
+        if max_bytes == 0 {
+            print!("{md}");
+        } else {
+            print!(
+                "{}",
+                total_recall::report_cap::cap_report("skill", "", md, max_bytes)
+            );
         }
         return Ok(());
     }
@@ -902,6 +962,7 @@ async fn main() -> Result<()> {
 
         Command::Mcp => {}
         Command::Chat { .. } => {}
+        Command::Skill { .. } => {}
     }
 
     Ok(())

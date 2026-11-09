@@ -1,4 +1,4 @@
-//! Flood control for the TEXT path: `help` (the skill markdown) and
+//! Flood control for the TEXT path: `skill` (the skill markdown) and
 //! `line_histogram` (the awk table) keep the text cap — every record-shaped
 //! tool streams through the JSONL sink instead. An overflowing text response
 //! is written whole to a private file under the user's temp directory, the

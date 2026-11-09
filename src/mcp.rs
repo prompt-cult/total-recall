@@ -300,7 +300,7 @@ pub struct PriorPeriodSummaryParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct HelpParams {
+pub struct SkillParams {
     #[schemars(
         description = "Flood-control cap on the returned skill text, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384."
     )]
@@ -492,11 +492,43 @@ pub struct LineHistogramParams {
 #[derive(Clone)]
 pub struct TotalRecallServer {
     harness: String,
+    /// The CLI's rendered clap help page, injected by `main` (the binary is
+    /// also the MCP server, so it can hand the page over at startup). The
+    /// `help` tool serves it; a server built without the injection serves
+    /// the fallback below.
+    cli_help: String,
 }
+
+/// The `help` fallback for a server constructed without
+/// [`TotalRecallServer::with_cli_help`]: the same orientation, without the
+/// generated page.
+const CLI_HELP_FALLBACK: &str = "\
+Total-recall: log mining of agent session rollouts as a long-term memory store.
+
+This tool is intended to be run as an MCP server in a harness (the `mcp` \
+subcommand): MCP is the preferred mode. Every CLI action is available over \
+the MCP interface — list_sessions, profile_session, extract_messages, \
+extract_user_messages, extract_qa_pairs, extract_by_type, index_sessions, \
+do_android_dream_of_electric_sheep, he_said_she_said_they_did, \
+summary_cache, summarise_from, cache_delete_latest, prior_period_summary, \
+todo_history, line_histogram, chat_with_mercury, skill — so a harness agent \
+never needs the CLI at all.
+
+Run the `skill` tool (or `total-recall skill` on the CLI) for the full \
+usage guide.
+";
 
 impl TotalRecallServer {
     pub fn with_harness(harness: String) -> Self {
-        Self { harness }
+        Self {
+            harness,
+            cli_help: CLI_HELP_FALLBACK.to_string(),
+        }
+    }
+
+    pub fn with_cli_help(mut self, cli_help: String) -> Self {
+        self.cli_help = cli_help;
+        self
     }
 
     pub fn harness(&self) -> &str {
@@ -629,7 +661,7 @@ fn envelope_bounds(
     Ok((limit, offset, max_bytes, max_record_bytes))
 }
 
-/// The TEXT path's success route — `help` (the skill markdown) and
+/// The TEXT path's success route — `skill` (the skill markdown) and
 /// `line_histogram` (the awk table), the two tools whose outputs are
 /// genuinely not record streams. Under `max_bytes` the text is returned
 /// untouched; over it the whole text is written to a private temp file and
@@ -665,15 +697,15 @@ impl TotalRecallServer {
     }
 
     #[tool(
-        name = "help",
-        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the text flood-control path — capped at max_bytes, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build."
+        name = "skill",
+        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the text flood-control path — capped at max_bytes, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build. The `help` tool carries the short orientation instead; run `skill` for the full guide."
     )]
-    async fn help_tool(
+    async fn skill_tool(
         &self,
-        Parameters(params): Parameters<HelpParams>,
+        Parameters(params): Parameters<SkillParams>,
     ) -> Result<CallToolResult, McpError> {
         let max_bytes = match number(
-            "help",
+            "skill",
             "max_bytes",
             params.max_bytes,
             1,
@@ -698,12 +730,25 @@ impl TotalRecallServer {
             }
         };
         match std::fs::read_to_string(&path) {
-            Ok(md) => Ok(capped_text("help", "", md, max_bytes)),
+            Ok(md) => Ok(capped_text("skill", "", md, max_bytes)),
             Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
                 path.display()
             ))])),
         }
+    }
+
+    #[tool(
+        name = "help",
+        description = "Total-recall MCP tool: short orientation — the CLI's generated help page (clap) plus the house line: this tool is intended to be run as an MCP server in a harness, every CLI action is available over the MCP interface, and MCP is the preferred mode. Points to the `skill` tool (or `total-recall skill` on the CLI) for the full tool surface and usage guide. Fits the flood-control budget; no parameters."
+    )]
+    async fn help_tool(&self) -> Result<CallToolResult, McpError> {
+        Ok(capped_text(
+            "help",
+            "",
+            self.cli_help.clone(),
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
     }
 
     #[tool(

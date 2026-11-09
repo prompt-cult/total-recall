@@ -34,7 +34,8 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 | `extract_qa_pairs` | `extract-qa-pairs` | question/answer pairs as `type=qa` records |
 | `todo_history` | `todo-history` | todo-list edits as `type=todo_edit` records |
 | `line_histogram` | `line-histogram` | line-size distribution or extract lines (the text path) |
-| `help` | — | return this skill text (the text path) |
+| `help` | — | short orientation — the CLI's generated help page (clap) plus the house line: intended to be run as MCP in a harness, every CLI action is available over the MCP interface, MCP is the preferred mode; points to `skill` for the full guide (the text path, no parameters) |
+| `skill` | `skill` | the full tool surface and usage guide — this file, through the text flood-control path (capped at `max_bytes`, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram) |
 
 ## The dream pass (tantivy search)
 

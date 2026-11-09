@@ -112,14 +112,26 @@ right. No CLI equivalent — the CLI takes `--harness` explicitly.
 
 ### `help`
 
-No session parameters. `max_bytes` (default 16,384). Returns the release's
-`skills/total-recall/SKILL.md` through the standard capped-text path.
-Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
-non-empty (the escape hatch); the skills directory —
+No parameters. Short orientation, not a dump: the CLI's generated help page
+(clap) plus the house line — this tool is intended to be run as an MCP server
+in a harness, every CLI action is available over the MCP interface, and MCP is
+the preferred mode — and a pointer to `skill` for the full tool surface and
+usage guide. Served through the standard capped-text path; at the default
+budget it fits, so no overflow file.
+
+### `skill`
+
+No session parameters. `max_bytes` (default 16,384). The full tool surface
+and usage guide: the release's `skills/total-recall/SKILL.md` through the
+standard capped-text path (cut at a line boundary, overflow to a text file
+named by the EOF marker with its line histogram). Resolution, in order: the
+`TOTAL_RECALL_SKILL_PATH` env var if set and non-empty (the escape hatch);
+the skills directory —
 `~/.config/opencode/skills/total-recall/SKILL.md`, the file OpenCode itself
 loads as the skill; a walk up from the server binary (dev builds run from a
 repo `target/` tree). A missing skill degrades gracefully: the error names
-the skills-directory path and the env var.
+the skills-directory path and the env var. CLI: `total-recall skill`
+(`--max-bytes` caps the same way; 0 = unbounded).
 
 ### `list_sessions`
 
@@ -699,7 +711,7 @@ The overflow file is the point: `rg` finds, `jq` extracts
 0), `line_histogram` profiles. The recipes live in the
 [skill](https://github.com/prompt-cult/total-recall/blob/main/skills/total-recall/SKILL.md).
 
-Two tools stay on the TEXT path — `help` (the skill markdown) and
+Two tools stay on the TEXT path — `skill` (the skill markdown) and
 `line_histogram` (the awk table) — their outputs are genuinely not record
 streams: an overflowing text response is written whole to a `.md` file and
 the return is the text cut at a line boundary plus the marker.
