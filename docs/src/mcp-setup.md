@@ -40,7 +40,7 @@ The registration snippet's environment block carries two entries:
 
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
 tools, `index_sessions`,
-`do_android_dream_of_electric_sheep`, `he_said_she_said_they_did`, `help`) need
+`do_android_dream_of_electric_sheep`, `he_said_she_said_they_did`, `help`, `skill`) need
 no key. `prior_period_summary`, `summarise_from` and
 `chat_with_mercury` read it.
 

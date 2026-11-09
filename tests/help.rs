@@ -69,7 +69,7 @@ fn read_response(
     }
 }
 
-fn call_help(skill_path: Option<&Path>) -> (String, bool) {
+fn call_skill(skill_path: Option<&Path>) -> (String, bool) {
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe", skill_path);
     send_json(
         &mut stdin,
@@ -88,7 +88,7 @@ fn call_help(skill_path: Option<&Path>) -> (String, bool) {
         &mut stdin,
         &serde_json::json!({
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-            "params": {"name": "help", "arguments": {"max_bytes": 1000000}}
+            "params": {"name": "skill", "arguments": {"max_bytes": 1000000}}
         }),
     );
     let call = read_response(&mut reader, 2);
@@ -188,11 +188,11 @@ fn resolve_skill_path_both_missing_names_canonical() {
 // --- integration tests ---
 
 #[test]
-fn help_env_var_returns_that_file() {
+fn skill_env_var_returns_that_file() {
     let root = scratch("help_envfile");
     let fixture = root.join("SKILL.md");
     std::fs::write(&fixture, "DISTINCTIVE_HELP_CONTENT_42").unwrap();
-    let (text, is_error) = call_help(Some(&fixture));
+    let (text, is_error) = call_skill(Some(&fixture));
     assert!(!is_error, "help errored: {text}");
     assert!(
         text.contains("DISTINCTIVE_HELP_CONTENT_42"),
@@ -201,10 +201,10 @@ fn help_env_var_returns_that_file() {
 }
 
 #[test]
-fn help_env_var_missing_path_complains() {
+fn skill_env_var_missing_path_complains() {
     let root = scratch("help_missingenv");
     let nonexistent = root.join("nope.md");
-    let (text, is_error) = call_help(Some(&nonexistent));
+    let (text, is_error) = call_skill(Some(&nonexistent));
     assert!(is_error, "expected error, got: {text}");
     assert!(
         text.contains(&nonexistent.display().to_string()),
@@ -217,8 +217,8 @@ fn help_env_var_missing_path_complains() {
 }
 
 #[test]
-fn help_unset_finds_repo_skill() {
-    let (text, is_error) = call_help(None);
+fn skill_unset_finds_repo_skill() {
+    let (text, is_error) = call_skill(None);
     assert!(!is_error, "help errored: {text}");
     assert!(
         text.contains("Total Recall"),
@@ -227,7 +227,7 @@ fn help_unset_finds_repo_skill() {
 }
 
 #[test]
-fn help_drift_skill_table_matches_tool_surface() {
+fn skill_drift_skill_table_matches_tool_surface() {
     // get tools/list
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe", None);
     send_json(
@@ -259,7 +259,7 @@ fn help_drift_skill_table_matches_tool_surface() {
         &mut stdin,
         &serde_json::json!({
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-            "params": {"name": "help", "arguments": {"max_bytes": 1000000}}
+            "params": {"name": "skill", "arguments": {"max_bytes": 1000000}}
         }),
     );
     let call = read_response(&mut reader, 3);
@@ -342,4 +342,79 @@ fn help_drift_skill_table_matches_tool_surface() {
     for s in &skill_tools {
         assert!(names.contains(s), "skill table has unknown tool {s}");
     }
+}
+
+// --- the uplifted help: clap docs, not the skill dump (#51) ---
+
+#[test]
+fn help_returns_clap_docs_not_the_skill() {
+    let (child_reader_guard, _) = ((), ());
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe", None);
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}
+        }),
+    );
+    let init = read_response(&mut reader, 1);
+    assert!(init.get("result").is_some(), "init failed: {init}");
+    send_json(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+    );
+    send_json(
+        &mut stdin,
+        &serde_json::json!({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "help", "arguments": {}}
+        }),
+    );
+    let call = read_response(&mut reader, 2);
+    let result = call.pointer("/result").expect("result");
+    let is_error = result
+        .get("isError")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let text: String = result
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    reap_mcp(&mut child, &cwd);
+    assert!(!is_error, "help errored: {text}");
+    // No EOF marker: the clap page fits the flood-control budget.
+    assert!(
+        !text.contains("--- [EOF-TRUNCATED] ---"),
+        "help flooded and was cut: {text}"
+    );
+    // It is the clap page, not the skill markdown.
+    assert!(
+        !text.contains("# Total Recall"),
+        "help must not dump the skill markdown: {text}"
+    );
+    // Advertising the two faces and the preferred mode.
+    for needle in ["mcp", "skill", "harness"] {
+        assert!(
+            text.contains(needle),
+            "help must mention {needle} (mcp-first CLI/MCP advertisement): {text}"
+        );
+    }
+    let lower = text.to_lowercase();
+    for needle in ["preferred", "mcp interface"] {
+        assert!(
+            lower.contains(needle),
+            "help must state the {needle} orientation: {text}"
+        );
+    }
+    assert!(
+        text.contains("Usage:"),
+        "help must be the clap usage block: {text}"
+    );
+    drop(child_reader_guard);
 }
