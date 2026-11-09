@@ -5,6 +5,35 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-11-09
+
+### Changed
+
+- **`help` (MCP and CLI) no longer floods — it is the clap page** (#51,
+  prompt-cult/total-recall#52). Orientation-sized, not a dump: the CLI's
+  generated help page plus the house line — this tool is intended to be run as
+  an MCP server in a harness, every CLI action is available over the MCP
+  interface, and MCP is the preferred mode — and a pointer to `skill` for the
+  full usage guide. The advertisement lives in `long_about`/after_help, so
+  `total-recall --help` carries it too. At the 16,384-byte default budget the
+  page fits: no EOF marker, no overflow file. The MCP `help` tool takes no
+  parameters any more.
+
+### Added
+
+- **`skill` (MCP) / `skill` (CLI)** — what `help` used to be, named for what
+  it is: the release's `skills/total-recall/SKILL.md` (the tool surface and
+  usage guide) through the text flood-control path (`max_bytes`, line-boundary
+  cut, EOF marker naming the overflow file with its line histogram). The CLI
+  form takes `--max-bytes`; 0 = unbounded. Skill resolution is unchanged:
+  `TOTAL_RECALL_SKILL_PATH`, then the canonical skills directory, then a walk
+  up from the server binary.
+
+### Fixed
+
+- `tests/help.rs` no longer `drop()`s a `()` (clippy `-D warnings` broke CI
+  on main for the 0.23.0 work).
+
 ## [0.22.0] - 2026-11-07
 
 ### Added
