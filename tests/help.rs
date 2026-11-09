@@ -348,7 +348,6 @@ fn skill_drift_skill_table_matches_tool_surface() {
 
 #[test]
 fn help_returns_clap_docs_not_the_skill() {
-    let (child_reader_guard, _) = ((), ());
     let (mut child, mut reader, mut stdin, cwd) = spawn_mcp_server("vibe", None);
     send_json(
         &mut stdin,
@@ -416,5 +415,4 @@ fn help_returns_clap_docs_not_the_skill() {
         text.contains("Usage:"),
         "help must be the clap usage block: {text}"
     );
-    drop(child_reader_guard);
 }
