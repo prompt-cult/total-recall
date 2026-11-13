@@ -976,6 +976,10 @@ pub fn slice_from_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessag
 pub const VIBE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_VIBE_ROOT";
 pub const OPENCODE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_OPENCODE_ROOT";
 
+/// The product's own name for the vibe root: `mistral-vibe` is the harness
+/// this tool calls `vibe`, and this variable points at the same store.
+pub const MISTRAL_VIBE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_MISTRAL_VIBE_ROOT";
+
 /// When set to "1"/"true", `make_adapter` refuses to build any adapter whose
 /// root did NOT come from its env override — mechanically enforcing that no
 /// code path reads a live store in sandboxed dev/test runs.

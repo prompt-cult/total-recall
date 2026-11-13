@@ -29,8 +29,11 @@ works in a vendor-free build with no API key: see
 
 | Harness | Store | Format |
 |---------|-------|--------|
-| `vibe` | `~/.vibe/logs/session/` | JSONL |
+| `vibe` | `~/.vibe/logs/session/` | JSONL / content-addressed JSON chunks |
 | `opencode` | `~/.local/share/opencode/opencode.db` | SQLite |
+
+`mistral-vibe` is accepted as a name for the `vibe` harness — the product's
+own name for it.
 
 A session store holds the transcripts. The shadow index root is a disposable
 folder of full-text indexes this tool builds beside the store, never inside it:

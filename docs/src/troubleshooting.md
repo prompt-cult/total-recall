@@ -13,9 +13,12 @@ in the MCP config environment or pass --harness <name>.
 
 ```
 refusing to start MCP server: unknown harness 'vibee'. Valid values:
-vibe|opencode. Set HARNESS=<vibe|opencode> in the MCP
+vibe|opencode|mistral-vibe. Set HARNESS=<vibe|opencode|mistral-vibe> in the MCP
 config environment or pass --harness <name>.
 ```
+
+`mistral-vibe` is accepted as a name for the `vibe` harness — the product's
+own name for it.
 
 The server prints the reason to stdout and stderr and exits 2, because a
 server that starts with an unknown harness would bind every tool to a
@@ -101,6 +104,23 @@ thinking/reasoning entry appears there (`extract_by_type` with
 tool-call record lines render only in THEY DID. If a session looks thin in
 the spoken sections but busy in THEY DID, that is the tool behaving as
 documented, not missing content.
+
+## A vibe session reads as empty, or as one or two records
+
+Mistral Vibe writes each session to a unified store under
+`~/.vibe/logs/session/unified/<uuid>/`. From v3.1.2 the session's records
+live in the content-addressed `chunks/<sha256>.json` files, and the
+`journal/*.jsonl` next to them is the store's *recovery* log: it holds the
+tail of the session, not its history. A reader that walks the journal alone
+sees a session with one or two records in it.
+
+The adapter reads the chunk store where it exists (every user turn, with the
+record's own timestamp) and the journal only for a store that has no chunks —
+a v3.0 store, whose journal was the whole session. A layout it does not know
+is an error naming the path, never an empty session.
+
+The session's own directory is in `meta.json`
+(`environment.working_directory`), and the scoped listing filters on it.
 
 ## A tool reports "No sessions found" but the store has sessions
 

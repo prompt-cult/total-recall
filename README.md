@@ -508,16 +508,25 @@ resolves to nothing usable is an error, never a silent fall-back to `$HOME`.
 
 | Harness | Env var | Default root |
 |---------|---------|--------------|
-| vibe | `TOTAL_RECALL_VIBE_ROOT` | `~/.vibe/logs/session/` |
+| vibe | `TOTAL_RECALL_VIBE_ROOT` (or `TOTAL_RECALL_MISTRAL_VIBE_ROOT`) | `~/.vibe/logs/session/` |
 | opencode | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
 
-Both vibe store layouts are read: pre-3.x releases keep the log in flat
-`session_*/messages.jsonl` directories; 3.0 and later write each session to a
-unified store under `unified/<uuid>/` (a `CURRENT` pointer, `meta.json`, a
-hash-chained `journal/*.jsonl` replay and content-addressed chunks). The
-adapter reads both side by side — unified sessions by journal replay, legacy
-sessions by messages.jsonl — so an upgrade to vibe 3.x loses nothing. Both
-stores are opened read-only.
+Three vibe store layouts are read, side by side:
+
+- **pre-3.x** — flat `session_*/messages.jsonl` directories.
+- **3.0** — a unified store per session under `unified/<uuid>/`, whose
+  hash-chained `journal/*.jsonl` was the session's whole record.
+- **3.1.2 and later** — the same unified store, with the session's records in
+  content-addressed `chunks/<sha256>.json` files. The journal is now the
+  store's *recovery* log and holds only the tail of a session, so the chunk
+  files are what answer "what did the user say" — a session with 129 user
+  turns reads as one turn when only the journal is walked.
+
+The adapter detects the layout per session, reads the chunk store where it
+exists and the journal where it does not, and reads the legacy
+`messages.jsonl` directories unchanged. A layout it does not know is an
+error, never an empty session: an unreadable store must never read as
+"nothing found". Both stores are opened read-only.
 
 Both opencode store layouts are read: pre-2.2 releases keep the log in
 `session`/`message`/`part`; 2.2 and later write it to

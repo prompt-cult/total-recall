@@ -14,8 +14,24 @@ pub fn root_env_var(harness: &str) -> &'static str {
 // One match arm + one VALID_HARNESSES entry per harness.
 pub const VALID_HARNESSES: [&str; 2] = ["vibe", "opencode"];
 
+/// The product's own name for a harness, accepted wherever the short name
+/// is: `mistral-vibe` is the harness this tool calls `vibe`.
+pub const HARNESS_ALIASES: [(&str, &str); 1] = [("mistral-vibe", "vibe")];
+
+/// The canonical name of a harness: the alias resolves to the harness it
+/// names, every other name is its own canonical name.
+pub fn canonical_harness(name: &str) -> String {
+    HARNESS_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, canonical)| (*canonical).to_string())
+        .unwrap_or_else(|| name.to_string())
+}
+
 pub fn valid_harnesses() -> String {
-    VALID_HARNESSES.join("|")
+    let mut names: Vec<&str> = VALID_HARNESSES.to_vec();
+    names.extend(HARNESS_ALIASES.iter().map(|(alias, _)| *alias));
+    names.join("|")
 }
 
 pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
@@ -28,7 +44,8 @@ pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
             )
         })?,
     };
-    if !VALID_HARNESSES.contains(&value.as_str()) {
+    let canonical = canonical_harness(&value);
+    if !VALID_HARNESSES.contains(&canonical.as_str()) {
         return Err(format!(
             "refusing to start MCP server: unknown harness '{}'. Valid values: {}. Set HARNESS=<{}> in the MCP config environment or pass --harness <name>.",
             value,
@@ -36,7 +53,7 @@ pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
             valid_harnesses()
         ));
     }
-    Ok(value)
+    Ok(canonical)
 }
 
 /// Resolve a (possibly empty) session id against the adapter's session list.
@@ -71,7 +88,8 @@ pub fn canonical_session_id(adapter: &dyn RolloutAdapter, session_id: &str) -> S
 }
 
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
-    let adapter: Box<dyn RolloutAdapter> = match harness {
+    let harness = canonical_harness(harness);
+    let adapter: Box<dyn RolloutAdapter> = match harness.as_str() {
         "vibe" => Box::new(VibeAdapter::new()),
         "opencode" => Box::new(OpenCodeAdapter::new()),
         other => {
@@ -86,8 +104,8 @@ pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
         return Err(format!(
             "{} is set but {} is not: refusing to read the live store. Point {} at a fixture or scratch copy.",
             crate::rollout::SANDBOX_ENV_VAR,
-            root_env_var(harness),
-            root_env_var(harness)
+            root_env_var(&harness),
+            root_env_var(&harness)
         ));
     }
     Ok(adapter)

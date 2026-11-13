@@ -5,6 +5,42 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-11-13
+
+### Fixed
+
+- **The vibe store reads the Mistral Vibe v3.1.2 unified layout**
+  (prompt-cult/total-recall#53). Mistral Vibe v3.1.2 writes a session's
+  records into the unified store's content-addressed chunk files
+  (`unified/<uuid>/chunks/<sha256>.json`); the `journal/*.jsonl` beside them
+  is the store's *recovery* log and holds the tail of the session, not its
+  history. The adapter walked the journal alone, so a live session with 129
+  user turns read as 2 — a silent-partial memory in every compaction,
+  handover and 48-hour-sweep pass. The chunk store is now the record: every
+  user turn (`source: "turn_start"` | `"turn_steer"`), the assistant's
+  messages, the reasoning records and the tool effects, each with the
+  timestamp its own `createdAt` carries, in one chronological stream. The
+  checkpoint's history snapshot contributes what the live records no longer
+  hold (the turns that were compacted away) and the synthetic injections
+  (the compaction-continuation prompt, the runtime notifications), never a
+  second copy of a turn. A v3.0 store — whose journal *was* the session —
+  still reads from its journal, and the legacy `session_*/messages.jsonl`
+  layout is untouched.
+
+  A layout the adapter does not know is now an error naming the path, never
+  an empty session: an unreadable store must not read as "nothing found".
+  The scoped listing applies the unified store's own directory
+  (`meta.json`'s `environment.working_directory`), and the compaction
+  boundary is the store's injected marker message, so prose that quotes the
+  marker text cannot forge one.
+
+### Added
+
+- **`mistral-vibe` is accepted as a name for the `vibe` harness** — the
+  product's own name for it — and `TOTAL_RECALL_MISTRAL_VIBE_ROOT` points at
+  the same store as `TOTAL_RECALL_VIBE_ROOT`. `HARNESS=mistral-vibe` and
+  `--harness mistral-vibe` both bind the vibe adapter.
+
 ## [0.23.0] - 2026-11-09
 
 ### Changed
