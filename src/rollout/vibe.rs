@@ -1,12 +1,14 @@
+mod chunks;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    EventType, InterestingEvent, QaAnswerRecord, QaPair, ReadResult, RolloutAdapter,
-    RolloutMessage, SessionListing, SessionProfile, SessionSummary, VIBE_ROOT_ENV_VAR,
-    listing_by_mtime, mmap_error, mtime_in_window, no_session_error, pair_questions_with_answers,
-    parse_answers_text, parse_questions_payload, read_error, resolve_root, resolve_session_dir,
-    slice_from_compaction, summarize_tool_call,
+    EventType, InterestingEvent, MISTRAL_VIBE_ROOT_ENV_VAR, QaAnswerRecord, QaPair, ReadResult,
+    RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
+    VIBE_ROOT_ENV_VAR, listing_by_mtime, mmap_error, mtime_in_window, no_session_error,
+    pair_questions_with_answers, parse_answers_text, parse_questions_payload, read_error,
+    resolve_root, resolve_session_dir, slice_from_compaction, summarize_tool_call,
 };
 
 /// Vibe adapter. Reads sessions from ~/.vibe/logs/session/
@@ -28,7 +30,12 @@ pub struct VibeAdapter {
 
 impl VibeAdapter {
     pub fn new() -> Self {
-        let (root, from_env) = resolve_root(VIBE_ROOT_ENV_VAR, &[".vibe", "logs", "session"]);
+        let (root, from_env) = match crate::rollout::env_root(VIBE_ROOT_ENV_VAR)
+            .or_else(|| crate::rollout::env_root(MISTRAL_VIBE_ROOT_ENV_VAR))
+        {
+            Some(path) => (path, true),
+            None => resolve_root(VIBE_ROOT_ENV_VAR, &[".vibe", "logs", "session"]),
+        };
         Self { root, from_env }
     }
 
@@ -198,10 +205,13 @@ impl VibeAdapter {
     /// types (turn bookkeeping, receipts, projection deltas, model-input
     /// echoes) contribute nothing, and an unparseable journal line is
     /// skipped with a warning — never fatal, never fatally short.
-    fn read_unified_session(&self, session_id: &str) -> Option<Vec<RolloutMessage>> {
-        let dir = self.unified_session_dir(session_id)?;
+    ///
+    /// The journal is the store's *recovery* log: it holds the tail of the
+    /// session, not its history. A store that also has a chunk directory is
+    /// read from the chunks instead — see [`VibeAdapter::unified_messages`].
+    fn replay_journal(&self, dir: &Path) -> Vec<RolloutMessage> {
         let mut out = Vec::new();
-        for seg in Self::journal_segment_paths(&dir) {
+        for seg in Self::journal_segment_paths(dir) {
             let data = match std::fs::read(&seg) {
                 Ok(d) => d,
                 Err(e) => {
@@ -222,20 +232,95 @@ impl VibeAdapter {
                 }
             }
         }
-        Some(out)
+        out
     }
 
-    /// One unified session summarized: size/lines/roles from the journal
-    /// replay, title and times from `meta.json` (the same decorative
+    /// The record of one unified session: its messages and the damage the
+    /// read found.
+    fn unified_read(&self, dir: &Path) -> ReadResult<UnifiedRead> {
+        if dir.join("chunks").is_dir() {
+            let store = chunks::read_chunk_store(dir)?;
+            if store.records > 0 {
+                if store.messages.is_empty() {
+                    return Err(format!(
+                        "vibe unified store {}: {} chunk records, none of them readable as messages",
+                        dir.display(),
+                        store.records
+                    ));
+                }
+                return Ok(UnifiedRead {
+                    messages: store.messages.into_iter().map(|m| m.message).collect(),
+                    damaged: store.damaged,
+                });
+            }
+            // A chunk store that holds no records yet (a session that has not
+            // written its first chunk) falls through to the journal.
+        }
+        if dir.join("journal").is_dir() {
+            return Ok(UnifiedRead {
+                messages: self.replay_journal(dir),
+                damaged: Vec::new(),
+            });
+        }
+        if dir.join("chunks").is_dir() {
+            return Ok(UnifiedRead {
+                messages: Vec::new(),
+                damaged: Vec::new(),
+            });
+        }
+        Err(format!(
+            "vibe unified store {}: unknown layout (neither chunks/ nor journal/ is there)",
+            dir.display()
+        ))
+    }
+
+    /// The messages of one unified session.
+    ///
+    /// The chunk store (`chunks/<sha256>.json`) is the session's record: it
+    /// holds every turn of the session, with the timestamp (`createdAt`) and
+    /// the source (`turn_start` | `turn_steer` | `harness` | `history` |
+    /// `injection`) of every record. The recovery journal
+    /// (`journal/*.jsonl`) holds only the tail of the session and is read
+    /// only for a store that has no chunks — a vibe 3.0.3 store, whose
+    /// journal was the whole session.
+    ///
+    /// A layout this reader does not know is an error, never an empty
+    /// session: "unreadable" must never read as "nothing found".
+    fn unified_messages(&self, dir: &Path) -> ReadResult<Vec<RolloutMessage>> {
+        self.unified_read(dir).map(|read| read.messages)
+    }
+
+    /// The messages of one unified session, resolved by id. `None` when the
+    /// id names no unified session (a legacy `session_*` id).
+    fn read_unified_session(&self, session_id: &str) -> Option<ReadResult<Vec<RolloutMessage>>> {
+        let dir = self.unified_session_dir(session_id)?;
+        Some(self.unified_messages(&dir))
+    }
+
+    /// One unified session summarized: size/lines/roles from the store's
+    /// records, title and times from `meta.json` (the same decorative
     /// contract as the legacy summary).
     fn summarize_unified(&self, path: &Path, name: &str) -> (SessionSummary, u64) {
-        let messages = self.read_unified_session(name).unwrap_or_default();
+        let (messages, read_error) = match self.unified_read(path) {
+            Ok(read) => {
+                let damage = if read.damaged.is_empty() {
+                    None
+                } else {
+                    Some(format!(
+                        "{} of the store's chunk files could not be read: {}",
+                        read.damaged.len(),
+                        read.damaged.join(", ")
+                    ))
+                };
+                (read.messages, damage)
+            }
+            Err(e) => {
+                tracing::warn!("vibe unified store {}: {e}", path.display());
+                (Vec::new(), Some(e))
+            }
+        };
 
-        let file_size: u64 = Self::journal_segment_paths(path)
-            .iter()
-            .filter_map(|seg| std::fs::metadata(seg).ok())
-            .map(|m| m.len())
-            .sum();
+        let file_size = unified_store_bytes(path);
         let line_count = messages.len() as u64;
 
         let meta = self.read_meta(path);
@@ -301,13 +386,13 @@ impl VibeAdapter {
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
                 aliases: Vec::new(),
-                read_error: None,
+                read_error,
             },
             content_hash,
         )
     }
 
-    /// Profile of a unified session: real counters from the journal replay.
+    /// Profile of a unified session: real counters from the store's records.
     /// The interesting-events classification mirrors the legacy loop's
     /// tool-call families (todo, git operations) over the summarized calls.
     fn profile_unified(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
@@ -324,15 +409,9 @@ impl VibeAdapter {
             return Ok(cached);
         }
 
-        let messages = self
-            .read_unified_session(session_id)
-            .ok_or_else(|| no_session_error(&self.root, session_id))?;
+        let messages = self.unified_messages(&dir)?;
 
-        let file_size: u64 = Self::journal_segment_paths(&dir)
-            .iter()
-            .filter_map(|seg| std::fs::metadata(seg).ok())
-            .map(|m| m.len())
-            .sum();
+        let file_size = unified_store_bytes(&dir);
         let line_count = messages.len() as u64;
 
         let mut role_counts: HashMap<String, u64> = HashMap::new();
@@ -621,17 +700,19 @@ impl RolloutAdapter for VibeAdapter {
         summaries
     }
 
-    fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
-        // Vibe summaries carry no directory (None passes every filter, as in
-        // the full listing), so the payload's mtime is the only cheap bound —
-        // decided before the payload is ever read.
+    fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing {
+        // Vibe summaries carry no directory for the legacy layout (None
+        // passes every filter, as in the full listing); the unified store's
+        // `meta.json` names the working directory, and that is the filter the
+        // scoped listing applies. The payload's mtime is the other cheap
+        // bound — decided before the payload is ever read.
         let mut mtimes: HashMap<String, Option<std::time::SystemTime>> = HashMap::new();
         let mut summaries = Vec::new();
-        let mut identity: Vec<u64> = Vec::new();
+        let mut identity = Vec::new();
 
         for (name, path) in self.session_dirs() {
             // Legacy payload mtime, or — for unified stores — the newest
-            // journal segment's mtime.
+            // payload file's mtime.
             let mtime = std::fs::metadata(path.join("messages.jsonl"))
                 .and_then(|m| m.modified())
                 .ok()
@@ -640,6 +721,9 @@ impl RolloutAdapter for VibeAdapter {
                 continue;
             }
             let (summary, content_hash) = self.summarize_dir(&path, &name);
+            if !directory_passes(summary.directory.as_deref(), directory) {
+                continue;
+            }
             mtimes.insert(summary.session_id.clone(), mtime);
             summaries.push(summary);
             identity.push(content_hash);
@@ -659,16 +743,17 @@ impl RolloutAdapter for VibeAdapter {
         // A unified-store id never collides with a legacy session_* name, so
         // trying unified first only ever changes unified sessions.
         if let Some(messages) = self.read_unified_session(session_id) {
-            return Ok(messages);
+            return messages;
         }
         Ok(Self::parse_jsonl(&self.read_payload(session_id)?))
     }
 
     fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        // Unified stores are replayed, not mmapped: the journal is segmented
-        // and content-addressed, so there is no single payload to map.
+        // Unified stores are read from their chunk files, not mmapped: the
+        // store is segmented and content-addressed, so there is no single
+        // payload to map.
         if let Some(messages) = self.read_unified_session(session_id) {
-            return Ok(messages);
+            return messages;
         }
         let path = self
             .messages_path(session_id)
@@ -677,7 +762,15 @@ impl RolloutAdapter for VibeAdapter {
     }
 
     fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        Ok(slice_from_compaction(self.read_session_mmap(session_id)?))
+        let messages = self.read_session_mmap(session_id)?;
+        if self.unified_session_dir(session_id).is_some() {
+            // The unified store marks a compaction with a synthetic injected
+            // message. Prose that quotes the marker text — the compaction
+            // summary itself does — must not forge a boundary, so only an
+            // injected message counts.
+            return Ok(slice_from_injected_compaction(messages));
+        }
+        Ok(slice_from_compaction(messages))
     }
 
     fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
@@ -885,7 +978,7 @@ impl RolloutAdapter for VibeAdapter {
         if let Some(messages) = self.read_unified_session(session_id) {
             // Raw-record projection from the replay; entry slicing mirrors
             // the legacy compaction window.
-            return Ok(unified_entries(messages, full, include_injected));
+            return Ok(unified_entries(messages?, full, include_injected));
         }
         let data = self.read_payload(session_id)?;
         let text = String::from_utf8_lossy(&data);
@@ -1294,17 +1387,77 @@ fn append_text(into: &mut String, text: &str) {
 }
 
 /// The write stamp of a unified store: the newest modification among its
-/// journal segments.
+/// payload files — the chunk files of the chunk store, the journal segments
+/// of a store that has only a journal.
 fn unified_payload_mtime(dir: &Path) -> Option<std::time::SystemTime> {
     let mut latest: Option<std::time::SystemTime> = None;
-    if let Ok(entries) = std::fs::read_dir(dir.join("journal")) {
-        for entry in entries.flatten() {
-            if let Ok(m) = entry.metadata().and_then(|m| m.modified()) {
-                latest = Some(latest.map_or(m, |l| l.max(m)));
+    let mut consider = |path: PathBuf| {
+        if let Ok(m) = std::fs::metadata(&path).and_then(|m| m.modified()) {
+            latest = Some(latest.map_or(m, |l| l.max(m)));
+        }
+    };
+    for sub in ["chunks", "journal"] {
+        if let Ok(entries) = std::fs::read_dir(dir.join(sub)) {
+            for entry in entries.flatten() {
+                consider(entry.path());
             }
         }
     }
     latest
+}
+
+/// The total size of a unified store's payload: its chunk files and its
+/// journal segments.
+fn unified_store_bytes(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    for sub in ["chunks", "journal"] {
+        if let Ok(entries) = std::fs::read_dir(dir.join(sub)) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
+/// The record of one unified session: its messages and the chunk files the
+/// read could not get through.
+struct UnifiedRead {
+    messages: Vec<RolloutMessage>,
+    damaged: Vec<String>,
+}
+
+/// The index of the last compaction marker in a unified store's message
+/// stream: the synthetic injected message the harness writes when the
+/// session's context was compacted. Prose that quotes the marker text is not
+/// a marker.
+fn injected_compaction_start(messages: &[RolloutMessage]) -> usize {
+    messages
+        .iter()
+        .rposition(|m| m.injected && m.content.contains("context compaction"))
+        .unwrap_or(0)
+}
+
+/// The messages from the last compaction marker onward.
+fn slice_from_injected_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessage> {
+    let start = injected_compaction_start(&messages);
+    messages[start..].to_vec()
+}
+
+/// The directory filter of a scoped listing: a session with no directory
+/// (the legacy vibe layout) passes every filter, as in the full listing; a
+/// session with one passes when the filter is a substring of it, matched
+/// case-insensitively (the SQLite store's `LIKE` semantics).
+fn directory_passes(session_directory: Option<&str>, filter: Option<&str>) -> bool {
+    let Some(filter) = filter.filter(|f| !f.is_empty()) else {
+        return true;
+    };
+    match session_directory {
+        Some(dir) => dir.to_lowercase().contains(&filter.to_lowercase()),
+        None => true,
+    }
 }
 
 /// Unix milliseconds → ISO8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`), matching the
@@ -1338,10 +1491,7 @@ fn unified_entries(
     let start = if full {
         0
     } else {
-        messages
-            .iter()
-            .rposition(|m| m.content.contains("context compaction"))
-            .unwrap_or(0)
+        injected_compaction_start(&messages)
     };
     let mut out = Vec::new();
     for m in messages.into_iter().skip(start) {

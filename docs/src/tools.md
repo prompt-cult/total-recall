@@ -76,7 +76,7 @@ Accepted before the subcommand:
 
 | Flag | Effect |
 |------|--------|
-| `--harness <name>` | `vibe` \| `opencode`. Required for every subcommand except `mcp` |
+| `--harness <name>` | `vibe` \| `opencode` (also `mistral-vibe`, the product's own name for the `vibe` harness). Required for every subcommand except `mcp` |
 | `--session <id>` | partial session id; empty means the most recent session |
 | `--json` | pretty JSON, for `list` and `profile` |
 | `--markdown` | markdown table for `list`; readable blocks for `extract`, numbered list for `user-messages` |
@@ -455,8 +455,8 @@ full-text index per session, from the normalized message stream of any harness.
 One document per message that carries text: `content` and `thinking` are both
 indexed; `session_id`, `role`, `timestamp` and the message sequence number are
 stored for display. For OpenCode, `reasoning` parts become the message's
-`thinking` text (synthetic reasoning skipped); other harnesses currently have
-no thinking content.
+`thinking` text (synthetic reasoning skipped); for the vibe unified store the
+store's own reasoning records become the message's `thinking` text.
 
 The index lives in a shadow folder next to the session store, never inside it:
 

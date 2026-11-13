@@ -8,8 +8,13 @@ instead, without ever touching live sessions, set the harness's root override.
 
 | Harness | Env var | Default root |
 |---------|---------|--------------|
-| `vibe` | `TOTAL_RECALL_VIBE_ROOT` | `~/.vibe/logs/session/` |
+| `vibe` | `TOTAL_RECALL_VIBE_ROOT` (or `TOTAL_RECALL_MISTRAL_VIBE_ROOT`) | `~/.vibe/logs/session/` |
 | `opencode` | `TOTAL_RECALL_OPENCODE_ROOT` | `~/.local/share/opencode/opencode.db` (a directory also works; `opencode.db` inside it is used) |
+
+The harness name accepts the product's own name: `mistral-vibe` is the harness
+this tool calls `vibe`, and `TOTAL_RECALL_MISTRAL_VIBE_ROOT` points at the same
+store as `TOTAL_RECALL_VIBE_ROOT`. The name is set by `HARNESS` in the MCP
+config environment or by `--harness <name>`.
 
 Precedence: an explicit root (tests) > the env override (non-empty) > the
 `$HOME`-derived default. An empty value counts as unset. An override that

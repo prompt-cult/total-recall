@@ -17,6 +17,9 @@ subcommand — the flag wins if both are given:
 | `vibe` | `~/.vibe/logs/session/` |
 | `opencode` | `~/.local/share/opencode/opencode.db` |
 
+`mistral-vibe` is accepted as a name for the `vibe` harness — the product's
+own name for it.
+
 No tool takes a harness parameter; the `harness` tool reports the bound value.
 Register one server per store you want to mine. If the harness is unset or
 unknown the server refuses to start: it prints the reason to stdout and stderr
