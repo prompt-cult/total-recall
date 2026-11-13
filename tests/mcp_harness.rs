@@ -80,7 +80,7 @@ fn adapter_factory_errors_on_unknown_harness() {
     assert!(make_adapter("opencode").is_ok());
 }
 
-/// The supported harness set is `vibe | opencode | codex`. Everywhere a
+/// The supported harness set is `vibe | opencode | codex | pi`. Everywhere a
 /// harness can be named — the adapter factory, the `HARNESS` env var, the
 /// `--harness` flag — a value outside the set is refused with the house-form
 /// error that names the refused value and the supported set.
@@ -110,6 +110,21 @@ fn removed_harnesses_are_refused_with_the_supported_set() {
         err.contains(removed) && err.contains("vibe|opencode"),
         "must name the refused value and the supported set: {err}"
     );
+}
+
+#[test]
+fn pi_harness_is_accepted() {
+    assert!(
+        VALID_HARNESSES.contains(&"pi"),
+        "pi must be a valid harness: {:?}",
+        VALID_HARNESSES
+    );
+    with_env(HARNESS_ENV_VAR, Some("pi"), || {
+        assert_eq!(resolve_harness(None).unwrap(), "pi");
+    });
+    assert_eq!(resolve_harness(Some("pi")).unwrap(), "pi");
+    let adapter = make_adapter("pi").expect("pi adapter must build");
+    assert_eq!(adapter.name(), "pi");
 }
 
 #[test]

@@ -12,7 +12,8 @@ server with `total-recall mcp --harness <name>` or used directly as a CLI.
 Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 `vibe` (JSONL store at `~/.vibe/logs/session/`; also named
 `mistral-vibe`), `codex` (date-hierarchical rollout tree at
-`~/.codex/sessions/<YYYY>/<MM>/<DD>/`).
+`~/.codex/sessions/<YYYY>/<MM>/<DD>/`), `pi` (project-slug JSONL store at
+`~/.pi/agent/sessions/<project-slug>/`).
 
 ## Multi-harness installs
 
