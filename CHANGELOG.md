@@ -5,6 +5,22 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-11-13
+
+### Added
+
+- **Pi harness support** (prompt-cult/total-recall#55). Pi writes one JSONL
+  session file per project slug at
+  `~/.pi/agent/sessions/<project-slug>/<ISOts>_<uuid>.jsonl`, with typed
+  records (`session`, `model_change`, `thinking_level_change`,
+  `context_edit`, `message`). The adapter walks the project-slug store and
+  normalizes the message stream: user/assistant `text` parts become chat
+  messages, assistant `thinking` parts become the reasoning payload,
+  `toolCall` parts become tool-call summaries, and `toolResult` records
+  become tool messages. System scaffolding records are skipped.
+  `VALID_HARNESSES` is now `vibe | opencode | codex | pi`, with a
+  `TOTAL_RECALL_PI_ROOT` override for fixtures and sandboxed runs.
+
 ## [0.25.0] - 2026-11-13
 
 ### Added
