@@ -25,6 +25,18 @@ Register one server per store you want to mine. If the harness is unset or
 unknown the server refuses to start: it prints the reason to stdout and stderr
 and exits 2.
 
+### Pinning per harness (multi-harness setups)
+
+If you run several harnesses (OpenCode, Vibe/Mistral, Pi, Codex), do not point
+every MCP registration at one shared binary: a release that breaks one harness
+breaks them all at once, untested. Keep the CLI on PATH at the latest release
+for ad-hoc use (`total-recall --harness <name>` reads any store). For each
+harness's MCP, copy the binary that harness currently runs into its own config
+location, name it with the version (`total-recall-<version>`), and set `command`
+to the copy. Bump a harness deliberately: recopy the new version, repoint, and
+test that harness. A pinned harness can always check against the latest CLI to
+see whether it has fallen behind.
+
 ## Keep the server key as `total-recall`
 
 The MCP tool names derive from the server key — `total-recall_prior_period_summary`,
@@ -66,7 +78,7 @@ form: `total-recall chat "hello"`.
 [[mcp_servers]]
 name = "total-recall"
 transport = "stdio"
-command = "/path/to/total-recall"
+command = "/Users/consensussolutions/.vibe/bin/total-recall-<version>"
 args = ["mcp"]
 
 [mcp_servers.env]
@@ -82,7 +94,7 @@ INCEPTION_API_KEY = "sk_..."
 "mcp": {
   "total-recall": {
     "type": "local",
-    "command": ["/path/to/total-recall", "mcp"],
+    "command": ["/Users/consensussolutions/.config/opencode/bin/total-recall-<version>", "mcp"],
     "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
   }
 }

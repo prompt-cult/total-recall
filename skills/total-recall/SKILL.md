@@ -13,6 +13,27 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 `vibe` (JSONL store at `~/.vibe/logs/session/`; also named
 `mistral-vibe`).
 
+## Multi-harness installs
+
+The tool ships two ways:
+
+- **CLI on PATH** (`~/.local/bin/total-recall`) — always the latest release,
+  used ad hoc. It takes `--harness <name>` (or `HARNESS`), so it can read any
+  harness's store on demand, including a harness you are not sitting in. This
+  is the escape hatch for a harness whose own MCP is pinned.
+- **MCP per harness** — pinned. Copy the binary the harness's MCP currently
+  runs into the harness's own config location, named with its version
+  (`total-recall-<version>` beside `config.toml`, say), and point the MCP
+  registration at the copy. A global refresh then moves every other harness,
+  not this one: the pin only changes when you consciously bump it — recopy the
+  new version, repoint, test that harness.
+
+If you run across several harnesses (OpenCode, Vibe/Mistral, Pi, Codex), do
+not let them all share one central binary: a release that breaks one harness
+breaks all of them at once, untested. The CLI stays latest for ad-hoc use;
+each harness's MCP rides its own pinned copy. To tell whether a pinned harness
+is behind, run the latest CLI from inside that harness and compare `--version`.
+
 ## The actions
 
 | MCP tool | CLI | What it does |
