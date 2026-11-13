@@ -26,6 +26,7 @@ pub use recall::{
     build_recent_rollouts_table, build_state_prompt, build_state_prompt_bounded,
 };
 pub use redact::redact_secrets;
+pub use rollout::codex::CodexAdapter;
 pub use rollout::mock::MockAdapter;
 pub use rollout::opencode::OpenCodeAdapter;
 pub use rollout::vibe::VibeAdapter;

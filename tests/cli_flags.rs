@@ -316,25 +316,24 @@ fn list_hours_scopes_the_listing_and_names_the_held_back_rows_on_stderr() {
 
 #[test]
 fn removed_harness_names_are_refused_with_the_supported_set() {
-    for removed in ["codex", "claude"] {
-        let cwd = child_cwd("harness_refused");
-        let output = bin(&cwd)
-            .arg("--harness")
-            .arg(removed)
-            .arg("list")
-            .output()
-            .expect("spawn total-recall list with a removed harness");
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "removed harness must exit 2, got stdout: {}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains(removed) && stderr.contains("vibe|opencode"),
-            "stderr must name the refused harness and the supported set, got: {stderr}"
-        );
-        let _ = std::fs::remove_dir_all(&cwd);
-    }
+    let removed = "claude";
+    let cwd = child_cwd("harness_refused");
+    let output = bin(&cwd)
+        .arg("--harness")
+        .arg(removed)
+        .arg("list")
+        .output()
+        .expect("spawn total-recall list with a removed harness");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "removed harness must exit 2, got stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(removed) && stderr.contains("vibe|opencode"),
+        "stderr must name the refused harness and the supported set, got: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&cwd);
 }
