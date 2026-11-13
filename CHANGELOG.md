@@ -5,6 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-11-13
+
+### Added
+
+- **Modern Codex harness support** (prompt-cult/total-recall#56). The old
+  codex adapter was dropped after v0.19.0 because it read only the flat
+  `~/.codex/sessions/*.jsonl` layout. Current Codex desktop writes a typed
+  JSONL record stream under
+  `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`. The new
+  adapter walks the date tree and normalizes the record stream: `message`
+  records (user/assistant) become chat messages (developer scaffolding
+  skipped), `custom_tool_call`/`function_call` records become assistant
+  tool-call summaries, their outputs become tool results, and
+  encrypted-at-rest `reasoning` records are skipped. A typed `compacted`
+  record replays as an injected marker, so the shared compaction slicing and
+  marker logic work unchanged and prose cannot forge a boundary.
+  `VALID_HARNESSES` is now `vibe | opencode | codex`, with a
+  `TOTAL_RECALL_CODEX_ROOT` override for fixtures and sandboxed runs.
+
 ## [0.24.0] - 2026-11-13
 
 ### Fixed
