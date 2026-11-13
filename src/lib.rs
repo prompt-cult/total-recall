@@ -29,6 +29,7 @@ pub use redact::redact_secrets;
 pub use rollout::codex::CodexAdapter;
 pub use rollout::mock::MockAdapter;
 pub use rollout::opencode::OpenCodeAdapter;
+pub use rollout::pi::PiAdapter;
 pub use rollout::vibe::VibeAdapter;
 pub use rollout::{
     EventType, IDS_PER_LISTING_ROW, InterestingEvent, LISTING_ROW_CAP, ListingRow, QaOption,

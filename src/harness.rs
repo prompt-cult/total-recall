@@ -1,4 +1,6 @@
-use crate::{CodexAdapter, RolloutAdapter, VibeAdapter, rollout::opencode::OpenCodeAdapter};
+use crate::{
+    CodexAdapter, PiAdapter, RolloutAdapter, VibeAdapter, rollout::opencode::OpenCodeAdapter,
+};
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";
 
@@ -8,12 +10,13 @@ pub fn root_env_var(harness: &str) -> &'static str {
         "vibe" => crate::rollout::VIBE_ROOT_ENV_VAR,
         "opencode" => crate::rollout::OPENCODE_ROOT_ENV_VAR,
         "codex" => crate::rollout::CODEX_ROOT_ENV_VAR,
+        "pi" => crate::rollout::PI_ROOT_ENV_VAR,
         _ => "TOTAL_RECALL_<H>_ROOT",
     }
 }
 
 // One match arm + one VALID_HARNESSES entry per harness.
-pub const VALID_HARNESSES: [&str; 3] = ["vibe", "opencode", "codex"];
+pub const VALID_HARNESSES: [&str; 4] = ["vibe", "opencode", "codex", "pi"];
 
 /// The product's own name for a harness, accepted wherever the short name
 /// is: `mistral-vibe` is the harness this tool calls `vibe`.
@@ -94,6 +97,7 @@ pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
         "vibe" => Box::new(VibeAdapter::new()),
         "opencode" => Box::new(OpenCodeAdapter::new()),
         "codex" => Box::new(CodexAdapter::new()),
+        "pi" => Box::new(PiAdapter::new()),
         other => {
             return Err(format!(
                 "unknown harness '{}'. Valid values: {}",
