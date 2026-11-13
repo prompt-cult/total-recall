@@ -1,0 +1,4 @@
+{"timestamp": "2026-11-11T09:00:00.000Z", "ordinal": 0, "type": "session_meta", "payload": {"session_id": "02bb2222-3333-4444-5555-666677778888", "id": "02bb2222-3333-4444-5555-666677778888", "timestamp": "2026-11-11T09:00:00.000Z", "cwd": "/Users/sample/other-project", "originator": "Codex Desktop", "cli_version": "0.167.0-alpha.3.2", "source": "vscode"}}
+{"timestamp": "2026-11-11T09:00:01.000Z", "ordinal": 1, "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Check the backup config."}]}}
+{"timestamp": "2026-11-11T09:00:02.000Z", "ordinal": 2, "type": "response_item", "payload": {"type": "message", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": "Found it."}]}}
+{"timestamp": "2026-11-11T09:01:00.000Z", "ordinal": 3, "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "02bb2222-9999-8888-7777-666655554444", "completed_at": 1794469832}}

@@ -1,3 +1,4 @@
+pub mod codex;
 pub mod mock;
 pub mod opencode;
 pub mod vibe;
@@ -975,6 +976,7 @@ pub fn slice_from_compaction(messages: Vec<RolloutMessage>) -> Vec<RolloutMessag
 /// fixtures or simulated data without ever touching live sessions.
 pub const VIBE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_VIBE_ROOT";
 pub const OPENCODE_ROOT_ENV_VAR: &str = "TOTAL_RECALL_OPENCODE_ROOT";
+pub const CODEX_ROOT_ENV_VAR: &str = "TOTAL_RECALL_CODEX_ROOT";
 
 /// The product's own name for the vibe root: `mistral-vibe` is the harness
 /// this tool calls `vibe`, and this variable points at the same store.

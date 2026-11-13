@@ -16,6 +16,7 @@ subcommand — the flag wins if both are given:
 |---------|-------|
 | `vibe` | `~/.vibe/logs/session/` |
 | `opencode` | `~/.local/share/opencode/opencode.db` |
+| `codex` | `~/.codex/sessions/<YYYY>/<MM>/<DD>/` — one `rollout-<ts>-<uuid>.jsonl` per session |
 
 `mistral-vibe` is accepted as a name for the `vibe` harness — the product's
 own name for it.
