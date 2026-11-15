@@ -178,48 +178,57 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
     std::fs::create_dir_all(&building)
         .map_err(|e| format!("cannot create index dir {}: {}", building.display(), e))?;
 
-    let schema = build_schema();
-    let index = Index::create_in_dir(&building, schema.clone())
-        .map_err(|e| format!("cannot create index in {}: {}", dir.display(), e))?;
-    let mut writer: IndexWriter = index
-        .writer(50_000_000)
-        .map_err(|e| format!("cannot create index writer: {}", e))?;
+    let doc_count = {
+        let schema = build_schema();
+        let index = Index::create_in_dir(&building, schema.clone())
+            .map_err(|e| format!("cannot create index in {}: {}", dir.display(), e))?;
+        let mut writer: IndexWriter = index
+            .writer(50_000_000)
+            .map_err(|e| format!("cannot create index writer: {}", e))?;
 
-    let session_id_field = schema.get_field("session_id").unwrap();
-    let role_field = schema.get_field("role").unwrap();
-    let timestamp_field = schema.get_field("timestamp").unwrap();
-    let content_field = schema.get_field("content").unwrap();
-    let thinking_field = schema.get_field("thinking").unwrap();
-    let seq_field = schema.get_field("seq").unwrap();
+        let session_id_field = schema.get_field("session_id").unwrap();
+        let role_field = schema.get_field("role").unwrap();
+        let timestamp_field = schema.get_field("timestamp").unwrap();
+        let content_field = schema.get_field("content").unwrap();
+        let thinking_field = schema.get_field("thinking").unwrap();
+        let seq_field = schema.get_field("seq").unwrap();
 
-    let mut doc_count = 0u64;
-    for (seq, msg) in messages.iter().enumerate() {
-        if msg.content.is_empty() && msg.thinking.as_deref().is_none_or(|t| t.is_empty()) {
-            continue;
+        let mut doc_count = 0u64;
+        for (seq, msg) in messages.iter().enumerate() {
+            if msg.content.is_empty() && msg.thinking.as_deref().is_none_or(|t| t.is_empty()) {
+                continue;
+            }
+            let mut doc = TantivyDocument::default();
+            doc.add_text(session_id_field, &resolved);
+            doc.add_text(role_field, &msg.role);
+            if let Some(ts) = &msg.timestamp {
+                doc.add_text(timestamp_field, ts);
+            }
+            if !msg.content.is_empty() {
+                doc.add_text(content_field, &msg.content);
+            }
+            if let Some(thinking) = &msg.thinking
+                && !thinking.is_empty()
+            {
+                doc.add_text(thinking_field, thinking);
+            }
+            doc.add_u64(seq_field, seq as u64);
+            writer
+                .add_document(doc)
+                .map_err(|e| format!("failed to add document: {}", e))?;
+            doc_count += 1;
         }
-        let mut doc = TantivyDocument::default();
-        doc.add_text(session_id_field, &resolved);
-        doc.add_text(role_field, &msg.role);
-        if let Some(ts) = &msg.timestamp {
-            doc.add_text(timestamp_field, ts);
-        }
-        if !msg.content.is_empty() {
-            doc.add_text(content_field, &msg.content);
-        }
-        if let Some(thinking) = &msg.thinking
-            && !thinking.is_empty()
-        {
-            doc.add_text(thinking_field, thinking);
-        }
-        doc.add_u64(seq_field, seq as u64);
         writer
-            .add_document(doc)
-            .map_err(|e| format!("failed to add document: {}", e))?;
-        doc_count += 1;
-    }
-    writer
-        .commit()
-        .map_err(|e| format!("index commit failed: {}", e))?;
+            .commit()
+            .map_err(|e| format!("index commit failed: {}", e))?;
+        // Every tantivy handle to `building` must be released before the
+        // swap: Windows refuses to rename a directory anyone still holds.
+        // Every tantivy handle to `building` must be released before the
+        // swap: Windows refuses to rename a directory anyone still holds.
+        drop(writer);
+        drop(index);
+        doc_count
+    };
 
     let built_at = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -237,13 +246,32 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
     )
     .map_err(|e| format!("cannot write total-recall-meta.json: {}", e))?;
     // The swap: discard the previous index only now that the replacement is
-    // on disk with its meta.
+    // on disk with its meta. Windows can hold a directory rename briefly
+    // after its last handle closed (antivirus, indexer), so the rename
+    // retries a few times before failing.
     if dir.exists() {
         std::fs::remove_dir_all(&dir)
             .map_err(|e| format!("cannot clear index dir {}: {}", dir.display(), e))?;
     }
-    std::fs::rename(&building, &dir)
-        .map_err(|e| format!("cannot swap index dir {}: {}", dir.display(), e))?;
+    let mut swap_err = None;
+    for attempt in 0..5 {
+        match std::fs::rename(&building, &dir) {
+            Ok(()) => {
+                swap_err = None;
+                break;
+            }
+            Err(e) if attempt < 4 => {
+                swap_err = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => {
+                swap_err = Some(e);
+            }
+        }
+    }
+    if let Some(e) = swap_err {
+        return Err(format!("cannot swap index dir {}: {}", dir.display(), e));
+    }
 
     Ok(IndexStats {
         session_id: resolved,

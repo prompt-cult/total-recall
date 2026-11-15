@@ -215,7 +215,11 @@ fn spawn() -> (Mcp, common::scratch::ScratchRoot) {
 /// case tables below carry.
 fn file_args(v: &Value, dir: &std::path::Path) -> Value {
     let file = dir.join("lines.txt").to_string_lossy().to_string();
-    serde_json::from_str(&v.to_string().replace("{FILE}", &file)).expect("args are JSON")
+    // The placeholder sits inside a JSON string, so substitute the path
+    // JSON-escaped (Windows backslashes must not become invalid escapes).
+    let quoted = serde_json::to_string(&file).expect("path is a string");
+    let escaped = &quoted[1..quoted.len() - 1]; // strip the outer quotes
+    serde_json::from_str(&v.to_string().replace("{FILE}", escaped)).expect("args are JSON")
 }
 
 fn reap(mcp: &mut Mcp) {
