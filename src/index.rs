@@ -25,6 +25,45 @@ pub fn index_exists(adapter: &dyn RolloutAdapter, session_id: &str) -> bool {
     meta_path(adapter, session_id).is_file()
 }
 
+/// Whether an index needs rebuilding for its session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReindexDecision {
+    /// The index exists and was built from the payload's current mtime.
+    Fresh,
+    /// No index, unreadable meta, or the payload changed since the build.
+    Stale,
+}
+
+/// Mtime gate for file-backed harnesses (issue #62): the meta records the
+/// payload mtime it indexed (`source_mtime`); a build is fresh only while
+/// that matches the payload's mtime now. A harness that cannot report a
+/// payload mtime (database-backed) is always stale — the gate refuses to
+/// claim freshness it cannot verify. No index at all is stale.
+pub fn index_session_fresh(
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+) -> Result<ReindexDecision, String> {
+    if !index_exists(adapter, session_id) {
+        return Ok(ReindexDecision::Stale);
+    }
+    let meta = std::fs::read_to_string(meta_path(adapter, session_id))
+        .map_err(|e| format!("cannot read index meta: {e}"))?;
+    let meta: serde_json::Value =
+        serde_json::from_str(&meta).map_err(|e| format!("cannot parse index meta: {e}"))?;
+    let source_mtime = meta.get("source_mtime").and_then(|m| m.as_u64());
+    let payload_mtime = adapter
+        .list_sessions()
+        .into_iter()
+        .find(|s| s.session_id == *session_id)
+        .and_then(|s| s.mtime)
+        .and_then(|m| m.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+    match (source_mtime, payload_mtime) {
+        (Some(built), Some(now)) if built == now => Ok(ReindexDecision::Fresh),
+        _ => Ok(ReindexDecision::Stale),
+    }
+}
+
 pub fn annotate_sessions(sessions: &mut [SessionSummary], adapter: &dyn RolloutAdapter) {
     for summary in sessions.iter_mut() {
         summary.has_tantivy_index = index_exists(adapter, &summary.session_id);
@@ -102,7 +141,13 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
         adapter
             .list_sessions()
             .into_iter()
-            .find(|s| s.session_id.contains(session_id))
+            .find(|s| s.session_id == session_id)
+            .or_else(|| {
+                adapter
+                    .list_sessions()
+                    .into_iter()
+                    .find(|s| s.session_id.contains(session_id))
+            })
             .map(|s| s.session_id)
             .unwrap_or_else(|| session_id.to_string())
     };
@@ -110,16 +155,26 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
     let messages = adapter
         .read_session_mmap(&resolved)
         .map_err(|e| format!("cannot index session: {e}"))?;
+    let payload_mtime = adapter
+        .list_sessions()
+        .into_iter()
+        .find(|s| s.session_id == resolved)
+        .and_then(|s| s.mtime)
+        .and_then(|m| m.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
     let dir = session_index_dir(adapter, &resolved);
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir)
-            .map_err(|e| format!("cannot clear existing index dir {}: {}", dir.display(), e))?;
+    // Build to a side path; the previous index survives any failure and is
+    // swapped away only after the new one committed (issue #69).
+    let building = dir.with_extension("building");
+    if building.exists() {
+        std::fs::remove_dir_all(&building)
+            .map_err(|e| format!("cannot clear stale building dir {}: {}", building.display(), e))?;
     }
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create index dir {}: {}", dir.display(), e))?;
+    std::fs::create_dir_all(&building)
+        .map_err(|e| format!("cannot create index dir {}: {}", building.display(), e))?;
 
     let schema = build_schema();
-    let index = Index::create_in_dir(&dir, schema.clone())
+    let index = Index::create_in_dir(&building, schema.clone())
         .map_err(|e| format!("cannot create index in {}: {}", dir.display(), e))?;
     let mut writer: IndexWriter = index
         .writer(50_000_000)
@@ -169,12 +224,21 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
         "session_id": resolved,
         "doc_count": doc_count,
         "built_at": built_at,
+        "source_mtime": payload_mtime,
     });
     std::fs::write(
-        meta_path(adapter, &resolved),
+        building.join("total-recall-meta.json"),
         serde_json::to_string_pretty(&meta).unwrap_or_default(),
     )
     .map_err(|e| format!("cannot write total-recall-meta.json: {}", e))?;
+    // The swap: discard the previous index only now that the replacement is
+    // on disk with its meta.
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| format!("cannot clear index dir {}: {}", dir.display(), e))?;
+    }
+    std::fs::rename(&building, &dir)
+        .map_err(|e| format!("cannot swap index dir {}: {}", dir.display(), e))?;
 
     Ok(IndexStats {
         session_id: resolved,
@@ -280,9 +344,17 @@ pub fn search(
     let mut sessions_with_hits = 0usize;
 
     for summary in &selected {
-        if !index_exists(adapter, &summary.session_id) {
-            not_indexed.push(summary.session_id.clone());
-            continue;
+        // File-backed auto-reindex (issue #69): a stale index is rebuilt in
+        // the search pass so a hit is never silently served from old
+        // content; database-backed payloads cannot verify staleness and
+        // keep the explicit pass (reported not_indexed).
+        if index_session_fresh(adapter, &summary.session_id)? == ReindexDecision::Stale {
+            if summary.backend_kind == Some(crate::rollout::BackendKind::File) {
+                index_session(adapter, &summary.session_id)?;
+            } else if !index_exists(adapter, &summary.session_id) {
+                not_indexed.push(summary.session_id.clone());
+                continue;
+            }
         }
         let dir = session_index_dir(adapter, &summary.session_id);
         let result = (|| -> Result<Vec<Hit>, String> {
