@@ -103,17 +103,19 @@ static STAGING_SERIAL: AtomicU64 = AtomicU64::new(0);
 /// Stage the embedded awk script for `awk -f` and return its path. The
 /// shebang in the script is never executed; a direct spawn of `awk` is.
 ///
-/// The staged path is shared by every caller, in this process and in every
-/// other process using the same temp root, so the script is PUBLISHED
-/// ATOMICALLY: it is written to a uniquely named file beside its destination
-/// and renamed over it. A rename is atomic within a filesystem, so a
-/// concurrent `awk -f` sees either the whole previous script or the whole new
-/// one. Truncating and rewriting the destination in place instead would let
-/// one caller's `awk` read a half-written file, and the symptom is a histogram
-/// call that returns no histogram — the overflow marker silently losing the
-/// bucket distribution it exists to carry.
+/// The staged path is content-stable per release (the script is a build
+/// constant), so concurrent callers never rename over a file a concurrent
+/// `awk -f` holds open — on Windows a rename over an open file either
+/// fails with a sharing violation or lets the reader see an unlinked
+/// file, and the symptom is a histogram call that returns no histogram.
+/// Every writer publishes the SAME bytes under the SAME name, so which
+/// writer's rename wins is irrelevant: the first publication serves all
+/// callers, later ones see the file exists and reuse it.
 fn stage_awk_script() -> PathBuf {
-    let path = temp_root().join("line_histogram.awk");
+    let path = temp_root().join(format!("line_histogram.{}.awk", env!("CARGO_PKG_VERSION")));
+    if path.is_file() {
+        return path;
+    }
     let _ = fs::create_dir_all(temp_root());
     let staging = temp_root().join(format!(
         ".line_histogram.awk.{}.{}",
