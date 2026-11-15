@@ -12,13 +12,13 @@
 //! Two variants exist, and which one to call is not a detail:
 //!
 //! * [`scratch`] — target-local, for fixtures the test process reads in.
-//!  Cargo owns `target/tmp` and cleans it, and no child process ever runs in
-//!  here, so nothing can pick up a developer's `.env`.
+//!   Cargo owns `target/tmp` and cleans it, and no child process ever runs in
+//!   here, so nothing can pick up a developer's `.env`.
 //! * [`child_cwd`] — bare `std::env::temp_dir()`, for directories that become a
-//!  spawned child's working directory. `dotenvy::dotenv()` walks up parent
-//!  directories, so a child started inside `target/` would find the real
-//!  `<repo>/.env` and make live API calls. Tests must never do that, and this
-//!  path has no `.env` above it.
+//!   spawned child's working directory. `dotenvy::dotenv()` walks up parent
+//!   directories, so a child started inside `target/` would find the real
+//!   `<repo>/.env` and make live API calls. Tests must never do that, and this
+//!   path has no `.env` above it.
 //!
 //! `tests/scratch_hygiene.rs` holds the one rule that keeps this file the only
 //! implementation: no other file under `tests/` may name a temporary path.
@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static SCRATCH_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn scratch_seq() -> u64 {
-  SCRATCH_SEQ.fetch_add(1, Ordering::Relaxed)
+    SCRATCH_SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A scratch directory for one test, removed when that test ends.
@@ -44,16 +44,16 @@ fn scratch_seq() -> u64 {
 pub struct ScratchRoot(PathBuf);
 
 impl std::ops::Deref for ScratchRoot {
-  type Target = Path;
-  fn deref(&self) -> &Path {
-    &self.0
-  }
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
 }
 
 impl Drop for ScratchRoot {
-  fn drop(&mut self) {
-    let _ = std::fs::remove_dir_all(&self.0);
-  }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// A fresh, uniquely named scratch directory inside cargo's own tmpdir.
@@ -64,16 +64,16 @@ impl Drop for ScratchRoot {
 ///
 /// Not for a child process's working directory — see [`child_cwd`].
 pub fn scratch(tag: &str) -> ScratchRoot {
-  let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
-    "tr_scratch_{tag}_{}_{}",
-    std::process::id(),
-    scratch_seq()
-  ));
-  // Only reachable if a dead process left this exact name behind: the pid and
-  // counter are consumed, so no live test owns it.
-  let _ = std::fs::remove_dir_all(&dir);
-  std::fs::create_dir_all(&dir).unwrap();
-  ScratchRoot(dir)
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "tr_scratch_{tag}_{}_{}",
+        std::process::id(),
+        scratch_seq()
+    ));
+    // Only reachable if a dead process left this exact name behind: the pid and
+    // counter are consumed, so no live test owns it.
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    ScratchRoot(dir)
 }
 
 /// An empty working directory OUTSIDE the repository tree, for a spawned child.
@@ -82,14 +82,14 @@ pub fn scratch(tag: &str) -> ScratchRoot {
 /// because the child outlives the call that spawned it. Only the owner of the
 /// `Child` knows when it has been reaped.
 pub fn child_cwd(tag: &str) -> PathBuf {
-  let dir = std::env::temp_dir().join(format!(
-    "tr_child_cwd_{tag}_{}_{}",
-    std::process::id(),
-    scratch_seq()
-  ));
-  let _ = std::fs::remove_dir_all(&dir);
-  std::fs::create_dir_all(&dir).unwrap();
-  dir
+    let dir = std::env::temp_dir().join(format!(
+        "tr_child_cwd_{tag}_{}_{}",
+        std::process::id(),
+        scratch_seq()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 /// The regression these helpers exist to prevent: a second call carrying a tag
@@ -97,27 +97,27 @@ pub fn child_cwd(tag: &str) -> PathBuf {
 /// handed out, and neither may collide with a sibling test process.
 #[test]
 fn scratch_dirs_are_unique_per_call_for_a_shared_tag() {
-  let first = scratch("shared");
-  let second = scratch("shared");
-  let cwd = child_cwd("shared");
+    let first = scratch("shared");
+    let second = scratch("shared");
+    let cwd = child_cwd("shared");
 
-  assert_ne!(
-    *first, *second,
-    "a shared tag must still yield distinct fixture directories"
-  );
-  assert_ne!(
-    *first, cwd,
-    "the target-local and temp_dir() variants must not collide"
-  );
-  assert!(
-    first.is_dir() && second.is_dir() && cwd.is_dir(),
-    "every scratch directory must survive the calls that follow it: {first:?} {second:?} {cwd:?}"
-  );
-  assert!(
-    !cwd.starts_with(env!("CARGO_MANIFEST_DIR")),
-    "a child's working directory must sit outside the repository, or \
-     dotenvy walks up and finds the developer's .env: {cwd:?}"
-  );
+    assert_ne!(
+        *first, *second,
+        "a shared tag must still yield distinct fixture directories"
+    );
+    assert_ne!(
+        *first, cwd,
+        "the target-local and temp_dir() variants must not collide"
+    );
+    assert!(
+        first.is_dir() && second.is_dir() && cwd.is_dir(),
+        "every scratch directory must survive the calls that follow it: {first:?} {second:?} {cwd:?}"
+    );
+    assert!(
+        !cwd.starts_with(env!("CARGO_MANIFEST_DIR")),
+        "a child's working directory must sit outside the repository, or \
+         dotenvy walks up and finds the developer's .env: {cwd:?}"
+    );
 
-  let _ = std::fs::remove_dir_all(&*cwd);
+    let _ = std::fs::remove_dir_all(&*cwd);
 }

@@ -13,11 +13,11 @@
 /// absent status reads as the empty string, an absent priority as `None`).
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct TodoItemState {
-  pub content: String,
-  #[serde(default)]
-  pub status: String,
-  #[serde(default)]
-  pub priority: Option<String>,
+    pub content: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub priority: Option<String>,
 }
 
 /// One `todowrite` flush: the whole todo list as the tool wrote it, with the
@@ -25,8 +25,8 @@ pub struct TodoItemState {
 /// message carries no creation time).
 #[derive(Debug, Clone)]
 pub struct TodoWrite {
-  pub timestamp: Option<String>,
-  pub todos: Vec<TodoItemState>,
+    pub timestamp: Option<String>,
+    pub todos: Vec<TodoItemState>,
 }
 
 /// One edit between two consecutive todo-list states, serialized as the
@@ -36,11 +36,11 @@ pub struct TodoWrite {
 /// for `removed`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct TodoEditEvent {
-  pub ts: String,
-  pub action: String,
-  pub todo: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub status: Option<String>,
+    pub ts: String,
+    pub action: String,
+    pub todo: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 /// The identity key of a todo item: the `itemNN:` / `itemNN.NN:` slug prefix
@@ -48,32 +48,32 @@ pub struct TodoEditEvent {
 /// that is reworded keeps its identity (one `updated` event); an unslugged
 /// item that is reworded is a different item (a `removed` plus an `added`).
 fn item_key(content: &str) -> &str {
-  let Some(rest) = content.strip_prefix("item") else {
-    return content;
-  };
-  let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
-  if digits == 0 {
-    return content;
-  }
-  let rest = &rest[digits..];
-  let rest = match rest.strip_prefix('.') {
-    Some(after_dot) => {
-      let dot_digits = after_dot.chars().take_while(|c| c.is_ascii_digit()).count();
-      if dot_digits == 0 {
+    let Some(rest) = content.strip_prefix("item") else {
         return content;
-      }
-      &after_dot[dot_digits..]
+    };
+    let digits = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 0 {
+        return content;
     }
-    None => rest,
-  };
-  let Some(after_colon) = rest.strip_prefix(':') else {
-    return content;
-  };
-  if after_colon.starts_with(char::is_whitespace) {
-    &content[..content.len() - after_colon.len()]
-  } else {
-    content
-  }
+    let rest = &rest[digits..];
+    let rest = match rest.strip_prefix('.') {
+        Some(after_dot) => {
+            let dot_digits = after_dot.chars().take_while(|c| c.is_ascii_digit()).count();
+            if dot_digits == 0 {
+                return content;
+            }
+            &after_dot[dot_digits..]
+        }
+        None => rest,
+    };
+    let Some(after_colon) = rest.strip_prefix(':') else {
+        return content;
+    };
+    if after_colon.starts_with(char::is_whitespace) {
+        &content[..content.len() - after_colon.len()]
+    } else {
+        content
+    }
 }
 
 /// Whether a todo edit event closes its item: a status change to
@@ -81,7 +81,7 @@ fn item_key(content: &str) -> &str {
 /// (`added`, `updated`, a re-open to `pending`, `in_progress`) leaves the
 /// item open.
 pub fn is_terminal_action(action: &str) -> bool {
-  action == "completed" || action == "cancelled" || action == "removed"
+    action == "completed" || action == "cancelled" || action == "removed"
 }
 
 /// The `(opened, closed)` counts over a period's todo writes, for the churn
@@ -93,19 +93,19 @@ pub fn is_terminal_action(action: &str) -> bool {
 /// `first_flush_is_restatement` says so. The counts feed the churn note only;
 /// the transition list itself always shows every event.
 pub fn opened_closed_counts(
-  writes: &[TodoWrite],
-  first_flush_is_restatement: bool,
+    writes: &[TodoWrite],
+    first_flush_is_restatement: bool,
 ) -> (usize, usize) {
-  let events = diff_todo_states(writes);
-  let closed = events
-    .iter()
-    .filter(|e| is_terminal_action(&e.action))
-    .count();
-  let mut opened = events.iter().filter(|e| e.action == "added").count();
-  if first_flush_is_restatement && !writes.is_empty() {
-    opened = opened.saturating_sub(writes[0].todos.len());
-  }
-  (opened, closed)
+    let events = diff_todo_states(writes);
+    let closed = events
+        .iter()
+        .filter(|e| is_terminal_action(&e.action))
+        .count();
+    let mut opened = events.iter().filter(|e| e.action == "added").count();
+    if first_flush_is_restatement && !writes.is_empty() {
+        opened = opened.saturating_sub(writes[0].todos.len());
+    }
+    (opened, closed)
 }
 
 /// The edits between consecutive todo-list states, in input order. The first
@@ -115,53 +115,53 @@ pub fn opened_closed_counts(
 /// `removed` (the todowrite protocol replaces the whole list, so a vanished
 /// key was removed — reported, never hidden).
 pub fn diff_todo_states(states: &[TodoWrite]) -> Vec<TodoEditEvent> {
-  let mut events = Vec::new();
-  // The previous flush's items as (key, item) pairs, in list order.
-  let mut prev: Vec<(String, TodoItemState)> = Vec::new();
+    let mut events = Vec::new();
+    // The previous flush's items as (key, item) pairs, in list order.
+    let mut prev: Vec<(String, TodoItemState)> = Vec::new();
 
-  for write in states {
-    let ts = write.timestamp.clone().unwrap_or_else(|| "0".to_string());
-    let mut current: Vec<(String, TodoItemState)> = Vec::with_capacity(write.todos.len());
-    for item in &write.todos {
-      let key = item_key(&item.content).to_string();
-      match prev.iter().find(|(k, _)| *k == key) {
-        None => events.push(TodoEditEvent {
-          ts: ts.clone(),
-          action: "added".to_string(),
-          todo: item.content.clone(),
-          status: Some(item.status.clone()),
-        }),
-        Some((_, old)) => {
-          if old.status != item.status {
-            events.push(TodoEditEvent {
-              ts: ts.clone(),
-              action: item.status.clone(),
-              todo: item.content.clone(),
-              status: Some(item.status.clone()),
-            });
-          } else if old.content != item.content {
-            events.push(TodoEditEvent {
-              ts: ts.clone(),
-              action: "updated".to_string(),
-              todo: item.content.clone(),
-              status: Some(item.status.clone()),
-            });
-          }
+    for write in states {
+        let ts = write.timestamp.clone().unwrap_or_else(|| "0".to_string());
+        let mut current: Vec<(String, TodoItemState)> = Vec::with_capacity(write.todos.len());
+        for item in &write.todos {
+            let key = item_key(&item.content).to_string();
+            match prev.iter().find(|(k, _)| *k == key) {
+                None => events.push(TodoEditEvent {
+                    ts: ts.clone(),
+                    action: "added".to_string(),
+                    todo: item.content.clone(),
+                    status: Some(item.status.clone()),
+                }),
+                Some((_, old)) => {
+                    if old.status != item.status {
+                        events.push(TodoEditEvent {
+                            ts: ts.clone(),
+                            action: item.status.clone(),
+                            todo: item.content.clone(),
+                            status: Some(item.status.clone()),
+                        });
+                    } else if old.content != item.content {
+                        events.push(TodoEditEvent {
+                            ts: ts.clone(),
+                            action: "updated".to_string(),
+                            todo: item.content.clone(),
+                            status: Some(item.status.clone()),
+                        });
+                    }
+                }
+            }
+            current.push((key, item.clone()));
         }
-      }
-      current.push((key, item.clone()));
+        for (key, old) in &prev {
+            if !current.iter().any(|(k, _)| k == key) {
+                events.push(TodoEditEvent {
+                    ts: ts.clone(),
+                    action: "removed".to_string(),
+                    todo: old.content.clone(),
+                    status: None,
+                });
+            }
+        }
+        prev = current;
     }
-    for (key, old) in &prev {
-      if !current.iter().any(|(k, _)| k == key) {
-        events.push(TodoEditEvent {
-          ts: ts.clone(),
-          action: "removed".to_string(),
-          todo: old.content.clone(),
-          status: None,
-        });
-      }
-    }
-    prev = current;
-  }
-  events
+    events
 }

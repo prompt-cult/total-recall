@@ -1,18 +1,18 @@
 use crate::{
-  CodexAdapter, PiAdapter, RolloutAdapter, VibeAdapter, rollout::opencode::OpenCodeAdapter,
+    CodexAdapter, PiAdapter, RolloutAdapter, VibeAdapter, rollout::opencode::OpenCodeAdapter,
 };
 
 pub const HARNESS_ENV_VAR: &str = "HARNESS";
 
 /// Maps a harness name to its storage-root override env var (for sandbox errors).
 pub fn root_env_var(harness: &str) -> &'static str {
-  match harness {
-    "vibe" => crate::rollout::VIBE_ROOT_ENV_VAR,
-    "opencode" => crate::rollout::OPENCODE_ROOT_ENV_VAR,
-    "codex" => crate::rollout::CODEX_ROOT_ENV_VAR,
-    "pi" => crate::rollout::PI_ROOT_ENV_VAR,
-    _ => "TOTAL_RECALL_<H>_ROOT",
-  }
+    match harness {
+        "vibe" => crate::rollout::VIBE_ROOT_ENV_VAR,
+        "opencode" => crate::rollout::OPENCODE_ROOT_ENV_VAR,
+        "codex" => crate::rollout::CODEX_ROOT_ENV_VAR,
+        "pi" => crate::rollout::PI_ROOT_ENV_VAR,
+        _ => "TOTAL_RECALL_<H>_ROOT",
+    }
 }
 
 // One match arm + one VALID_HARNESSES entry per harness.
@@ -25,49 +25,49 @@ pub const HARNESS_ALIASES: [(&str, &str); 1] = [("mistral-vibe", "vibe")];
 /// The canonical name of a harness: the alias resolves to the harness it
 /// names, every other name is its own canonical name.
 pub fn canonical_harness(name: &str) -> String {
-  HARNESS_ALIASES
-    .iter()
-    .find(|(alias, _)| *alias == name)
-    .map(|(_, canonical)| (*canonical).to_string())
-    .unwrap_or_else(|| name.to_string())
+    HARNESS_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, canonical)| (*canonical).to_string())
+        .unwrap_or_else(|| name.to_string())
 }
 
 pub fn valid_harnesses() -> String {
-  let mut names: Vec<&str> = VALID_HARNESSES.to_vec();
-  names.extend(HARNESS_ALIASES.iter().map(|(alias, _)| *alias));
-  names.join("|")
+    let mut names: Vec<&str> = VALID_HARNESSES.to_vec();
+    names.extend(HARNESS_ALIASES.iter().map(|(alias, _)| *alias));
+    names.join("|")
 }
 
 pub fn resolve_harness(cli_flag: Option<&str>) -> Result<String, String> {
-  let value = match cli_flag {
-    Some(name) => name.to_string(),
-    None => std::env::var(HARNESS_ENV_VAR).map_err(|_| {
-      format!(
-        "refusing to start MCP server: harness not defined. Set HARNESS=<{}> in the MCP config environment or pass --harness <name>.",
-        valid_harnesses()
-      )
-    })?,
-  };
-  let canonical = canonical_harness(&value);
-  if !VALID_HARNESSES.contains(&canonical.as_str()) {
-    return Err(format!(
-      "refusing to start MCP server: unknown harness '{}'. Valid values: {}. Set HARNESS=<{}> in the MCP config environment or pass --harness <name>.",
-      value,
-      valid_harnesses(),
-      valid_harnesses()
-    ));
-  }
-  Ok(canonical)
+    let value = match cli_flag {
+        Some(name) => name.to_string(),
+        None => std::env::var(HARNESS_ENV_VAR).map_err(|_| {
+            format!(
+                "refusing to start MCP server: harness not defined. Set HARNESS=<{}> in the MCP config environment or pass --harness <name>.",
+                valid_harnesses()
+            )
+        })?,
+    };
+    let canonical = canonical_harness(&value);
+    if !VALID_HARNESSES.contains(&canonical.as_str()) {
+        return Err(format!(
+            "refusing to start MCP server: unknown harness '{}'. Valid values: {}. Set HARNESS=<{}> in the MCP config environment or pass --harness <name>.",
+            value,
+            valid_harnesses(),
+            valid_harnesses()
+        ));
+    }
+    Ok(canonical)
 }
 
 /// Resolve a (possibly empty) session id against the adapter's session list.
 /// Empty id = most recent session. Returns `None` when no sessions exist.
 pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option<String> {
-  if session_id.is_empty() {
-    adapter.most_recent_session_id()
-  } else {
-    Some(session_id.to_string())
-  }
+    if session_id.is_empty() {
+        adapter.most_recent_session_id()
+    } else {
+        Some(session_id.to_string())
+    }
 }
 
 /// Resolve a session id to the CANONICAL id the listing reports — the id
@@ -78,41 +78,41 @@ pub fn resolve_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Option
 /// id nothing matches is handed back as given, so the adapter's read produces
 /// its own precise "no session matching … under …" error.
 pub fn canonical_session_id(adapter: &dyn RolloutAdapter, session_id: &str) -> String {
-  if session_id.is_empty() {
-    return adapter.most_recent_session_id().unwrap_or_default();
-  }
-  // The adapter's store-side match is one cheap indexed query (opencode) or
-  // a filename match (mock); an unresolved id passes through raw, so the
-  // adapter's read produces its own precise "no session matching …" error.
-  // Never a full-store aggregate listing — that was a 45-second scan on the
-  // live opencode store and timed the MCP calls out.
-  adapter
-    .resolve_canonical_id(session_id)
-    .unwrap_or_else(|| session_id.to_string())
+    if session_id.is_empty() {
+        return adapter.most_recent_session_id().unwrap_or_default();
+    }
+    // The adapter's store-side match is one cheap indexed query (opencode) or
+    // a filename match (mock); an unresolved id passes through raw, so the
+    // adapter's read produces its own precise "no session matching …" error.
+    // Never a full-store aggregate listing — that was a 45-second scan on the
+    // live opencode store and timed the MCP calls out.
+    adapter
+        .resolve_canonical_id(session_id)
+        .unwrap_or_else(|| session_id.to_string())
 }
 
 pub fn make_adapter(harness: &str) -> Result<Box<dyn RolloutAdapter>, String> {
-  let harness = canonical_harness(harness);
-  let adapter: Box<dyn RolloutAdapter> = match harness.as_str() {
-    "vibe" => Box::new(VibeAdapter::new()),
-    "opencode" => Box::new(OpenCodeAdapter::new()),
-    "codex" => Box::new(CodexAdapter::new()),
-    "pi" => Box::new(PiAdapter::new()),
-    other => {
-      return Err(format!(
-        "unknown harness '{}'. Valid values: {}",
-        other,
-        valid_harnesses()
-      ));
+    let harness = canonical_harness(harness);
+    let adapter: Box<dyn RolloutAdapter> = match harness.as_str() {
+        "vibe" => Box::new(VibeAdapter::new()),
+        "opencode" => Box::new(OpenCodeAdapter::new()),
+        "codex" => Box::new(CodexAdapter::new()),
+        "pi" => Box::new(PiAdapter::new()),
+        other => {
+            return Err(format!(
+                "unknown harness '{}'. Valid values: {}",
+                other,
+                valid_harnesses()
+            ));
+        }
+    };
+    if crate::rollout::sandbox_enabled() && !adapter.root_is_from_env() {
+        return Err(format!(
+            "{} is set but {} is not: refusing to read the live store. Point {} at a fixture or scratch copy.",
+            crate::rollout::SANDBOX_ENV_VAR,
+            root_env_var(&harness),
+            root_env_var(&harness)
+        ));
     }
-  };
-  if crate::rollout::sandbox_enabled() && !adapter.root_is_from_env() {
-    return Err(format!(
-      "{} is set but {} is not: refusing to read the live store. Point {} at a fixture or scratch copy.",
-      crate::rollout::SANDBOX_ENV_VAR,
-      root_env_var(&harness),
-      root_env_var(&harness)
-    ));
-  }
-  Ok(adapter)
+    Ok(adapter)
 }

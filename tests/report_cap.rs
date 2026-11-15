@@ -16,118 +16,118 @@ mod common;
 
 use common::scratch::scratch;
 use total_recall::report_cap::{
-  DEFAULT_MAX_BYTES, cap_report, prune_older_than, prune_older_than_in, temp_root,
+    DEFAULT_MAX_BYTES, cap_report, prune_older_than, prune_older_than_in, temp_root,
 };
 
 use std::time::{Duration, SystemTime};
 
 fn input() -> String {
-  let mut s = String::new();
-  for i in 0..40 {
-    s.push_str(&format!(
-      "line {i} with enough words to pass any cap check\n"
-    ));
-  }
-  s
+    let mut s = String::new();
+    for i in 0..40 {
+        s.push_str(&format!(
+            "line {i} with enough words to pass any cap check\n"
+        ));
+    }
+    s
 }
 
 fn json_input() -> String {
-  let mut json = String::from("[\n");
-  for i in 0..40 {
-    json.push_str(&format!(
-      " {{\"row\": {i}, \"pad\": \"{}\"}},\n",
-      "x".repeat(60)
-    ));
-  }
-  json.push_str(" {\"row\": 40}\n]\n");
-  json
+    let mut json = String::from("[\n");
+    for i in 0..40 {
+        json.push_str(&format!(
+            "  {{\"row\": {i}, \"pad\": \"{}\"}},\n",
+            "x".repeat(60)
+        ));
+    }
+    json.push_str("  {\"row\": 40}\n]\n");
+    json
 }
 
 fn cap(content: String, max: usize) -> String {
-  cap_report("test_tool", "scope", content, max)
+    cap_report("test_tool", "scope", content, max)
 }
 
 fn path_from_marker(out: &str) -> std::path::PathBuf {
-  let line = out
-    .lines()
-    .find(|l| l.starts_with("full_report: "))
-    .expect("marker names the full report path");
-  std::path::PathBuf::from(line.trim_start_matches("full_report: ").trim())
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .expect("marker names the full report path");
+    std::path::PathBuf::from(line.trim_start_matches("full_report: ").trim())
 }
 
 fn md_count_matching(prefix: &str) -> usize {
-  std::fs::read_dir(temp_root())
-    .map(|d| {
-      d.flatten()
-        .filter(|e| {
-          e.path().extension().is_some_and(|x| x == "md")
-            && e.file_name().to_string_lossy().starts_with(prefix)
+    std::fs::read_dir(temp_root())
+        .map(|d| {
+            d.flatten()
+                .filter(|e| {
+                    e.path().extension().is_some_and(|x| x == "md")
+                        && e.file_name().to_string_lossy().starts_with(prefix)
+                })
+                .count()
         })
-        .count()
-    })
-    .unwrap_or(0)
+        .unwrap_or(0)
 }
 
 #[test]
 fn under_the_cap_the_response_is_returned_untouched() {
-  let content = "short\nreport\n".to_string();
-  // A scope unique to this test: concurrent tests write their own overflow
-  // files; only THIS call's name counts.
-  let prefix = "test_tool_undercap_";
-  let before = md_count_matching(prefix);
-  let out = cap_report("test_tool", "undercap", content.clone(), 1024);
-  assert_eq!(out, content);
-  assert_eq!(
-    md_count_matching(prefix),
-    before,
-    "an under-the-cap call writes no overflow report"
-  );
+    let content = "short\nreport\n".to_string();
+    // A scope unique to this test: concurrent tests write their own overflow
+    // files; only THIS call's name counts.
+    let prefix = "test_tool_undercap_";
+    let before = md_count_matching(prefix);
+    let out = cap_report("test_tool", "undercap", content.clone(), 1024);
+    assert_eq!(out, content);
+    assert_eq!(
+        md_count_matching(prefix),
+        before,
+        "an under-the-cap call writes no overflow report"
+    );
 }
 
 #[test]
 fn the_default_window_is_model_sensible() {
-  assert_eq!(DEFAULT_MAX_BYTES, 16_384, "the default window is 16 KiB");
+    assert_eq!(DEFAULT_MAX_BYTES, 16_384, "the default window is 16 KiB");
 }
 
 #[test]
 fn overflow_cuts_at_a_line_boundary_at_or_under_the_cap() {
-  let out = cap(input(), 64);
-  let head = out.split("--- [EOF-TRUNCATED] ---").next().unwrap();
-  assert!(
-    !head.is_empty() && head.len() <= 64,
-    "the returned head must be cut at or under the cap, got {} bytes",
-    head.len()
-  );
-  assert!(head.ends_with('\n'), "the cut must fall on a line boundary");
+    let out = cap(input(), 64);
+    let head = out.split("--- [EOF-TRUNCATED] ---").next().unwrap();
+    assert!(
+        !head.is_empty() && head.len() <= 64,
+        "the returned head must be cut at or under the cap, got {} bytes",
+        head.len()
+    );
+    assert!(head.ends_with('\n'), "the cut must fall on a line boundary");
 }
 
 #[test]
 fn the_marker_names_the_stats_the_path_and_the_policy() {
-  let out = cap(input(), 64);
-  for needle in [
-    "--- [EOF-TRUNCATED] ---",
-    "tool: test_tool",
-    "returned_bytes:",
-    "total_bytes:",
-    "total_lines:",
-    "full_report:",
-    "24 hours",
-    "page the file with the line_histogram tool (mode=extract)",
-  ] {
-    assert!(
-      out.contains(needle),
-      "the marker must name `{needle}`:\n{out}"
-    );
-  }
+    let out = cap(input(), 64);
+    for needle in [
+        "--- [EOF-TRUNCATED] ---",
+        "tool: test_tool",
+        "returned_bytes:",
+        "total_bytes:",
+        "total_lines:",
+        "full_report:",
+        "24 hours",
+        "page the file with the line_histogram tool (mode=extract)",
+    ] {
+        assert!(
+            out.contains(needle),
+            "the marker must name `{needle}`:\n{out}"
+        );
+    }
 }
 
 #[test]
 fn the_marker_carries_the_line_histogram() {
-  let out = cap(input(), 64);
-  assert!(
-    out.contains("Bucket Distribution"),
-    "the marker must carry the overflow file's line histogram:\n{out}"
-  );
+    let out = cap(input(), 64);
+    assert!(
+        out.contains("Bucket Distribution"),
+        "the marker must carry the overflow file's line histogram:\n{out}"
+    );
 }
 
 /// The JSON-never-torn rule is DEAD: a text response that happens to start
@@ -136,18 +136,18 @@ fn the_marker_carries_the_line_histogram() {
 /// the sink; nothing routed here is JSON any more.)
 #[test]
 fn a_json_looking_text_response_gets_the_line_cut_not_the_marker_alone() {
-  let out = cap(json_input(), 64);
-  let head = out.split("--- [EOF-TRUNCATED] ---").next().unwrap();
-  assert!(
-    !head.is_empty() && head.len() <= 64,
-    "a {{-starting text gets the cut at or under the cap, got {} bytes",
-    head.len()
-  );
-  assert!(head.ends_with('\n'), "the cut falls on a line boundary");
-  assert!(
-    out.contains("--- [EOF-TRUNCATED] ---"),
-    "the marker follows the cut head: {out}"
-  );
+    let out = cap(json_input(), 64);
+    let head = out.split("--- [EOF-TRUNCATED] ---").next().unwrap();
+    assert!(
+        !head.is_empty() && head.len() <= 64,
+        "a {{-starting text gets the cut at or under the cap, got {} bytes",
+        head.len()
+    );
+    assert!(head.ends_with('\n'), "the cut falls on a line boundary");
+    assert!(
+        out.contains("--- [EOF-TRUNCATED] ---"),
+        "the marker follows the cut head: {out}"
+    );
 }
 
 /// The single owner of every file-system assertion: a text report and a
@@ -157,91 +157,91 @@ fn a_json_looking_text_response_gets_the_line_cut_not_the_marker_alone() {
 /// ctime cannot be backdated portably, so the cutoff moves, not the files.
 #[test]
 fn overflow_file_lifecycle() {
-  let content = input();
-  let json = json_input();
+    let content = input();
+    let json = json_input();
 
-  let out_text = cap(content.clone(), 64);
-  let text_path = path_from_marker(&out_text);
-  assert!(text_path.exists(), "the text overflow file exists");
-  assert_eq!(
-    std::fs::read_to_string(&text_path).unwrap(),
-    content,
-    "the overflow file carries the FULL text response, byte for byte"
-  );
-  #[cfg(unix)]
-  {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(&text_path).unwrap().permissions().mode();
+    let out_text = cap(content.clone(), 64);
+    let text_path = path_from_marker(&out_text);
+    assert!(text_path.exists(), "the text overflow file exists");
     assert_eq!(
-      mode & 0o777,
-      0o600,
-      "private (mode 600), got {:o}",
-      mode & 0o777
+        std::fs::read_to_string(&text_path).unwrap(),
+        content,
+        "the overflow file carries the FULL text response, byte for byte"
     );
-  }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&text_path).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "private (mode 600), got {:o}",
+            mode & 0o777
+        );
+    }
 
-  let out_json = cap(json.clone(), 64);
-  let json_path = path_from_marker(&out_json);
-  assert!(
-    json_path.exists(),
-    "the json-looking text overflow file exists"
-  );
-  let written = std::fs::read_to_string(&json_path).unwrap();
-  assert_eq!(
-    written, json,
-    "the overflow file carries the whole json-looking text"
-  );
+    let out_json = cap(json.clone(), 64);
+    let json_path = path_from_marker(&out_json);
+    assert!(
+        json_path.exists(),
+        "the json-looking text overflow file exists"
+    );
+    let written = std::fs::read_to_string(&json_path).unwrap();
+    assert_eq!(
+        written, json,
+        "the overflow file carries the whole json-looking text"
+    );
 
-  // precondition for the script-survival assertion below: the histogram
-  // ran while capping, so the vendored script was staged.
-  assert!(
-    out_text.contains("Bucket Distribution"),
-    "precondition: the histogram ran, so the script was staged"
-  );
-  let script = temp_root().join("line_histogram.awk");
-  assert!(script.exists(), "the vendored script is staged");
+    // precondition for the script-survival assertion below: the histogram
+    // ran while capping, so the vendored script was staged.
+    assert!(
+        out_text.contains("Bucket Distribution"),
+        "precondition: the histogram ran, so the script was staged"
+    );
+    let script = temp_root().join("line_histogram.awk");
+    assert!(script.exists(), "the vendored script is staged");
 
-  // A cutoff in the past prunes nothing.
-  prune_older_than(SystemTime::now() - Duration::from_secs(3600));
-  assert!(
-    text_path.exists(),
-    "a past cutoff keeps fresh overflow files"
-  );
-  assert!(
-    json_path.exists(),
-    "a past cutoff keeps fresh overflow files"
-  );
-  assert!(script.exists(), "a past cutoff keeps the vendored script");
+    // A cutoff in the past prunes nothing.
+    prune_older_than(SystemTime::now() - Duration::from_secs(3600));
+    assert!(
+        text_path.exists(),
+        "a past cutoff keeps fresh overflow files"
+    );
+    assert!(
+        json_path.exists(),
+        "a past cutoff keeps fresh overflow files"
+    );
+    assert!(script.exists(), "a past cutoff keeps the vendored script");
 
-  // A cutoff in the future treats fresh files as older than it: the
-  // overflow reports go, the vendored awk script never does. That half of
-  // the contract is asserted against a root this test owns. Sweeping the
-  // shared `temp_root` with a future cutoff to prove it deletes every report
-  // every other caller has just written — including a sibling test's file
-  // that is mid-flight into its own histogram, which is how CI caught this:
-  // `awk: cannot open file ... for reading` and a marker with no histogram.
-  let owned = scratch("prune_future_cutoff");
-  let owned_report = owned.join("tool_scope_1.md");
-  std::fs::write(&owned_report, "report\n").expect("the owned report is written");
-  let owned_other = owned.join("tool_scope_2.md");
-  std::fs::write(&owned_other, "report\n").expect("the second owned report is written");
-  let owned_script = owned.join("line_histogram.awk");
-  std::fs::write(&owned_script, "# staged script\n").expect("the owned script is written");
+    // A cutoff in the future treats fresh files as older than it: the
+    // overflow reports go, the vendored awk script never does. That half of
+    // the contract is asserted against a root this test owns. Sweeping the
+    // shared `temp_root` with a future cutoff to prove it deletes every report
+    // every other caller has just written — including a sibling test's file
+    // that is mid-flight into its own histogram, which is how CI caught this:
+    // `awk: cannot open file ... for reading` and a marker with no histogram.
+    let owned = scratch("prune_future_cutoff");
+    let owned_report = owned.join("tool_scope_1.md");
+    std::fs::write(&owned_report, "report\n").expect("the owned report is written");
+    let owned_other = owned.join("tool_scope_2.md");
+    std::fs::write(&owned_other, "report\n").expect("the second owned report is written");
+    let owned_script = owned.join("line_histogram.awk");
+    std::fs::write(&owned_script, "# staged script\n").expect("the owned script is written");
 
-  let future = SystemTime::now() + Duration::from_secs(3600);
-  prune_older_than_in(&owned, future);
-  assert!(
-    !owned_report.exists(),
-    "an older-than-cutoff overflow report is pruned"
-  );
-  assert!(
-    !owned_other.exists(),
-    "every older-than-cutoff overflow report is pruned, not just one"
-  );
-  assert!(
-    owned_script.exists(),
-    "prune must never remove the vendored awk script, only overflow reports"
-  );
+    let future = SystemTime::now() + Duration::from_secs(3600);
+    prune_older_than_in(&owned, future);
+    assert!(
+        !owned_report.exists(),
+        "an older-than-cutoff overflow report is pruned"
+    );
+    assert!(
+        !owned_other.exists(),
+        "every older-than-cutoff overflow report is pruned, not just one"
+    );
+    assert!(
+        owned_script.exists(),
+        "prune must never remove the vendored awk script, only overflow reports"
+    );
 }
 
 /// Concurrent histograms must never see a half-written script.
@@ -260,34 +260,34 @@ fn overflow_file_lifecycle() {
 /// cannot delete it mid-test.
 #[test]
 fn concurrent_histograms_never_see_a_partial_script() {
-  let dir = scratch("concurrent_histogram");
-  let fixture = dir.join("fixture.txt");
-  std::fs::write(&fixture, input()).expect("the histogram fixture is written");
+    let dir = scratch("concurrent_histogram");
+    let fixture = dir.join("fixture.txt");
+    std::fs::write(&fixture, input()).expect("the histogram fixture is written");
 
-  let mut handles = Vec::new();
-  for _ in 0..8 {
-    let path = fixture.clone();
-    handles.push(std::thread::spawn(move || {
-      let mut blank = 0usize;
-      for _ in 0..12 {
-        let out = total_recall::report_cap::line_histogram(&path, None, None, None, None)
-          .unwrap_or_default();
-        if !out.contains("Bucket Distribution") {
-          blank += 1;
-        }
-      }
-      blank
-    }));
-  }
+    let mut handles = Vec::new();
+    for _ in 0..8 {
+        let path = fixture.clone();
+        handles.push(std::thread::spawn(move || {
+            let mut blank = 0usize;
+            for _ in 0..12 {
+                let out = total_recall::report_cap::line_histogram(&path, None, None, None, None)
+                    .unwrap_or_default();
+                if !out.contains("Bucket Distribution") {
+                    blank += 1;
+                }
+            }
+            blank
+        }));
+    }
 
-  let blank: usize = handles
-    .into_iter()
-    .map(|h| h.join().expect("no histogram thread panicked"))
-    .sum();
+    let blank: usize = handles
+        .into_iter()
+        .map(|h| h.join().expect("no histogram thread panicked"))
+        .sum();
 
-  assert_eq!(
-    blank, 0,
-    "{blank} of 96 concurrent histogram calls returned without a bucket distribution: \
-     the staged awk script was published non-atomically"
-  );
+    assert_eq!(
+        blank, 0,
+        "{blank} of 96 concurrent histogram calls returned without a bucket distribution: \
+         the staged awk script was published non-atomically"
+    );
 }

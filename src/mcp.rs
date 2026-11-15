@@ -1,26 +1,26 @@
 use rmcp::{
-  ErrorData as McpError, RoleServer, ServerHandler,
-  handler::server::{tool::ToolCallContext, wrapper::Parameters},
-  model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ServerCapabilities,
-    ServerInfo,
-  },
-  schemars,
-  service::RequestContext,
-  tool, tool_handler, tool_router,
+    ErrorData as McpError, RoleServer, ServerHandler,
+    handler::server::{tool::ToolCallContext, wrapper::Parameters},
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ServerCapabilities,
+        ServerInfo,
+    },
+    schemars,
+    service::RequestContext,
+    tool, tool_handler, tool_router,
 };
 
 use crate::{
-  RolloutAdapter,
-  harness::{canonical_session_id, make_adapter},
-  mercury::provider_for,
-  recall::{
-    CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
-    STATE_SYSTEM_PROMPT, build_commits_section, build_compaction_footer,
-    build_goals_prompt_bounded, build_plan_files_section, build_recent_rollouts_table,
-    build_state_prompt_bounded, build_todo_log_section, build_todo_log_unavailable,
-    prior_period_sections, recent_steers,
-  },
+    RolloutAdapter,
+    harness::{canonical_session_id, make_adapter},
+    mercury::provider_for,
+    recall::{
+        CHURN_STEER_COUNT, GOALS_SYSTEM_PROMPT, MAX_GOALS_BYTES, MAX_STATE_BYTES,
+        STATE_SYSTEM_PROMPT, build_commits_section, build_compaction_footer,
+        build_goals_prompt_bounded, build_plan_files_section, build_recent_rollouts_table,
+        build_state_prompt_bounded, build_todo_log_section, build_todo_log_unavailable,
+        prior_period_sections, recent_steers,
+    },
 };
 
 // --- Tool parameter structs ---
@@ -35,252 +35,252 @@ use crate::{
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListSessionsParams {
-  #[schemars(
-    description = "Only include sessions updated within this many hours. A window in hours, 1 or more; omitted or 0 = the default window (Default: 240 = 10 days).",
-    range(min = 1)
-  )]
-  #[serde(default)]
-  pub hours_back: Option<i64>,
-  #[schemars(
-    description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
-  )]
-  #[serde(default)]
-  pub all: bool,
-  #[schemars(description = "Only include sessions whose directory contains this substring.")]
-  pub directory: Option<String>,
-  #[schemars(
-    description = "Flood-control cap on the returned listing, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The listing renders as many of the most recent rows of the window as this budget holds and states how many rows it held back.",
-    range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default = "default_max_bytes")]
-  pub max_bytes: i64,
+    #[schemars(
+        description = "Only include sessions updated within this many hours. A window in hours, 1 or more; omitted or 0 = the default window (Default: 240 = 10 days).",
+        range(min = 1)
+    )]
+    #[serde(default)]
+    pub hours_back: Option<i64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
+    #[schemars(description = "Only include sessions whose directory contains this substring.")]
+    pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned listing, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The listing renders as many of the most recent rows of the window as this budget holds and states how many rows it held back.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "On-disk profile cache, on by default: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Pass false to force a recompute without touching the cache."
-  )]
-  #[serde(default = "default_true")]
-  pub cache: bool,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "On-disk profile cache, on by default: serve from <shadow_root>/tr_<session-id>_meta.json when fresh (15 s staleness tolerance); recompute and rewrite otherwise. Pass false to force a recompute without touching the cache."
+    )]
+    #[serde(default = "default_true")]
+    pub cache: bool,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExtractParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "If true, read entire session. If false, read from last compaction point."
-  )]
-  #[serde(default)]
-  pub full: bool,
-  #[schemars(
-    description = "Max records to return. 0 = default 100, 1 to 1000. Larger values rejected; page with offset/limit.",
-    range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
-  )]
-  #[serde(default)]
-  pub limit: i64,
-  #[schemars(
-    description = "0-based start index into the chronological list. Omit = most recent `limit`; set 0 and follow bounds.next_offset to page the whole session.",
-    range(min = 0)
-  )]
-  #[serde(default)]
-  pub offset: Option<i64>,
-  #[schemars(
-    description = "Hard byte cap on the returned payload. 0 = default, clamped to the 8 MiB ceiling.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_bytes: i64,
-  #[schemars(
-    description = "Per-record clamp for content/thinking, bytes. 0 = default 262144 (256 KiB), up to the 8 MiB ceiling.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_record_bytes: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "If true, read entire session. If false, read from last compaction point."
+    )]
+    #[serde(default)]
+    pub full: bool,
+    #[schemars(
+        description = "Max records to return. 0 = default 100, 1 to 1000. Larger values rejected; page with offset/limit.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
+    )]
+    #[serde(default)]
+    pub limit: i64,
+    #[schemars(
+        description = "0-based start index into the chronological list. Omit = most recent `limit`; set 0 and follow bounds.next_offset to page the whole session.",
+        range(min = 0)
+    )]
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default, clamped to the 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_bytes: i64,
+    #[schemars(
+        description = "Per-record clamp for content/thinking, bytes. 0 = default 262144 (256 KiB), up to the 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_record_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UserMessagesParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "Max records to return. 0 = default 100, 1 to 1000.",
-    range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
-  )]
-  #[serde(default)]
-  pub limit: i64,
-  #[schemars(
-    description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
-    range(min = 0)
-  )]
-  #[serde(default)]
-  pub offset: Option<i64>,
-  #[schemars(
-    description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_bytes: i64,
-  #[schemars(
-    description = "Per-record clamp, bytes. 0 = default 256 KiB.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_record_bytes: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Max records to return. 0 = default 100, 1 to 1000.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
+    )]
+    #[serde(default)]
+    pub limit: i64,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
+        range(min = 0)
+    )]
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_bytes: i64,
+    #[schemars(
+        description = "Per-record clamp, bytes. 0 = default 256 KiB.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_record_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExtractByTypeParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "If true, read entire session. If false, read from last compaction point."
-  )]
-  #[serde(default)]
-  pub full: bool,
-  #[schemars(
-    description = "Entry types to include: any of user|assistant|tool|thinking, or \"all\". Empty = all."
-  )]
-  #[serde(default)]
-  pub types: Vec<String>,
-  #[schemars(
-    description = "Include injected (synthetic) user records. Default false: they are skipped as in user-message extraction."
-  )]
-  #[serde(default)]
-  pub include_injected: bool,
-  #[schemars(
-    description = "Max records to return. 0 = default 100, 1 to 1000.",
-    range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
-  )]
-  #[serde(default)]
-  pub limit: i64,
-  #[schemars(
-    description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
-    range(min = 0)
-  )]
-  #[serde(default)]
-  pub offset: Option<i64>,
-  #[schemars(
-    description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_bytes: i64,
-  #[schemars(
-    description = "Per-record clamp, bytes. 0 = default 256 KiB.",
-    range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default)]
-  pub max_record_bytes: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "If true, read entire session. If false, read from last compaction point."
+    )]
+    #[serde(default)]
+    pub full: bool,
+    #[schemars(
+        description = "Entry types to include: any of user|assistant|tool|thinking, or \"all\". Empty = all."
+    )]
+    #[serde(default)]
+    pub types: Vec<String>,
+    #[schemars(
+        description = "Include injected (synthetic) user records. Default false: they are skipped as in user-message extraction."
+    )]
+    #[serde(default)]
+    pub include_injected: bool,
+    #[schemars(
+        description = "Max records to return. 0 = default 100, 1 to 1000.",
+        range(min = 0, max = "crate::bound::MAX_RECORD_LIMIT")
+    )]
+    #[serde(default)]
+    pub limit: i64,
+    #[schemars(
+        description = "0-based start index. Omit = most recent `limit`; follow bounds.next_offset to page.",
+        range(min = 0)
+    )]
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[schemars(
+        description = "Hard byte cap on the returned payload. 0 = default 8 MiB ceiling.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_bytes: i64,
+    #[schemars(
+        description = "Per-record clamp, bytes. 0 = default 256 KiB.",
+        range(min = 0, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default)]
+    pub max_record_bytes: i64,
 }
 
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SummaryCacheParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SummariseFromParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "1-based message id to summarise from. Must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks; summary_cache reports it as tail.from_id.",
-    range(min = 1)
-  )]
-  pub from_id: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "1-based message id to summarise from. Must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks; summary_cache reports it as tail.from_id.",
+        range(min = 1)
+    )]
+    pub from_id: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ChatWithMercuryParams {
-  #[schemars(description = "The text to send to Mercury 3.")]
-  pub message: String,
-  #[schemars(
-    description = "The completion budget for the reply, tokens (a reasoning model draws from it first). Default 4000; ceiling 32000.",
-    range(min = 1, max = 32000)
-  )]
-  #[serde(default)]
-  pub max_tokens: Option<i64>,
-  #[schemars(description = "Optional system prompt.")]
-  #[serde(default)]
-  pub system: String,
+    #[schemars(description = "The text to send to Mercury 3.")]
+    pub message: String,
+    #[schemars(
+        description = "The completion budget for the reply, tokens (a reasoning model draws from it first). Default 4000; ceiling 32000.",
+        range(min = 1, max = 32000)
+    )]
+    #[serde(default)]
+    pub max_tokens: Option<i64>,
+    #[schemars(description = "Optional system prompt.")]
+    #[serde(default)]
+    pub system: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CacheDeleteLatestParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PriorPeriodSummaryParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "Hours back to include in the recent rollouts table. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24).",
-    range(min = 1)
-  )]
-  #[serde(default = "default_hours")]
-  pub hours_back: i64,
-  #[schemars(
-    description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
-    range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default = "default_max_bytes")]
-  pub max_bytes: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Hours back to include in the recent rollouts table. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24).",
+        range(min = 1)
+    )]
+    #[serde(default = "default_hours")]
+    pub hours_back: i64,
+    #[schemars(
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SkillParams {
-  #[schemars(
-    description = "Flood-control cap on the returned skill text, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384."
-  )]
-  #[serde(default = "default_max_bytes")]
-  pub max_bytes: i64,
+    #[schemars(
+        description = "Flood-control cap on the returned skill text, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384."
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct HeSaidSheSaidTheyDidParams {
-  #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
-    range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default = "default_max_bytes")]
-  pub max_bytes: i64,
+    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 fn default_hours() -> i64 {
-  24
+    24
 }
 
 fn default_true() -> bool {
-  true
+    true
 }
 
 /// The natural question/answer call indexes the last two days, like the
@@ -290,159 +290,159 @@ fn default_true() -> bool {
 /// The natural call indexes the last day, not the whole store; whole-store
 /// indexing is `all: true`, explicit.
 fn default_index_hours() -> u64 {
-  24
+    24
 }
 
 fn default_sheep_hours() -> u64 {
-  48
+    48
 }
 
 fn default_list_hours() -> u64 {
-  240
+    240
 }
 
 fn default_max_bytes() -> i64 {
-  crate::report_cap::DEFAULT_MAX_BYTES as i64
+    crate::report_cap::DEFAULT_MAX_BYTES as i64
 }
 
 /// Resolve the path to the release's `skills/total-recall/SKILL.md`.
 ///
 /// Pure: takes the env override (already read by the caller), the exe path and
 /// the home directory. Resolution order:
-///  1. env override (`TOTAL_RECALL_SKILL_PATH`) — the escape hatch;
-///  2. the canonical skills location — `<home>/.config/opencode/skills/`
-///   `total-recall/SKILL.md` — the directory OpenCode itself loads skills
-///   from, so `help` serves the same file the plugin surface serves;
-///  3. a walk-up from the executable (dev builds: `target/{debug,release}`
-///   find the repo's skills tree).
+///   1. env override (`TOTAL_RECALL_SKILL_PATH`) — the escape hatch;
+///   2. the canonical skills location — `<home>/.config/opencode/skills/`
+///      `total-recall/SKILL.md` — the directory OpenCode itself loads skills
+///      from, so `help` serves the same file the plugin surface serves;
+///   3. a walk-up from the executable (dev builds: `target/{debug,release}`
+///      find the repo's skills tree).
 ///
 /// Returns `Ok(path)` when a candidate exists on disk; `Err(path)` names the
 /// canonical location when nothing is found, so the caller can render the
 /// house-form error.
 pub fn resolve_skill_path(
-  env: Option<&str>,
-  exe: &std::path::Path,
-  home: &std::path::Path,
+    env: Option<&str>,
+    exe: &std::path::Path,
+    home: &std::path::Path,
 ) -> Result<std::path::PathBuf, std::path::PathBuf> {
-  if let Some(v) = env
-    && !v.is_empty()
-  {
-    return Ok(std::path::PathBuf::from(v));
-  }
-  let canonical = home
-    .join(".config")
-    .join("opencode")
-    .join("skills")
-    .join("total-recall")
-    .join("SKILL.md");
-  if canonical.is_file() {
-    return Ok(canonical);
-  }
-  let mut cur = exe.parent();
-  for _ in 0..4 {
-    if let Some(p) = cur {
-      let candidate = p.join("skills").join("total-recall").join("SKILL.md");
-      if candidate.is_file() {
-        return Ok(candidate);
-      }
-      cur = p.parent();
-    } else {
-      break;
+    if let Some(v) = env
+        && !v.is_empty()
+    {
+        return Ok(std::path::PathBuf::from(v));
     }
-  }
-  Err(canonical)
+    let canonical = home
+        .join(".config")
+        .join("opencode")
+        .join("skills")
+        .join("total-recall")
+        .join("SKILL.md");
+    if canonical.is_file() {
+        return Ok(canonical);
+    }
+    let mut cur = exe.parent();
+    for _ in 0..4 {
+        if let Some(p) = cur {
+            let candidate = p.join("skills").join("total-recall").join("SKILL.md");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+            cur = p.parent();
+        } else {
+            break;
+        }
+    }
+    Err(canonical)
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IndexSessionsParams {
-  #[schemars(
-    description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
-  )]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24 = the last day).",
-    range(min = 1)
-  )]
-  #[serde(default)]
-  pub hours_back: Option<i64>,
-  #[schemars(
-    description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
-  )]
-  #[serde(default)]
-  pub all: bool,
-  #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
-  pub directory: Option<String>,
+    #[schemars(
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
+    )]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 24 = the last day).",
+        range(min = 1)
+    )]
+    #[serde(default)]
+    pub hours_back: Option<i64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
+    pub directory: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SheepParams {
-  #[schemars(description = "Tantivy query syntax. Required.")]
-  pub query: String,
-  #[schemars(
-    description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
-  )]
-  #[serde(default)]
-  pub session_id: String,
-  #[schemars(
-    description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
-    range(min = 1)
-  )]
-  #[serde(default)]
-  pub hours_back: Option<i64>,
-  #[schemars(
-    description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
-  )]
-  #[serde(default)]
-  pub all: bool,
-  #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
-  pub directory: Option<String>,
-  #[schemars(
-    description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
-    range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-  )]
-  #[serde(default = "default_max_bytes")]
-  pub max_bytes: i64,
+    #[schemars(description = "Tantivy query syntax. Required.")]
+    pub query: String,
+    #[schemars(
+        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
+    )]
+    #[serde(default)]
+    pub session_id: String,
+    #[schemars(
+        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
+        range(min = 1)
+    )]
+    #[serde(default)]
+    pub hours_back: Option<i64>,
+    #[schemars(
+        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
+    )]
+    #[serde(default)]
+    pub all: bool,
+    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
+    pub directory: Option<String>,
+    #[schemars(
+        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
+        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
+    )]
+    #[serde(default = "default_max_bytes")]
+    pub max_bytes: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LineHistogramParams {
-  #[schemars(description = "Path of the file to profile. Required.")]
-  pub file_path: String,
-  #[schemars(
-    description = "histogram (default) or extract: line-size distribution, or the line at `line` / the inclusive range `start`..=`end`. The line selectors need mode: extract; extract needs one of them."
-  )]
-  pub mode: Option<String>,
-  #[schemars(
-    description = "extract mode: single 1-based line number.",
-    range(min = 1)
-  )]
-  pub line: Option<i64>,
-  #[schemars(
-    description = "extract mode: inclusive 1-based range start (with end).",
-    range(min = 1)
-  )]
-  pub start: Option<i64>,
-  #[schemars(
-    description = "extract mode: inclusive 1-based range end (with start).",
-    range(min = 1)
-  )]
-  pub end: Option<i64>,
+    #[schemars(description = "Path of the file to profile. Required.")]
+    pub file_path: String,
+    #[schemars(
+        description = "histogram (default) or extract: line-size distribution, or the line at `line` / the inclusive range `start`..=`end`. The line selectors need mode: extract; extract needs one of them."
+    )]
+    pub mode: Option<String>,
+    #[schemars(
+        description = "extract mode: single 1-based line number.",
+        range(min = 1)
+    )]
+    pub line: Option<i64>,
+    #[schemars(
+        description = "extract mode: inclusive 1-based range start (with end).",
+        range(min = 1)
+    )]
+    pub start: Option<i64>,
+    #[schemars(
+        description = "extract mode: inclusive 1-based range end (with start).",
+        range(min = 1)
+    )]
+    pub end: Option<i64>,
 }
 
 // --- MCP Server ---
 
 #[derive(Clone)]
 pub struct TotalRecallServer {
-  harness: String,
-  /// The CLI's rendered clap help page, injected by `main` (the binary is
-  /// also the MCP server, so it can hand the page over at startup). The
-  /// `help` tool serves it; a server built without the injection serves
-  /// the fallback below.
-  cli_help: String,
+    harness: String,
+    /// The CLI's rendered clap help page, injected by `main` (the binary is
+    /// also the MCP server, so it can hand the page over at startup). The
+    /// `help` tool serves it; a server built without the injection serves
+    /// the fallback below.
+    cli_help: String,
 }
 
 /// The `help` fallback for a server constructed without
@@ -465,25 +465,25 @@ usage guide.
 ";
 
 impl TotalRecallServer {
-  pub fn with_harness(harness: String) -> Self {
-    Self {
-      harness,
-      cli_help: CLI_HELP_FALLBACK.to_string(),
+    pub fn with_harness(harness: String) -> Self {
+        Self {
+            harness,
+            cli_help: CLI_HELP_FALLBACK.to_string(),
+        }
     }
-  }
 
-  pub fn with_cli_help(mut self, cli_help: String) -> Self {
-    self.cli_help = cli_help;
-    self
-  }
+    pub fn with_cli_help(mut self, cli_help: String) -> Self {
+        self.cli_help = cli_help;
+        self
+    }
 
-  pub fn harness(&self) -> &str {
-    &self.harness
-  }
+    pub fn harness(&self) -> &str {
+        &self.harness
+    }
 
-  fn adapter(&self) -> Result<Box<dyn RolloutAdapter>, McpError> {
-    make_adapter(&self.harness).map_err(|e| McpError::internal_error(e, None))
-  }
+    fn adapter(&self) -> Result<Box<dyn RolloutAdapter>, McpError> {
+        make_adapter(&self.harness).map_err(|e| McpError::internal_error(e, None))
+    }
 }
 
 /// The scope contract, enforced at the tool layer: validate `hours_back` in
@@ -500,26 +500,26 @@ impl TotalRecallServer {
 /// `0` = unbounded stays the mechanism layer's own — the MCP layer never
 /// passes `0` except through `all: true`.
 fn window_hours(
-  tool: &str,
-  hours_back: Option<i64>,
-  all: bool,
-  default_hours: u64,
+    tool: &str,
+    hours_back: Option<i64>,
+    all: bool,
+    default_hours: u64,
 ) -> Result<u64, String> {
-  let hours_back = match hours_back {
-    Some(hours) => Some(number(tool, "hours_back", hours, 0, i64::MAX, HOURS_CHEAP)?),
-    None => None,
-  };
-  let hours_back = hours_back.filter(|h| *h >= 1);
-  if all && hours_back.is_some() {
-    return Err(
-      "all: true is the whole store; hours_back is a window — pass one, not both".to_string(),
-    );
-  }
-  Ok(if all {
-    0
-  } else {
-    hours_back.map(|h| h as u64).unwrap_or(default_hours)
-  })
+    let hours_back = match hours_back {
+        Some(hours) => Some(number(tool, "hours_back", hours, 0, i64::MAX, HOURS_CHEAP)?),
+        None => None,
+    };
+    let hours_back = hours_back.filter(|h| *h >= 1);
+    if all && hours_back.is_some() {
+        return Err(
+            "all: true is the whole store; hours_back is a window — pass one, not both".to_string(),
+        );
+    }
+    Ok(if all {
+        0
+    } else {
+        hours_back.map(|h| h as u64).unwrap_or(default_hours)
+    })
 }
 
 /// The house form for a numeric input, one helper for every numeric parameter
@@ -529,17 +529,17 @@ fn window_hours(
 /// client can send and what a handler accepts cannot drift. The value arrives
 /// signed, so a negative is an answer rather than a serde type error.
 fn number(
-  tool: &str,
-  field: &str,
-  value: i64,
-  min: i64,
-  max: i64,
-  cheap: &str,
+    tool: &str,
+    field: &str,
+    value: i64,
+    min: i64,
+    max: i64,
+    cheap: &str,
 ) -> Result<i64, String> {
-  if value < min || value > max {
-    return Err(format!("{tool}: `{field}` is out of range — {cheap}"));
-  }
-  Ok(value)
+    if value < min || value > max {
+        return Err(format!("{tool}: `{field}` is out of range — {cheap}"));
+    }
+    Ok(value)
 }
 
 /// `0` is "omitted" for the window, so the schema states `minimum: 1` and the
@@ -547,14 +547,14 @@ fn number(
 /// window it would have got by omitting the field.
 const HOURS_CHEAP: &str = "pass hours_back >= 1, or omit it — 0 means the tool's default window, never the whole store (all: true is the whole store)";
 const LIMIT_CHEAP: &str =
-  "pass limit from 1 to 1000, or omit it for the default 100, and page with offset/limit";
+    "pass limit from 1 to 1000, or omit it for the default 100, and page with offset/limit";
 const OFFSET_CHEAP: &str = "pass offset >= 0, or omit it for the most recent page";
 const REPORT_MAX_BYTES_CHEAP: &str =
-  "pass max_bytes from 1 to 8388608, or omit it for the default 16384";
+    "pass max_bytes from 1 to 8388608, or omit it for the default 16384";
 const ENVELOPE_MAX_BYTES_CHEAP: &str =
-  "pass max_bytes from 0 to 8388608, or omit it for the default 8 MiB ceiling";
+    "pass max_bytes from 0 to 8388608, or omit it for the default 8 MiB ceiling";
 const MAX_RECORD_BYTES_CHEAP: &str =
-  "pass max_record_bytes from 1 to 8388608, or omit it (0 = no per-record clamp)";
+    "pass max_record_bytes from 1 to 8388608, or omit it (0 = no per-record clamp)";
 const LINE_CHEAP: &str = "pass line >= 1 (1-based), or mode: extract with start and end";
 const START_CHEAP: &str = "pass start >= 1 (1-based) with end, or mode: extract with line";
 const END_CHEAP: &str = "pass end >= 1 (1-based) with start";
@@ -567,44 +567,44 @@ const FROM_ID_CHEAP: &str = "pass from_id >= 1 (1-based message id) — the firs
 /// asked for. Every numeric input is checked BEFORE the session is resolved, so
 /// a bad bound is answered as a bound and never as "no sessions found".
 fn envelope_bounds(
-  tool: &str,
-  limit: i64,
-  offset: Option<i64>,
-  max_bytes: i64,
-  max_record_bytes: i64,
+    tool: &str,
+    limit: i64,
+    offset: Option<i64>,
+    max_bytes: i64,
+    max_record_bytes: i64,
 ) -> Result<(usize, Option<usize>, usize, usize), String> {
-  let limit = number(
-    tool,
-    "limit",
-    limit,
-    0,
-    crate::bound::MAX_RECORD_LIMIT as i64,
-    LIMIT_CHEAP,
-  )
-  .and_then(|l| crate::bound::normalize_limit(l as usize))?;
-  let offset = match offset {
-    Some(offset) => Some(number(tool, "offset", offset, 0, i64::MAX, OFFSET_CHEAP)? as usize),
-    None => None,
-  };
-  let max_bytes = number(
-    tool,
-    "max_bytes",
-    max_bytes,
-    0,
-    crate::bound::MAX_BYTES_CEILING as i64,
-    ENVELOPE_MAX_BYTES_CHEAP,
-  )
-  .map(|v| crate::bound::normalize_max_bytes(v as usize))?;
-  let max_record_bytes = number(
-    tool,
-    "max_record_bytes",
-    max_record_bytes,
-    0,
-    crate::bound::MAX_BYTES_CEILING as i64,
-    MAX_RECORD_BYTES_CHEAP,
-  )
-  .map(|v| crate::bound::normalize_max_record_bytes(v as usize))?;
-  Ok((limit, offset, max_bytes, max_record_bytes))
+    let limit = number(
+        tool,
+        "limit",
+        limit,
+        0,
+        crate::bound::MAX_RECORD_LIMIT as i64,
+        LIMIT_CHEAP,
+    )
+    .and_then(|l| crate::bound::normalize_limit(l as usize))?;
+    let offset = match offset {
+        Some(offset) => Some(number(tool, "offset", offset, 0, i64::MAX, OFFSET_CHEAP)? as usize),
+        None => None,
+    };
+    let max_bytes = number(
+        tool,
+        "max_bytes",
+        max_bytes,
+        0,
+        crate::bound::MAX_BYTES_CEILING as i64,
+        ENVELOPE_MAX_BYTES_CHEAP,
+    )
+    .map(|v| crate::bound::normalize_max_bytes(v as usize))?;
+    let max_record_bytes = number(
+        tool,
+        "max_record_bytes",
+        max_record_bytes,
+        0,
+        crate::bound::MAX_BYTES_CEILING as i64,
+        MAX_RECORD_BYTES_CHEAP,
+    )
+    .map(|v| crate::bound::normalize_max_record_bytes(v as usize))?;
+    Ok((limit, offset, max_bytes, max_record_bytes))
 }
 
 /// The TEXT path's success route — `skill` (the skill markdown) and
@@ -615,1077 +615,1077 @@ fn envelope_bounds(
 /// histogram. Every record-shaped tool streams through the JSONL sink
 /// instead and never routes through here.
 fn capped_text(tool: &str, scope: &str, text: String, max_bytes: usize) -> CallToolResult {
-  CallToolResult::success(vec![ContentBlock::text(crate::report_cap::cap_report(
-    tool, scope, text, max_bytes,
-  ))])
+    CallToolResult::success(vec![ContentBlock::text(crate::report_cap::cap_report(
+        tool, scope, text, max_bytes,
+    ))])
 }
 
 #[tool_router]
 impl TotalRecallServer {
-  #[tool(
-    name = "harness",
-    description = "Total-recall MCP tool: report which harness this server is bound to as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"harness\",\"harness\":\"…\"}, with no data records; the binding is the whole payload."
-  )]
-  async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
-    let mut sink = crate::jsonl_sink::JsonlSink::new(
-      "harness",
-      self.harness(),
-      crate::report_cap::DEFAULT_MAX_BYTES,
-    );
-    sink.push_meta(&serde_json::json!({
-      "type": "meta",
-      "tool": "harness",
-      "harness": self.harness
-    }));
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      sink.finish(),
-    )]))
-  }
-
-  #[tool(
-    name = "skill",
-    description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the text flood-control path — capped at max_bytes, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build. The `help` tool carries the short orientation instead; run `skill` for the full guide."
-  )]
-  async fn skill_tool(
-    &self,
-    Parameters(params): Parameters<SkillParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let max_bytes = match number(
-      "skill",
-      "max_bytes",
-      params.max_bytes,
-      1,
-      crate::bound::MAX_BYTES_CEILING as i64,
-      REPORT_MAX_BYTES_CHEAP,
-    ) {
-      Ok(v) => v as usize,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let env = std::env::var("TOTAL_RECALL_SKILL_PATH").ok();
-    let exe = std::env::current_exe().unwrap_or_default();
-    let home = std::env::var("HOME")
-      .map(std::path::PathBuf::from)
-      .unwrap_or_default();
-    let path = match resolve_skill_path(env.as_deref(), &exe, &home) {
-      Ok(p) => p,
-      Err(p) => {
-        return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-          "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
-          p.display()
-        ))]));
-      }
-    };
-    match std::fs::read_to_string(&path) {
-      Ok(md) => Ok(capped_text("skill", "", md, max_bytes)),
-      Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-        "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
-        path.display()
-      ))])),
-    }
-  }
-
-  #[tool(
-    name = "help",
-    description = "Total-recall MCP tool: short orientation — the CLI's generated help page (clap) plus the house line: this tool is intended to be run as an MCP server in a harness, every CLI action is available over the MCP interface, and MCP is the preferred mode. Points to the `skill` tool (or `total-recall skill` on the CLI) for the full tool surface and usage guide. Fits the flood-control budget; no parameters."
-  )]
-  async fn help_tool(&self) -> Result<CallToolResult, McpError> {
-    Ok(capped_text(
-      "help",
-      "",
-      self.cli_help.clone(),
-      crate::report_cap::DEFAULT_MAX_BYTES,
-    ))
-  }
-
-  #[tool(
-    description = "Total-recall MCP tool: list all agent session rollouts for the bound harness as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"list_sessions\",\"window_count\":N,\"max_bytes\":N} (window_count = how many rows the window holds; max_bytes = the budget that decided the cut), followed by one {\"type\":\"row\",\"session_id\":\"…\",…} record per listed session, most recent first. Bounded by hours_back (a window in hours, 1 or more; 0 or omitted = the 240-hour default) and a directory substring filter; all: true lists the whole store. Over max_bytes the fitting-prefix array is followed by the EOF marker whose records_returned/records_total state the cut; the overflow file carries every row, one per line."
-  )]
-  async fn list_sessions(
-    &self,
-    Parameters(params): Parameters<ListSessionsParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let max_bytes = match number(
-      "list_sessions",
-      "max_bytes",
-      params.max_bytes,
-      1,
-      crate::bound::MAX_BYTES_CEILING as i64,
-      REPORT_MAX_BYTES_CHEAP,
-    ) {
-      Ok(v) => v as usize,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let hours = match window_hours(
-      "list_sessions",
-      params.hours_back,
-      params.all,
-      default_list_hours(),
-    ) {
-      Ok(h) => h,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    // The scoped listing: the window and the directory substring are
-    // applied where the data lives, at most the 200 most recent rows of the
-    // window reach this layer, and the rows the window holds but did not
-    // print are derivable from the meta's window_count against the
-    // records the budget returned (stated by the marker on overflow).
-    let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
-    let mut sessions = listing.sessions;
-    crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
-    let shadow_root = adapter.shadow_index_root();
-    let mut sink = crate::jsonl_sink::JsonlSink::new("list_sessions", "list", max_bytes);
-    sink.push_meta(&serde_json::json!({
-      "type": "meta",
-      "tool": "list_sessions",
-      "window_count": listing.window_count,
-      "max_bytes": max_bytes,
-    }));
-    for s in &sessions {
-      let mut row = crate::ListingRow::new(s);
-      row.summary_cache = crate::summary_cache::through_marker(&shadow_root, &s.session_id);
-      sink.push(&RowRecord {
-        record_type: "row",
-        row: &row,
-      });
-    }
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      sink.finish(),
-    )]))
-  }
-
-  #[tool(
-    description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"index_sessions\",\"scope\":\"…\",\"selected\":N} and each later element is a record {\"type\":\"indexed\",\"session_id\":\"…\",\"doc_count\":N}; unresolved session ids and a failed index return a tool error and never enter the stream. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 24 = the last day; directory; or all: true)."
-  )]
-  async fn index_sessions(
-    &self,
-    Parameters(params): Parameters<IndexSessionsParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let adapter = self.adapter()?;
-    let hours = match window_hours(
-      "index_sessions",
-      params.hours_back,
-      params.all,
-      default_index_hours(),
-    ) {
-      Ok(h) => h,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let sessions: Vec<String> = if params.session_id.is_empty() {
-      Vec::new()
-    } else {
-      vec![params.session_id.clone()]
-    };
-    let (selected, unmatched) = crate::index::select_sessions(
-      adapter.as_ref(),
-      &sessions,
-      hours,
-      params.directory.as_deref(),
-    );
-    if !unmatched.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-        "index_sessions: unmatched session ids: {}",
-        unmatched.join(", ")
-      ))]));
-    }
-    // The record stream: the meta record carries the tool, the scope
-    // (the requested session id, or `all` when unscoped) and the
-    // selected count, each data record reports one indexed session —
-    // errors never touch the sink. On overflow the array prefix is
-    // followed by the EOF marker naming the streamed `.jsonl` file.
-    let scope = if params.session_id.is_empty() {
-      "all"
-    } else {
-      params.session_id.as_str()
-    };
-    let mut sink = crate::jsonl_sink::JsonlSink::new(
-      "index_sessions",
-      scope,
-      crate::report_cap::DEFAULT_MAX_BYTES,
-    );
-    sink.push_meta(&serde_json::json!({
-      "type": "meta",
-      "tool": "index_sessions",
-      "scope": scope,
-      "selected": selected.len(),
-    }));
-    for summary in &selected {
-      match crate::index::index_session(adapter.as_ref(), &summary.session_id) {
-        Ok(stats) => sink.push(&serde_json::json!({
-          "type": "indexed",
-          "session_id": stats.session_id,
-          "doc_count": stats.doc_count,
-        })),
-        Err(e) => {
-          return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
-        }
-      }
-    }
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      sink.finish(),
-    )]))
-  }
-
-  #[tool(
-    name = "do_android_dream_of_electric_sheep",
-    description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"do_android_dream_of_electric_sheep\",\"query\":\"…\",\"scope\":\"…\",\"sessions_searched\":N,\"sessions_with_hits\":N,\"not_indexed\":[…],\"unmatched\":[…],\"corrupt\":[…]}, followed by one {\"type\":\"hit\",\"session_id\":\"…\",\"score\":F,\"ts\":\"…\",\"role\":\"…\",\"thinking\":bool,\"fragment\":\"…\"} record per hit, relevance-ordered (top hits per session merged by score). The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Sessions without an index are named in the meta record's not_indexed (run index_sessions first); a corrupt index is named in corrupt — neither is fatal."
-  )]
-  async fn do_android_dream_of_electric_sheep(
-    &self,
-    Parameters(params): Parameters<SheepParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let max_bytes = match number(
-      "do_android_dream_of_electric_sheep",
-      "max_bytes",
-      params.max_bytes,
-      1,
-      crate::bound::MAX_BYTES_CEILING as i64,
-      REPORT_MAX_BYTES_CHEAP,
-    ) {
-      Ok(v) => v as usize,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    if params.query.trim().is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "do_android_dream_of_electric_sheep requires a tantivy query in `query`"
-          .to_string(),
-      )]));
-    }
-    let hours = match window_hours(
-      "do_android_dream_of_electric_sheep",
-      params.hours_back,
-      params.all,
-      default_sheep_hours(),
-    ) {
-      Ok(h) => h,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let sessions: Vec<String> = if params.session_id.is_empty() {
-      Vec::new()
-    } else {
-      vec![params.session_id.clone()]
-    };
-    let scope = if params.session_id.is_empty() {
-      "window"
-    } else {
-      params.session_id.as_str()
-    };
-    match crate::index::search(
-      adapter.as_ref(),
-      &sessions,
-      &params.query,
-      hours,
-      params.directory.as_deref(),
-    ) {
-      Ok(outcome) => {
+    #[tool(
+        name = "harness",
+        description = "Total-recall MCP tool: report which harness this server is bound to as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"harness\",\"harness\":\"…\"}, with no data records; the binding is the whole payload."
+    )]
+    async fn harness_tool(&self) -> Result<CallToolResult, McpError> {
         let mut sink = crate::jsonl_sink::JsonlSink::new(
-          "do_android_dream_of_electric_sheep",
-          scope,
-          max_bytes,
+            "harness",
+            self.harness(),
+            crate::report_cap::DEFAULT_MAX_BYTES,
         );
         sink.push_meta(&serde_json::json!({
-          "type": "meta",
-          "tool": "do_android_dream_of_electric_sheep",
-          "query": outcome.query,
-          "scope": scope,
-          "sessions_searched": outcome.sessions_searched,
-          "sessions_with_hits": outcome.sessions_with_hits,
-          "not_indexed": outcome.not_indexed,
-          "unmatched": outcome.unmatched,
-          "corrupt": outcome.corrupt,
+            "type": "meta",
+            "tool": "harness",
+            "harness": self.harness
         }));
-        for hit in &outcome.hits {
-          sink.push(&HitRecord {
-            record_type: "hit",
-            session_id: &hit.session_id,
-            score: hit.score,
-            timestamp: &hit.timestamp,
-            role: &hit.role,
-            in_thinking: hit.in_thinking,
-            fragment: &hit.fragment,
-          });
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
+    }
+
+    #[tool(
+        name = "skill",
+        description = "Total-recall MCP tool: return the release's skills/total-recall/SKILL.md (the tool surface and usage guide) through the text flood-control path — capped at max_bytes, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram. Resolution: TOTAL_RECALL_SKILL_PATH env var if set and non-empty, else walk up from the server binary looking for skills/total-recall/SKILL.md. A missing skill degrades gracefully instead of breaking the build. The `help` tool carries the short orientation instead; run `skill` for the full guide."
+    )]
+    async fn skill_tool(
+        &self,
+        Parameters(params): Parameters<SkillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "skill",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let env = std::env::var("TOTAL_RECALL_SKILL_PATH").ok();
+        let exe = std::env::current_exe().unwrap_or_default();
+        let home = std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let path = match resolve_skill_path(env.as_deref(), &exe, &home) {
+            Ok(p) => p,
+            Err(p) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
+                    p.display()
+                ))]));
+            }
+        };
+        match std::fs::read_to_string(&path) {
+            Ok(md) => Ok(capped_text("skill", "", md, max_bytes)),
+            Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "cannot find the skill at {}: install skills/total-recall/SKILL.md there or set TOTAL_RECALL_SKILL_PATH to the skill file's location",
+                path.display()
+            ))])),
+        }
+    }
+
+    #[tool(
+        name = "help",
+        description = "Total-recall MCP tool: short orientation — the CLI's generated help page (clap) plus the house line: this tool is intended to be run as an MCP server in a harness, every CLI action is available over the MCP interface, and MCP is the preferred mode. Points to the `skill` tool (or `total-recall skill` on the CLI) for the full tool surface and usage guide. Fits the flood-control budget; no parameters."
+    )]
+    async fn help_tool(&self) -> Result<CallToolResult, McpError> {
+        Ok(capped_text(
+            "help",
+            "",
+            self.cli_help.clone(),
+            crate::report_cap::DEFAULT_MAX_BYTES,
+        ))
+    }
+
+    #[tool(
+        description = "Total-recall MCP tool: list all agent session rollouts for the bound harness as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"list_sessions\",\"window_count\":N,\"max_bytes\":N} (window_count = how many rows the window holds; max_bytes = the budget that decided the cut), followed by one {\"type\":\"row\",\"session_id\":\"…\",…} record per listed session, most recent first. Bounded by hours_back (a window in hours, 1 or more; 0 or omitted = the 240-hour default) and a directory substring filter; all: true lists the whole store. Over max_bytes the fitting-prefix array is followed by the EOF marker whose records_returned/records_total state the cut; the overflow file carries every row, one per line."
+    )]
+    async fn list_sessions(
+        &self,
+        Parameters(params): Parameters<ListSessionsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "list_sessions",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let hours = match window_hours(
+            "list_sessions",
+            params.hours_back,
+            params.all,
+            default_list_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        // The scoped listing: the window and the directory substring are
+        // applied where the data lives, at most the 200 most recent rows of the
+        // window reach this layer, and the rows the window holds but did not
+        // print are derivable from the meta's window_count against the
+        // records the budget returned (stated by the marker on overflow).
+        let listing = adapter.list_sessions_scoped(hours, params.directory.as_deref());
+        let mut sessions = listing.sessions;
+        crate::index::annotate_sessions(&mut sessions, adapter.as_ref());
+        let shadow_root = adapter.shadow_index_root();
+        let mut sink = crate::jsonl_sink::JsonlSink::new("list_sessions", "list", max_bytes);
+        sink.push_meta(&serde_json::json!({
+            "type": "meta",
+            "tool": "list_sessions",
+            "window_count": listing.window_count,
+            "max_bytes": max_bytes,
+        }));
+        for s in &sessions {
+            let mut row = crate::ListingRow::new(s);
+            row.summary_cache = crate::summary_cache::through_marker(&shadow_root, &s.session_id);
+            sink.push(&RowRecord {
+                record_type: "row",
+                row: &row,
+            });
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(
-          sink.finish(),
+            sink.finish(),
         )]))
-      }
-      Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    }
-  }
-
-  #[tool(
-    description = "Total-recall MCP tool: profile a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"profile_session\",\"session_id\":\"…\",\"harness\":\"…\",\"file_size\":N,\"line_count\":N,\"first_ts\":\"…\",\"last_ts\":\"…\",\"role_counts\":{…},\"has_tantivy_index\":bool}, followed by one {\"type\":\"event\",\"line_number\":N,\"event_type\":\"…\",\"summary\":\"…\",\"gap_lines\":N} record per interesting event (Compaction, TodoCreate, TodoUpdate, TodoDelete, GitCommit, GitPush, GitTag, UserMessage)."
-  )]
-  async fn profile_session(
-    &self,
-    Parameters(params): Parameters<ProfileParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let adapter = self.adapter()?;
-    let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-      .unwrap_or_default();
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-    let mut profile = match adapter.profile_session_opts(&session_id, params.cache) {
-      Ok(p) => p,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      profile_report(self.harness(), &profile),
-    )]))
-  }
-
-  #[tool(
-    description = "Total-recall MCP tool: extract messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_messages\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per message (clamped by max_record_bytes, its window-relative index in bounds.clamped_record_indices when clamped). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
-  )]
-  async fn extract_messages(
-    &self,
-    Parameters(params): Parameters<ExtractParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
-      "extract_messages",
-      params.limit,
-      params.offset,
-      params.max_bytes,
-      params.max_record_bytes,
-    ) {
-      Ok(bounds) => bounds,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-      .unwrap_or_default();
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
     }
 
-    let messages = match read_window(adapter.as_ref(), &session_id, params.full) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-
-    // Bounded extraction: the sink is this tool's flood control
-    // (limit/max_bytes/max_record_bytes); no cap on top.
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      bounded_message_records(
-        "extract_messages",
-        &session_id,
-        self.harness(),
-        params.full,
-        messages,
-        limit,
-        offset,
-        max_bytes,
-        max_record_bytes,
-      ),
-    )]))
-  }
-
-  #[tool(
-    description = "Total-recall MCP tool: extract verbatim user messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_user_messages\",…,\"bounds\":{…}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per user message (injected synthetic records skipped; clamped by max_record_bytes). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
-  )]
-  async fn extract_user_messages(
-    &self,
-    Parameters(params): Parameters<UserMessagesParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
-      "extract_user_messages",
-      params.limit,
-      params.offset,
-      params.max_bytes,
-      params.max_record_bytes,
-    ) {
-      Ok(bounds) => bounds,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-      .unwrap_or_default();
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-
-    // Derive from the bounded message stream so we bound during iteration
-    // rather than materializing the full unbounded Vec first.
-    let messages = match adapter.read_session_mmap(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let user: Vec<crate::RolloutMessage> = messages
-      .into_iter()
-      .filter(|m| m.role == "user" && !m.injected)
-      .collect();
-
-    // Bounded extraction: the sink is this tool's flood control.
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      bounded_message_records(
-        "extract_user_messages",
-        &session_id,
-        self.harness(),
-        false,
-        user,
-        limit,
-        offset,
-        max_bytes,
-        max_record_bytes,
-      ),
-    )]))
-  }
-
-  #[tool(
-    name = "extract_by_type",
-    description = "Total-recall MCP tool: raw extract of a session's entries filtered by type (user|assistant|tool|thinking, or \"all\") as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_by_type\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"types\":[…],\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}}, followed by one {\"type\":\"entry\",\"entry_type\":\"…\",\"ts\":\"…\",\"record\":{…}} record per entry — no summarization, clamped by max_record_bytes. Recovers data from large or damaged sessions. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every entry in the window, one per line."
-  )]
-  async fn extract_by_type(
-    &self,
-    Parameters(params): Parameters<ExtractByTypeParams>,
-  ) -> Result<CallToolResult, McpError> {
-    // Validate type selection up front.
-    const VALID: [&str; 7] = crate::rollout::EXTRACT_TYPES;
-    let want_all = params.types.is_empty() || params.types.iter().any(|t| t == "all");
-    if !want_all {
-      for t in &params.types {
-        if !VALID.contains(&t.as_str()) {
-          return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-            "extract_by_type: unknown type '{}'; valid: {} or \"all\"",
-            t,
-            VALID.join("|")
-          ))]));
+    #[tool(
+        description = "Total-recall MCP tool: build or refresh per-session tantivy full-text shadow indexes for the selected sessions, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"index_sessions\",\"scope\":\"…\",\"selected\":N} and each later element is a record {\"type\":\"indexed\",\"session_id\":\"…\",\"doc_count\":N}; unresolved session ids and a failed index return a tool error and never enter the stream. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 24 = the last day; directory; or all: true)."
+    )]
+    async fn index_sessions(
+        &self,
+        Parameters(params): Parameters<IndexSessionsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let hours = match window_hours(
+            "index_sessions",
+            params.hours_back,
+            params.all,
+            default_index_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let sessions: Vec<String> = if params.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![params.session_id.clone()]
+        };
+        let (selected, unmatched) = crate::index::select_sessions(
+            adapter.as_ref(),
+            &sessions,
+            hours,
+            params.directory.as_deref(),
+        );
+        if !unmatched.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "index_sessions: unmatched session ids: {}",
+                unmatched.join(", ")
+            ))]));
         }
-      }
-    }
-
-    let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
-      "extract_by_type",
-      params.limit,
-      params.offset,
-      params.max_bytes,
-      params.max_record_bytes,
-    ) {
-      Ok(bounds) => bounds,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-      .unwrap_or_default();
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-
-    let mut entries =
-      match adapter.read_session_entries(&session_id, params.full, params.include_injected) {
-        Ok(e) => e,
-        Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-      };
-    let mut notes: Vec<String> = Vec::new();
-    let selected: Vec<String> = if want_all {
-      VALID.iter().map(|s| s.to_string()).collect()
-    } else {
-      params.types.clone()
-    };
-    // The folded derived kinds (todo|compaction|questions) come from the
-    // adapter's accessors, appended after the message-derived entries
-    //.
-    let kinds: Vec<&str> = if want_all {
-      crate::rollout::DERIVED_KINDS.to_vec()
-    } else {
-      params.types.iter().map(|t| t.as_str()).collect()
-    };
-    if !kinds.is_empty() {
-      let derived = crate::rollout::derived_entries(
-        adapter.as_ref(),
-        &session_id,
-        params.full,
-        &kinds,
-      );
-      entries.extend(derived.entries);
-      if !derived.notices.is_empty() {
-        notes = derived.notices;
-      }
-    }
-    let filtered: Vec<&crate::rollout::RolloutEntry> = entries
-      .iter()
-      .filter(|e| want_all || params.types.contains(&e.entry_type))
-      .collect();
-
-    // Bounded extraction: the sink is this tool's flood control.
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      extract_by_type_records(
-        &session_id,
-        self.harness(),
-        params.full,
-        &selected,
-        &filtered,
-        &notes,
-        limit,
-        offset,
-        max_bytes,
-        max_record_bytes,
-      ),
-    )]))
-  }
-
-  #[tool(
-    name = "summary_cache",
-    description = "Total-recall MCP tool: inspect a session's summary cache as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summary_cache\",\"session_id\":\"…\",\"tail\":{…}|null} carrying the unsummarised tail (the first uncovered id and what a summarise from there would cost; null when everything is covered), followed by one {\"type\":\"block\",\"from_id\":…,…,\"part_file\":\"…\"} record per cached block (id ranges, user/assistant/tool/thinking counts, chars, token estimate, part file). A session with no blocks returns the meta record with tail and zero block records. Read-only: never calls the LLM, never writes. The session_id (partial match; empty = most recent) resolves first; an invalid or short legacy ledger is dropped as empty."
-  )]
-  async fn summary_cache(
-    &self,
-    Parameters(params): Parameters<SummaryCacheParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let adapter = self.adapter()?;
-    let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-    let messages = match adapter.read_session_mmap(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let status =
-      crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      cache_status_report("summary_cache", &status),
-    )]))
-  }
-
-  #[tool(
-    name = "summarise_from",
-    description = "Total-recall MCP tool: summarise a session from an explicit 1-based message id, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summarise_from\",\"session_id\":\"…\",\"from_id\":N}, followed by one {\"type\":\"section\",\"name\":\"part N: from_ts → to_ts (ids from..to)\",\"text\":\"…\"} record per composed part and the cache footer as a named section (name summary_cache). The guard: from_id must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks — anything else is an error naming the expected id, so run summary_cache first. On success the messages from from_id to the session's end are summarised and stored as a new block; a tail that is already covered serves the cache without an LLM call. Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
-  )]
-  async fn summarise_from(
-    &self,
-    Parameters(params): Parameters<SummariseFromParams>,
-  ) -> Result<CallToolResult, McpError> {
-    // The numeric bound is checked before the session is resolved, so a
-    // bad bound is answered as a bound and never as "no sessions found".
-    let from_id = match number(
-      "summarise_from",
-      "from_id",
-      params.from_id,
-      1,
-      i64::MAX,
-      FROM_ID_CHEAP,
-    ) {
-      Ok(v) => v as u64,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-    match crate::summary_cache::summarise_from_sections(
-      adapter.as_ref(),
-      &session_id,
-      from_id,
-      None,
-    )
-    .await
-    {
-      Ok(outcome) => {
+        // The record stream: the meta record carries the tool, the scope
+        // (the requested session id, or `all` when unscoped) and the
+        // selected count, each data record reports one indexed session —
+        // errors never touch the sink. On overflow the array prefix is
+        // followed by the EOF marker naming the streamed `.jsonl` file.
+        let scope = if params.session_id.is_empty() {
+            "all"
+        } else {
+            params.session_id.as_str()
+        };
         let mut sink = crate::jsonl_sink::JsonlSink::new(
-          "summarise_from",
-          &session_id,
-          crate::report_cap::DEFAULT_MAX_BYTES,
+            "index_sessions",
+            scope,
+            crate::report_cap::DEFAULT_MAX_BYTES,
         );
         sink.push_meta(&serde_json::json!({
-          "type": "meta",
-          "tool": "summarise_from",
-          "session_id": session_id,
-          "from_id": outcome.from_id,
+            "type": "meta",
+            "tool": "index_sessions",
+            "scope": scope,
+            "selected": selected.len(),
         }));
-        for section in &outcome.sections {
-          sink.push(&SectionRecord {
-            record_type: "section",
-            name: &section.name,
-            text: &section.text,
-          });
+        for summary in &selected {
+            match crate::index::index_session(adapter.as_ref(), &summary.session_id) {
+                Ok(stats) => sink.push(&serde_json::json!({
+                    "type": "indexed",
+                    "session_id": stats.session_id,
+                    "doc_count": stats.doc_count,
+                })),
+                Err(e) => {
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
+                }
+            }
         }
         Ok(CallToolResult::success(vec![ContentBlock::text(
-          sink.finish(),
+            sink.finish(),
         )]))
-      }
-      Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
     }
-  }
 
-  #[tool(
-    name = "chat_with_mercury",
-    description = "Total-recall MCP tool: THE one-call key check — chat once with Mercury 3 and get the response, the speed and the tokens as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"chat_with_mercury\",\"model\":\"mercury-3\",\"max_tokens\":N}, followed by {\"type\":\"reply\",\"text\":\"…\",\"elapsed_s\":F,\"prompt_tokens\":N,\"completion_tokens\":N,\"total_tokens\":N,\"finish_reason\":\"…\"}. The key guard runs FIRST: INCEPTION_API_KEY missing or empty and the call is refused with the setup places named — the MCP environment block (docs/src/mcp-setup.md), export INCEPTION_API_KEY=… in the shell, or a .env at/above the working directory — and the request is never attempted. Params: message (required), max_tokens (default 4000, ceiling 32000), system (optional)."
-  )]
-  async fn chat_with_mercury(
-    &self,
-    Parameters(params): Parameters<ChatWithMercuryParams>,
-  ) -> Result<CallToolResult, McpError> {
-    // The key guard first: the request is never built without the key, so
-    // the failure is always the front-door setup help, never mid-flow.
-    if let Err(e) = crate::mercury::check_inception_key() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
+    #[tool(
+        name = "do_android_dream_of_electric_sheep",
+        description = "Total-recall MCP tool: full-text search (tantivy) across per-session shadow indexes as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"do_android_dream_of_electric_sheep\",\"query\":\"…\",\"scope\":\"…\",\"sessions_searched\":N,\"sessions_with_hits\":N,\"not_indexed\":[…],\"unmatched\":[…],\"corrupt\":[…]}, followed by one {\"type\":\"hit\",\"session_id\":\"…\",\"score\":F,\"ts\":\"…\",\"role\":\"…\",\"thinking\":bool,\"fragment\":\"…\"} record per hit, relevance-ordered (top hits per session merged by score). The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48; directory; or all: true). Sessions without an index are named in the meta record's not_indexed (run index_sessions first); a corrupt index is named in corrupt — neither is fatal."
+    )]
+    async fn do_android_dream_of_electric_sheep(
+        &self,
+        Parameters(params): Parameters<SheepParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let max_bytes = match number(
+            "do_android_dream_of_electric_sheep",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        if params.query.trim().is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "do_android_dream_of_electric_sheep requires a tantivy query in `query`"
+                    .to_string(),
+            )]));
+        }
+        let hours = match window_hours(
+            "do_android_dream_of_electric_sheep",
+            params.hours_back,
+            params.all,
+            default_sheep_hours(),
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let sessions: Vec<String> = if params.session_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![params.session_id.clone()]
+        };
+        let scope = if params.session_id.is_empty() {
+            "window"
+        } else {
+            params.session_id.as_str()
+        };
+        match crate::index::search(
+            adapter.as_ref(),
+            &sessions,
+            &params.query,
+            hours,
+            params.directory.as_deref(),
+        ) {
+            Ok(outcome) => {
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "do_android_dream_of_electric_sheep",
+                    scope,
+                    max_bytes,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "do_android_dream_of_electric_sheep",
+                    "query": outcome.query,
+                    "scope": scope,
+                    "sessions_searched": outcome.sessions_searched,
+                    "sessions_with_hits": outcome.sessions_with_hits,
+                    "not_indexed": outcome.not_indexed,
+                    "unmatched": outcome.unmatched,
+                    "corrupt": outcome.corrupt,
+                }));
+                for hit in &outcome.hits {
+                    sink.push(&HitRecord {
+                        record_type: "hit",
+                        session_id: &hit.session_id,
+                        score: hit.score,
+                        timestamp: &hit.timestamp,
+                        role: &hit.role,
+                        in_thinking: hit.in_thinking,
+                        fragment: &hit.fragment,
+                    });
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
     }
-    let max_tokens = match number(
-      "chat_with_mercury",
-      "max_tokens",
-      params.max_tokens.unwrap_or(4000),
-      1,
-      32000,
-      "pass max_tokens from 1 to 32000, or omit it for the default 4000",
-    ) {
-      Ok(v) => v as u32,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let provider = match provider_for(None) {
-      Ok(p) => p,
-      Err(e) => {
-        return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-          "{e:#}"
-        ))]));
-      }
-    };
-    match provider
-      .chat_once(&params.system, &params.message, max_tokens)
-      .await
-    {
-      Ok(outcome) => {
-        let usage = outcome.usage;
-        let mut sink = crate::jsonl_sink::JsonlSink::new(
-          "chat_with_mercury",
-          "chat",
-          crate::report_cap::DEFAULT_MAX_BYTES,
+
+    #[tool(
+        description = "Total-recall MCP tool: profile a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"profile_session\",\"session_id\":\"…\",\"harness\":\"…\",\"file_size\":N,\"line_count\":N,\"first_ts\":\"…\",\"last_ts\":\"…\",\"role_counts\":{…},\"has_tantivy_index\":bool}, followed by one {\"type\":\"event\",\"line_number\":N,\"event_type\":\"…\",\"summary\":\"…\",\"gap_lines\":N} record per interesting event (Compaction, TodoCreate, TodoUpdate, TodoDelete, GitCommit, GitPush, GitTag, UserMessage)."
+    )]
+    async fn profile_session(
+        &self,
+        Parameters(params): Parameters<ProfileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let mut profile = match adapter.profile_session_opts(&session_id, params.cache) {
+            Ok(p) => p,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        profile.has_tantivy_index = crate::index::index_exists(adapter.as_ref(), &session_id);
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            profile_report(self.harness(), &profile),
+        )]))
+    }
+
+    #[tool(
+        description = "Total-recall MCP tool: extract messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_messages\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per message (clamped by max_record_bytes, its window-relative index in bounds.clamped_record_indices when clamped). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
+    )]
+    async fn extract_messages(
+        &self,
+        Parameters(params): Parameters<ExtractParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_messages",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        let messages = match read_window(adapter.as_ref(), &session_id, params.full) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+
+        // Bounded extraction: the sink is this tool's flood control
+        // (limit/max_bytes/max_record_bytes); no cap on top.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            bounded_message_records(
+                "extract_messages",
+                &session_id,
+                self.harness(),
+                params.full,
+                messages,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
+    }
+
+    #[tool(
+        description = "Total-recall MCP tool: extract verbatim user messages from a session as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_user_messages\",…,\"bounds\":{…}} carrying the paging inputs, followed by one {\"type\":\"message\",…} record per user message (injected synthetic records skipped; clamped by max_record_bytes). Output is capped (default most-recent-100, 8 MiB ceiling); page by offset, stepping by the records the response returned — the array's record count under the cap, the EOF marker's records_returned over it; the overflow file carries every record in the window."
+    )]
+    async fn extract_user_messages(
+        &self,
+        Parameters(params): Parameters<UserMessagesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_user_messages",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        // Derive from the bounded message stream so we bound during iteration
+        // rather than materializing the full unbounded Vec first.
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let user: Vec<crate::RolloutMessage> = messages
+            .into_iter()
+            .filter(|m| m.role == "user" && !m.injected)
+            .collect();
+
+        // Bounded extraction: the sink is this tool's flood control.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            bounded_message_records(
+                "extract_user_messages",
+                &session_id,
+                self.harness(),
+                false,
+                user,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
+    }
+
+    #[tool(
+        name = "extract_by_type",
+        description = "Total-recall MCP tool: raw extract of a session's entries filtered by type (user|assistant|tool|thinking, or \"all\") as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_by_type\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"types\":[…],\"bounds\":{\"total_records\":N,\"offset\":N,\"limit\":N,\"max_bytes\":N,\"clamped_record_indices\":[…]}}, followed by one {\"type\":\"entry\",\"entry_type\":\"…\",\"ts\":\"…\",\"record\":{…}} record per entry — no summarization, clamped by max_record_bytes. Recovers data from large or damaged sessions. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every entry in the window, one per line."
+    )]
+    async fn extract_by_type(
+        &self,
+        Parameters(params): Parameters<ExtractByTypeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate type selection up front.
+        const VALID: [&str; 7] = crate::rollout::EXTRACT_TYPES;
+        let want_all = params.types.is_empty() || params.types.iter().any(|t| t == "all");
+        if !want_all {
+            for t in &params.types {
+                if !VALID.contains(&t.as_str()) {
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                        "extract_by_type: unknown type '{}'; valid: {} or \"all\"",
+                        t,
+                        VALID.join("|")
+                    ))]));
+                }
+            }
+        }
+
+        let (limit, offset, max_bytes, max_record_bytes) = match envelope_bounds(
+            "extract_by_type",
+            params.limit,
+            params.offset,
+            params.max_bytes,
+            params.max_record_bytes,
+        ) {
+            Ok(bounds) => bounds,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        let mut entries =
+            match adapter.read_session_entries(&session_id, params.full, params.include_injected) {
+                Ok(e) => e,
+                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+            };
+        let mut notes: Vec<String> = Vec::new();
+        let selected: Vec<String> = if want_all {
+            VALID.iter().map(|s| s.to_string()).collect()
+        } else {
+            params.types.clone()
+        };
+        // The folded derived kinds (todo|compaction|questions) come from the
+        // adapter's accessors, appended after the message-derived entries
+        // (issues #64, #65, #66).
+        let kinds: Vec<&str> = if want_all {
+            crate::rollout::DERIVED_KINDS.to_vec()
+        } else {
+            params.types.iter().map(|t| t.as_str()).collect()
+        };
+        if !kinds.is_empty() {
+            let derived = crate::rollout::derived_entries(
+                adapter.as_ref(),
+                &session_id,
+                params.full,
+                &kinds,
+            );
+            entries.extend(derived.entries);
+            if !derived.notices.is_empty() {
+                notes = derived.notices;
+            }
+        }
+        let filtered: Vec<&crate::rollout::RolloutEntry> = entries
+            .iter()
+            .filter(|e| want_all || params.types.contains(&e.entry_type))
+            .collect();
+
+        // Bounded extraction: the sink is this tool's flood control.
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            extract_by_type_records(
+                &session_id,
+                self.harness(),
+                params.full,
+                &selected,
+                &filtered,
+                &notes,
+                limit,
+                offset,
+                max_bytes,
+                max_record_bytes,
+            ),
+        )]))
+    }
+
+    #[tool(
+        name = "summary_cache",
+        description = "Total-recall MCP tool: inspect a session's summary cache as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summary_cache\",\"session_id\":\"…\",\"tail\":{…}|null} carrying the unsummarised tail (the first uncovered id and what a summarise from there would cost; null when everything is covered), followed by one {\"type\":\"block\",\"from_id\":…,…,\"part_file\":\"…\"} record per cached block (id ranges, user/assistant/tool/thinking counts, chars, token estimate, part file). A session with no blocks returns the meta record with tail and zero block records. Read-only: never calls the LLM, never writes. The session_id (partial match; empty = most recent) resolves first; an invalid or short legacy ledger is dropped as empty."
+    )]
+    async fn summary_cache(
+        &self,
+        Parameters(params): Parameters<SummaryCacheParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let status =
+            crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            cache_status_report("summary_cache", &status),
+        )]))
+    }
+
+    #[tool(
+        name = "summarise_from",
+        description = "Total-recall MCP tool: summarise a session from an explicit 1-based message id, returning a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"summarise_from\",\"session_id\":\"…\",\"from_id\":N}, followed by one {\"type\":\"section\",\"name\":\"part N: from_ts → to_ts (ids from..to)\",\"text\":\"…\"} record per composed part and the cache footer as a named section (name summary_cache). The guard: from_id must be the first unsummarised id — one past the last cached block's to_id, or 1 with no blocks — anything else is an error naming the expected id, so run summary_cache first. On success the messages from from_id to the session's end are summarised and stored as a new block; a tail that is already covered serves the cache without an LLM call. Uses the LLM vendor compiled in as the default (Mercury); the server has no provider selector."
+    )]
+    async fn summarise_from(
+        &self,
+        Parameters(params): Parameters<SummariseFromParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let from_id = match number(
+            "summarise_from",
+            "from_id",
+            params.from_id,
+            1,
+            i64::MAX,
+            FROM_ID_CHEAP,
+        ) {
+            Ok(v) => v as u64,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        match crate::summary_cache::summarise_from_sections(
+            adapter.as_ref(),
+            &session_id,
+            from_id,
+            None,
+        )
+        .await
+        {
+            Ok(outcome) => {
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "summarise_from",
+                    &session_id,
+                    crate::report_cap::DEFAULT_MAX_BYTES,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "summarise_from",
+                    "session_id": session_id,
+                    "from_id": outcome.from_id,
+                }));
+                for section in &outcome.sections {
+                    sink.push(&SectionRecord {
+                        record_type: "section",
+                        name: &section.name,
+                        text: &section.text,
+                    });
+                }
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
+    }
+
+    #[tool(
+        name = "chat_with_mercury",
+        description = "Total-recall MCP tool: THE one-call key check — chat once with Mercury 3 and get the response, the speed and the tokens as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"chat_with_mercury\",\"model\":\"mercury-3\",\"max_tokens\":N}, followed by {\"type\":\"reply\",\"text\":\"…\",\"elapsed_s\":F,\"prompt_tokens\":N,\"completion_tokens\":N,\"total_tokens\":N,\"finish_reason\":\"…\"}. The key guard runs FIRST: INCEPTION_API_KEY missing or empty and the call is refused with the setup places named — the MCP environment block (docs/src/mcp-setup.md), export INCEPTION_API_KEY=… in the shell, or a .env at/above the working directory — and the request is never attempted. Params: message (required), max_tokens (default 4000, ceiling 32000), system (optional)."
+    )]
+    async fn chat_with_mercury(
+        &self,
+        Parameters(params): Parameters<ChatWithMercuryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The key guard first: the request is never built without the key, so
+        // the failure is always the front-door setup help, never mid-flow.
+        if let Err(e) = crate::mercury::check_inception_key() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(e)]));
+        }
+        let max_tokens = match number(
+            "chat_with_mercury",
+            "max_tokens",
+            params.max_tokens.unwrap_or(4000),
+            1,
+            32000,
+            "pass max_tokens from 1 to 32000, or omit it for the default 4000",
+        ) {
+            Ok(v) => v as u32,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let provider = match provider_for(None) {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{e:#}"
+                ))]));
+            }
+        };
+        match provider
+            .chat_once(&params.system, &params.message, max_tokens)
+            .await
+        {
+            Ok(outcome) => {
+                let usage = outcome.usage;
+                let mut sink = crate::jsonl_sink::JsonlSink::new(
+                    "chat_with_mercury",
+                    "chat",
+                    crate::report_cap::DEFAULT_MAX_BYTES,
+                );
+                sink.push_meta(&serde_json::json!({
+                    "type": "meta",
+                    "tool": "chat_with_mercury",
+                    "model": "mercury-3",
+                    "max_tokens": max_tokens,
+                }));
+                sink.push(&serde_json::json!({
+                    "type": "reply",
+                    "text": outcome.text,
+                    "elapsed_s": outcome.elapsed_s,
+                    "prompt_tokens": usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                    "completion_tokens": usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                    "total_tokens": usage.as_ref().map(|u| u.total_tokens).unwrap_or(0),
+                    "finish_reason": outcome.finish_reason,
+                }));
+                Ok(CallToolResult::success(vec![ContentBlock::text(
+                    sink.finish(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "{e:#}"
+            ))])),
+        }
+    }
+
+    #[tool(
+        name = "cache_delete_latest",
+        description = "Total-recall MCP tool: roll the summary cache back one block — the newest ledger row and its part file are deleted, then the rolled-back cache status is returned as the same JSONL record stream as summary_cache: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"cache_delete_latest\",\"session_id\":\"…\",\"tail\":{…}|null} followed by one {\"type\":\"block\",…} record per surviving block. Call repeatedly to roll back several blocks. No blocks is a house-form error, not a no-op — an error never enters the record stream."
+    )]
+    async fn cache_delete_latest(
+        &self,
+        Parameters(params): Parameters<CacheDeleteLatestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let root = adapter.shadow_index_root();
+        let blocks = crate::summary_cache::read_ledger(&crate::summary_cache::ledger_path(
+            &root,
+            &session_id,
+        ));
+        if blocks.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "cache_delete_latest: no cached blocks to delete — nothing has been summarised for this session (summary_cache shows what is cached)".to_string(),
+            )]));
+        }
+        if let Err(e) = crate::summary_cache::delete_latest(&root, &session_id) {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "cache_delete_latest: {e}"
+            ))]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let status = crate::summary_cache::status(&root, &session_id, &messages);
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            cache_status_report("cache_delete_latest", &status),
+        )]))
+    }
+
+    #[tool(
+        name = "he_said_she_said_they_did",
+        description = "Total-recall MCP tool: one full, per-session report answering what did we say and do — the surface for why/how/when/else and follow-ups — as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"he_said_she_said_they_did\",\"session_id\":\"…\",\"harness\":\"…\",\"period_first\":\"…\",\"period_last\":\"…\",\"messages\":N,\"compaction_points\":[…],\"cache_blocks\":[…],\"watermark\":N} (the period the report covers, the compaction-point locations as 1-based message ids, the summary-cache blocks and the high watermark — the first id a summarise_from may start at), followed by the report's records in section order: {\"type\":\"he_said\",\"ts\":\"…\",\"text\":\"…\"} for the user's messages verbatim (synthetic/injected parts skipped), {\"type\":\"she_said\",\"ts\":\"…\",\"text\":\"…\"} for the assistant's text parts only — explicitly not its thinking, explicitly not tool results — {\"type\":\"they_did\",\"ts\":\"…\",\"call\":\"…\"} for every action, kind-agnostic, each as call name + arguments with tool results excluded, and {\"type\":\"compaction_boundary\",\"message\":N,\"ts\":\"…\"} inline at the point it occurred. Read-only, no LLM call. The session_id (partial match; empty = most recent) selects the session; over max_bytes the fitting-prefix array is followed by the EOF marker and the overflow file carries every record."
+    )]
+    async fn he_said_she_said_they_did(
+        &self,
+        Parameters(params): Parameters<HeSaidSheSaidTheyDidParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bound is checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let max_bytes = match number(
+            "he_said_she_said_they_did",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+        let messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let markers = adapter.compaction_markers(&messages);
+        let status =
+            crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            he_said_she_said_they_did_report(
+                &session_id,
+                self.harness(),
+                &messages,
+                &markers,
+                &status,
+                max_bytes,
+            ),
+        )]))
+    }
+
+    #[tool(
+        name = "prior_period_summary",
+        description = "Total-recall MCP tool: an orientation summary of a prior period of work as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"prior_period_summary\",\"session_id\":\"…\",…the timing map…} carrying the session, the hours_back window and the timing fields (total_time_s, the message/user counts, the todo opens/closes/events/writes/baseline, commits_in_period, the recent-session and rollout-table counts, and what the prompt byte budgets dropped), followed by one {\"type\":\"section\",\"name\":\"…\",\"text\":\"…\"} record per composed section in the deliberate order: recent_rollouts, plan_files, todo_log, commits, state_summary, goals_summary, compaction_footer, instructions, orientation_warning. The period is the work since the session's last compaction boundary — the work after that boundary; a session with no compaction points has no earlier period, so the summary covers the whole session up to now. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every section, one per line."
+    )]
+    async fn prior_period_summary(
+        &self,
+        Parameters(params): Parameters<PriorPeriodSummaryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // The numeric bounds are checked before the session is resolved, so a
+        // bad bound is answered as a bound and never as "no sessions found".
+        let max_bytes = match number(
+            "prior_period_summary",
+            "max_bytes",
+            params.max_bytes,
+            1,
+            crate::bound::MAX_BYTES_CEILING as i64,
+            REPORT_MAX_BYTES_CHEAP,
+        ) {
+            Ok(v) => v as usize,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        // The rollouts table works a window like every other tool, so `0` here
+        // means the default window and never the adapter's unbounded `0`.
+        let hours = match window_hours(
+            "prior_period_summary",
+            Some(params.hours_back),
+            false,
+            default_hours() as u64,
+        ) {
+            Ok(h) => h,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        let adapter = self.adapter()?;
+        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
+            .unwrap_or_default();
+        if session_id.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No sessions found".to_string(),
+            )]));
+        }
+
+        // The full session feeds the compaction footer; the slice since the
+        // session's last compaction boundary — the context a compaction
+        // consumed — feeds the state summary, the commits and the todo log.
+        // The boundary is the adapter's own: on opencode that is the typed
+        // compaction part, which prose quoting the marker text cannot forge.
+        let full_messages = match adapter.read_session_mmap(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        if full_messages.is_empty() {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
+                "No messages found in session".to_string(),
+            )]));
+        }
+        let markers = adapter.compaction_markers(&full_messages);
+        let compaction_footer = build_compaction_footer(&full_messages, &markers);
+        let has_compaction = !markers.is_empty();
+        let full_session_messages_count = full_messages.len();
+        let period_messages = match adapter.read_session_from_compaction(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+
+        // Extract user messages from the full session
+        let user_messages = match adapter.extract_user_messages(&session_id) {
+            Ok(m) => m,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+
+        // The period's todo log, when the harness can read todowrite flushes.
+        // A read failure degrades to a stated-unavailable section, never a
+        // silent empty list that reads as "no todos" and never a failed call.
+        let (todo_log, todo_opens, todo_closes, todo_events, todo_writes, todo_baseline) =
+            match adapter.read_todo_writes(&session_id, false) {
+                Ok(writes) => {
+                    let restatement = has_compaction;
+                    let (opened, closed) =
+                        crate::todo_history::opened_closed_counts(&writes, restatement);
+                    let events = crate::todo_history::diff_todo_states(&writes);
+                    let steers = recent_steers(&user_messages, CHURN_STEER_COUNT);
+                    let baseline = if restatement && !writes.is_empty() {
+                        writes[0].todos.len()
+                    } else {
+                        0
+                    };
+                    let section =
+                        build_todo_log_section(&events, opened, closed, baseline, &steers);
+                    let n_events = events.len();
+                    let n_writes = writes.len();
+                    (section, opened, closed, n_events, n_writes, baseline)
+                }
+                Err(e) => (
+                    build_todo_log_unavailable(adapter.name(), &e),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ),
+            };
+
+        // Build prompts. Both are byte-bounded: the newest context is kept, the
+        // oldest dropped, and the drop reported in the timing comment below.
+        let state_prompt = build_state_prompt_bounded(&period_messages, MAX_STATE_BYTES);
+        let goals_prompt = build_goals_prompt_bounded(&user_messages, MAX_GOALS_BYTES);
+        let prompt_stats = serde_json::json!({
+            "state_prompt_bytes": state_prompt.bytes,
+            "state_prompt_dropped_bytes": state_prompt.dropped_bytes,
+            "state_prompt_dropped_messages": state_prompt.dropped_items,
+            "goals_prompt_bytes": goals_prompt.bytes,
+            "goals_prompt_dropped_bytes": goals_prompt.dropped_bytes,
+            "goals_prompt_dropped_messages": goals_prompt.dropped_items,
+        });
+        let prompt_stats = prompt_stats.as_object().cloned().unwrap_or_default();
+
+        // Create provider
+        let provider = match provider_for(None) {
+            Ok(provider) => provider,
+            Err(e) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                    "{e:#}"
+                ))]));
+            }
+        };
+
+        // One bounded-concurrency batch call for both LLM calls
+        let t0 = std::time::Instant::now();
+        let batch_results = provider
+            .compact_batch_pairs(vec![
+                (STATE_SYSTEM_PROMPT.to_string(), state_prompt.text),
+                (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt.text),
+            ])
+            .await;
+        let total_time = t0.elapsed();
+
+        let [state_summary, goals_summary] = batch_results
+            .map_err(|e| McpError::internal_error(format!("Mercury API error: {e:#}"), None))?
+            .try_into()
+            .expect("compact_batch_pairs returns one result per call");
+
+        // Build recent rollouts table from the scoped listing: the window is
+        // applied where the data lives and the table holds the listing's
+        // bounded rows plus the held-back count.
+        let listing = adapter.list_sessions_scoped(hours, None);
+        let rollouts_table = build_recent_rollouts_table(&listing, Some(&session_id), hours);
+        let table_rows = listing.sessions.len();
+
+        // Build plan files section
+        let plan_files = build_plan_files_section();
+
+        // The period's commits, detected like the profile's GitCommit events.
+        let commits = build_commits_section(&period_messages);
+        let commits_count = period_messages
+            .iter()
+            .flat_map(|m| &m.tool_calls_summary)
+            .filter(|tc| tc.contains("git commit"))
+            .count();
+
+        // Assemble the record stream: the timing map is the meta record (the
+        // `<!-- timing -->` comment is dead), the composition's sections are
+        // `type=section` records in the deliberate order.
+        let sections = prior_period_sections(
+            &state_summary,
+            &goals_summary,
+            &rollouts_table,
+            &plan_files,
+            &todo_log,
+            &commits,
+            &compaction_footer,
         );
-        sink.push_meta(&serde_json::json!({
-          "type": "meta",
-          "tool": "chat_with_mercury",
-          "model": "mercury-3",
-          "max_tokens": max_tokens,
-        }));
-        sink.push(&serde_json::json!({
-          "type": "reply",
-          "text": outcome.text,
-          "elapsed_s": outcome.elapsed_s,
-          "prompt_tokens": usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-          "completion_tokens": usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
-          "total_tokens": usage.as_ref().map(|u| u.total_tokens).unwrap_or(0),
-          "finish_reason": outcome.finish_reason,
-        }));
-        Ok(CallToolResult::success(vec![ContentBlock::text(
-          sink.finish(),
-        )]))
-      }
-      Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-        "{e:#}"
-      ))])),
-    }
-  }
 
-  #[tool(
-    name = "cache_delete_latest",
-    description = "Total-recall MCP tool: roll the summary cache back one block — the newest ledger row and its part file are deleted, then the rolled-back cache status is returned as the same JSONL record stream as summary_cache: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"cache_delete_latest\",\"session_id\":\"…\",\"tail\":{…}|null} followed by one {\"type\":\"block\",…} record per surviving block. Call repeatedly to roll back several blocks. No blocks is a house-form error, not a no-op — an error never enters the record stream."
-  )]
-  async fn cache_delete_latest(
-    &self,
-    Parameters(params): Parameters<CacheDeleteLatestParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let adapter = self.adapter()?;
-    let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-    let root = adapter.shadow_index_root();
-    let blocks = crate::summary_cache::read_ledger(&crate::summary_cache::ledger_path(
-      &root,
-      &session_id,
-    ));
-    if blocks.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "cache_delete_latest: no cached blocks to delete — nothing has been summarised for this session (summary_cache shows what is cached)".to_string(),
-      )]));
-    }
-    if let Err(e) = crate::summary_cache::delete_latest(&root, &session_id) {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-        "cache_delete_latest: {e}"
-      ))]));
-    }
-    let messages = match adapter.read_session_mmap(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let status = crate::summary_cache::status(&root, &session_id, &messages);
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      cache_status_report("cache_delete_latest", &status),
-    )]))
-  }
+        let mut timing = serde_json::Map::from_iter([
+            ("hours_back".to_string(), serde_json::json!(hours)),
+            (
+                "total_time_s".to_string(),
+                serde_json::json!(total_time.as_secs_f64()),
+            ),
+            (
+                "session_messages_count".to_string(),
+                serde_json::json!(period_messages.len()),
+            ),
+            (
+                "full_session_messages_count".to_string(),
+                serde_json::json!(full_session_messages_count),
+            ),
+            (
+                "user_messages_count".to_string(),
+                serde_json::json!(user_messages.len()),
+            ),
+            ("todo_opens".to_string(), serde_json::json!(todo_opens)),
+            ("todo_closes".to_string(), serde_json::json!(todo_closes)),
+            ("todo_events".to_string(), serde_json::json!(todo_events)),
+            (
+                "todo_baseline".to_string(),
+                serde_json::json!(todo_baseline),
+            ),
+            ("todo_writes".to_string(), serde_json::json!(todo_writes)),
+            (
+                "commits_in_period".to_string(),
+                serde_json::json!(commits_count),
+            ),
+            (
+                "recent_sessions_count".to_string(),
+                serde_json::json!(listing.window_count),
+            ),
+            (
+                "rollout_table_rows".to_string(),
+                serde_json::json!(table_rows),
+            ),
+        ]);
+        timing.extend(prompt_stats);
 
-  #[tool(
-    name = "he_said_she_said_they_did",
-    description = "Total-recall MCP tool: one full, per-session report answering what did we say and do — the surface for why/how/when/else and follow-ups — as a JSONL record stream: a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"he_said_she_said_they_did\",\"session_id\":\"…\",\"harness\":\"…\",\"period_first\":\"…\",\"period_last\":\"…\",\"messages\":N,\"compaction_points\":[…],\"cache_blocks\":[…],\"watermark\":N} (the period the report covers, the compaction-point locations as 1-based message ids, the summary-cache blocks and the high watermark — the first id a summarise_from may start at), followed by the report's records in section order: {\"type\":\"he_said\",\"ts\":\"…\",\"text\":\"…\"} for the user's messages verbatim (synthetic/injected parts skipped), {\"type\":\"she_said\",\"ts\":\"…\",\"text\":\"…\"} for the assistant's text parts only — explicitly not its thinking, explicitly not tool results — {\"type\":\"they_did\",\"ts\":\"…\",\"call\":\"…\"} for every action, kind-agnostic, each as call name + arguments with tool results excluded, and {\"type\":\"compaction_boundary\",\"message\":N,\"ts\":\"…\"} inline at the point it occurred. Read-only, no LLM call. The session_id (partial match; empty = most recent) selects the session; over max_bytes the fitting-prefix array is followed by the EOF marker and the overflow file carries every record."
-  )]
-  async fn he_said_she_said_they_did(
-    &self,
-    Parameters(params): Parameters<HeSaidSheSaidTheyDidParams>,
-  ) -> Result<CallToolResult, McpError> {
-    // The numeric bound is checked before the session is resolved, so a
-    // bad bound is answered as a bound and never as "no sessions found".
-    let max_bytes = match number(
-      "he_said_she_said_they_did",
-      "max_bytes",
-      params.max_bytes,
-      1,
-      crate::bound::MAX_BYTES_CEILING as i64,
-      REPORT_MAX_BYTES_CHEAP,
-    ) {
-      Ok(v) => v as usize,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = canonical_session_id(adapter.as_ref(), &params.session_id);
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-    let messages = match adapter.read_session_mmap(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let markers = adapter.compaction_markers(&messages);
-    let status =
-      crate::summary_cache::status(&adapter.shadow_index_root(), &session_id, &messages);
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      he_said_she_said_they_did_report(
-        &session_id,
-        self.harness(),
-        &messages,
-        &markers,
-        &status,
-        max_bytes,
-      ),
-    )]))
-  }
-
-  #[tool(
-    name = "prior_period_summary",
-    description = "Total-recall MCP tool: an orientation summary of a prior period of work as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"prior_period_summary\",\"session_id\":\"…\",…the timing map…} carrying the session, the hours_back window and the timing fields (total_time_s, the message/user counts, the todo opens/closes/events/writes/baseline, commits_in_period, the recent-session and rollout-table counts, and what the prompt byte budgets dropped), followed by one {\"type\":\"section\",\"name\":\"…\",\"text\":\"…\"} record per composed section in the deliberate order: recent_rollouts, plan_files, todo_log, commits, state_summary, goals_summary, compaction_footer, instructions, orientation_warning. The period is the work since the session's last compaction boundary — the work after that boundary; a session with no compaction points has no earlier period, so the summary covers the whole session up to now. Folds in the period's todo log (items opened and closed with timings, the state-change history, a churn note when items open faster than they close with the human's recent steers read into it; todowrite flushes are only readable on opencode — other harnesses say so), the commits made in the period, recent rollouts, and plan/todo files. Appends a compaction-points FYI footer and a fixed orientation warning: the summary does not attempt to show what was in-flight or the next steps — take stock and get your bearings before picking up the work. Makes two parallel LLM calls. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every section, one per line."
-  )]
-  async fn prior_period_summary(
-    &self,
-    Parameters(params): Parameters<PriorPeriodSummaryParams>,
-  ) -> Result<CallToolResult, McpError> {
-    // The numeric bounds are checked before the session is resolved, so a
-    // bad bound is answered as a bound and never as "no sessions found".
-    let max_bytes = match number(
-      "prior_period_summary",
-      "max_bytes",
-      params.max_bytes,
-      1,
-      crate::bound::MAX_BYTES_CEILING as i64,
-      REPORT_MAX_BYTES_CHEAP,
-    ) {
-      Ok(v) => v as usize,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    // The rollouts table works a window like every other tool, so `0` here
-    // means the default window and never the adapter's unbounded `0`.
-    let hours = match window_hours(
-      "prior_period_summary",
-      Some(params.hours_back),
-      false,
-      default_hours() as u64,
-    ) {
-      Ok(h) => h,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    let adapter = self.adapter()?;
-    let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-      .unwrap_or_default();
-    if session_id.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No sessions found".to_string(),
-      )]));
-    }
-
-    // The full session feeds the compaction footer; the slice since the
-    // session's last compaction boundary — the context a compaction
-    // consumed — feeds the state summary, the commits and the todo log.
-    // The boundary is the adapter's own: on opencode that is the typed
-    // compaction part, which prose quoting the marker text cannot forge.
-    let full_messages = match adapter.read_session_mmap(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    if full_messages.is_empty() {
-      return Ok(CallToolResult::error(vec![ContentBlock::text(
-        "No messages found in session".to_string(),
-      )]));
-    }
-    let markers = adapter.compaction_markers(&full_messages);
-    let compaction_footer = build_compaction_footer(&full_messages, &markers);
-    let has_compaction = !markers.is_empty();
-    let full_session_messages_count = full_messages.len();
-    let period_messages = match adapter.read_session_from_compaction(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-
-    // Extract user messages from the full session
-    let user_messages = match adapter.extract_user_messages(&session_id) {
-      Ok(m) => m,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-
-    // The period's todo log, when the harness can read todowrite flushes.
-    // A read failure degrades to a stated-unavailable section, never a
-    // silent empty list that reads as "no todos" and never a failed call.
-    let (todo_log, todo_opens, todo_closes, todo_events, todo_writes, todo_baseline) =
-      match adapter.read_todo_writes(&session_id, false) {
-        Ok(writes) => {
-          let restatement = has_compaction;
-          let (opened, closed) =
-            crate::todo_history::opened_closed_counts(&writes, restatement);
-          let events = crate::todo_history::diff_todo_states(&writes);
-          let steers = recent_steers(&user_messages, CHURN_STEER_COUNT);
-          let baseline = if restatement && !writes.is_empty() {
-            writes[0].todos.len()
-          } else {
-            0
-          };
-          let section =
-            build_todo_log_section(&events, opened, closed, baseline, &steers);
-          let n_events = events.len();
-          let n_writes = writes.len();
-          (section, opened, closed, n_events, n_writes, baseline)
+        let mut sink =
+            crate::jsonl_sink::JsonlSink::new("prior_period_summary", &session_id, max_bytes);
+        let mut meta = serde_json::Map::new();
+        meta.insert("type".to_string(), serde_json::json!("meta"));
+        meta.insert(
+            "tool".to_string(),
+            serde_json::json!("prior_period_summary"),
+        );
+        meta.insert("session_id".to_string(), serde_json::json!(session_id));
+        for (key, value) in timing {
+            meta.insert(key, value);
         }
-        Err(e) => (
-          build_todo_log_unavailable(adapter.name(), &e),
-          0,
-          0,
-          0,
-          0,
-          0,
-        ),
-      };
-
-    // Build prompts. Both are byte-bounded: the newest context is kept, the
-    // oldest dropped, and the drop reported in the timing comment below.
-    let state_prompt = build_state_prompt_bounded(&period_messages, MAX_STATE_BYTES);
-    let goals_prompt = build_goals_prompt_bounded(&user_messages, MAX_GOALS_BYTES);
-    let prompt_stats = serde_json::json!({
-      "state_prompt_bytes": state_prompt.bytes,
-      "state_prompt_dropped_bytes": state_prompt.dropped_bytes,
-      "state_prompt_dropped_messages": state_prompt.dropped_items,
-      "goals_prompt_bytes": goals_prompt.bytes,
-      "goals_prompt_dropped_bytes": goals_prompt.dropped_bytes,
-      "goals_prompt_dropped_messages": goals_prompt.dropped_items,
-    });
-    let prompt_stats = prompt_stats.as_object().cloned().unwrap_or_default();
-
-    // Create provider
-    let provider = match provider_for(None) {
-      Ok(provider) => provider,
-      Err(e) => {
-        return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-          "{e:#}"
-        ))]));
-      }
-    };
-
-    // One bounded-concurrency batch call for both LLM calls
-    let t0 = std::time::Instant::now();
-    let batch_results = provider
-      .compact_batch_pairs(vec![
-        (STATE_SYSTEM_PROMPT.to_string(), state_prompt.text),
-        (GOALS_SYSTEM_PROMPT.to_string(), goals_prompt.text),
-      ])
-      .await;
-    let total_time = t0.elapsed();
-
-    let [state_summary, goals_summary] = batch_results
-      .map_err(|e| McpError::internal_error(format!("Mercury API error: {e:#}"), None))?
-      .try_into()
-      .expect("compact_batch_pairs returns one result per call");
-
-    // Build recent rollouts table from the scoped listing: the window is
-    // applied where the data lives and the table holds the listing's
-    // bounded rows plus the held-back count.
-    let listing = adapter.list_sessions_scoped(hours, None);
-    let rollouts_table = build_recent_rollouts_table(&listing, Some(&session_id), hours);
-    let table_rows = listing.sessions.len();
-
-    // Build plan files section
-    let plan_files = build_plan_files_section();
-
-    // The period's commits, detected like the profile's GitCommit events.
-    let commits = build_commits_section(&period_messages);
-    let commits_count = period_messages
-      .iter()
-      .flat_map(|m| &m.tool_calls_summary)
-      .filter(|tc| tc.contains("git commit"))
-      .count();
-
-    // Assemble the record stream: the timing map is the meta record (the
-    // `<!-- timing -->` comment is dead), the composition's sections are
-    // `type=section` records in the deliberate order.
-    let sections = prior_period_sections(
-      &state_summary,
-      &goals_summary,
-      &rollouts_table,
-      &plan_files,
-      &todo_log,
-      &commits,
-      &compaction_footer,
-    );
-
-    let mut timing = serde_json::Map::from_iter([
-      ("hours_back".to_string(), serde_json::json!(hours)),
-      (
-        "total_time_s".to_string(),
-        serde_json::json!(total_time.as_secs_f64()),
-      ),
-      (
-        "session_messages_count".to_string(),
-        serde_json::json!(period_messages.len()),
-      ),
-      (
-        "full_session_messages_count".to_string(),
-        serde_json::json!(full_session_messages_count),
-      ),
-      (
-        "user_messages_count".to_string(),
-        serde_json::json!(user_messages.len()),
-      ),
-      ("todo_opens".to_string(), serde_json::json!(todo_opens)),
-      ("todo_closes".to_string(), serde_json::json!(todo_closes)),
-      ("todo_events".to_string(), serde_json::json!(todo_events)),
-      (
-        "todo_baseline".to_string(),
-        serde_json::json!(todo_baseline),
-      ),
-      ("todo_writes".to_string(), serde_json::json!(todo_writes)),
-      (
-        "commits_in_period".to_string(),
-        serde_json::json!(commits_count),
-      ),
-      (
-        "recent_sessions_count".to_string(),
-        serde_json::json!(listing.window_count),
-      ),
-      (
-        "rollout_table_rows".to_string(),
-        serde_json::json!(table_rows),
-      ),
-    ]);
-    timing.extend(prompt_stats);
-
-    let mut sink =
-      crate::jsonl_sink::JsonlSink::new("prior_period_summary", &session_id, max_bytes);
-    let mut meta = serde_json::Map::new();
-    meta.insert("type".to_string(), serde_json::json!("meta"));
-    meta.insert(
-      "tool".to_string(),
-      serde_json::json!("prior_period_summary"),
-    );
-    meta.insert("session_id".to_string(), serde_json::json!(session_id));
-    for (key, value) in timing {
-      meta.insert(key, value);
+        sink.push_meta(&serde_json::Value::Object(meta));
+        for (name, text) in &sections {
+            sink.push(&SectionRecord {
+                record_type: "section",
+                name,
+                text,
+            });
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            sink.finish(),
+        )]))
     }
-    sink.push_meta(&serde_json::Value::Object(meta));
-    for (name, text) in &sections {
-      sink.push(&SectionRecord {
-        record_type: "section",
-        name,
-        text,
-      });
-    }
-    Ok(CallToolResult::success(vec![ContentBlock::text(
-      sink.finish(),
-    )]))
-  }
 
-  #[tool(
-    name = "line_histogram",
-    description = "Total-recall MCP tool: profile a file by line-size distribution (histogram mode, ten buckets), or extract a line range (mode=extract with line, or start and end). Runs the vendored line_histogram.awk with a direct awk -f spawn. The paging companion for flood-control overflow files and any large dump on disk."
-  )]
-  async fn line_histogram(
-    &self,
-    Parameters(params): Parameters<LineHistogramParams>,
-  ) -> Result<CallToolResult, McpError> {
-    let selectors = match line_selectors(
-      params.mode.as_deref(),
-      params.line,
-      params.start,
-      params.end,
-    ) {
-      Ok(selectors) => selectors,
-      Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-    };
-    match crate::report_cap::line_histogram(
-      std::path::Path::new(&params.file_path),
-      selectors.mode.as_deref(),
-      selectors.line,
-      selectors.start,
-      selectors.end,
-    ) {
-      Ok(out) => Ok(capped_text(
-        "line_histogram",
-        &params.file_path,
-        out,
-        crate::report_cap::DEFAULT_MAX_BYTES,
-      )),
-      Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+    #[tool(
+        name = "line_histogram",
+        description = "Total-recall MCP tool: profile a file by line-size distribution (histogram mode, ten buckets), or extract a line range (mode=extract with line, or start and end). Runs the vendored line_histogram.awk with a direct awk -f spawn. The paging companion for flood-control overflow files and any large dump on disk."
+    )]
+    async fn line_histogram(
+        &self,
+        Parameters(params): Parameters<LineHistogramParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let selectors = match line_selectors(
+            params.mode.as_deref(),
+            params.line,
+            params.start,
+            params.end,
+        ) {
+            Ok(selectors) => selectors,
+            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        };
+        match crate::report_cap::line_histogram(
+            std::path::Path::new(&params.file_path),
+            selectors.mode.as_deref(),
+            selectors.line,
+            selectors.start,
+            selectors.end,
+        ) {
+            Ok(out) => Ok(capped_text(
+                "line_histogram",
+                &params.file_path,
+                out,
+                crate::report_cap::DEFAULT_MAX_BYTES,
+            )),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
+        }
     }
-  }
 }
 
 #[tool_handler]
 impl ServerHandler for TotalRecallServer {
-  fn get_info(&self) -> ServerInfo {
-    ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-  }
-
-  /// The one boundary every call crosses, so the parameter errors are stated
-  /// in one voice. rmcp answers a rejected argument set with serde's own
-  /// message; a typo is a silently unscoped call otherwise, so the message is
-  /// rewritten here to name the unrecognised field and the fields the tool
-  /// does accept — read from the served schema, which is the same authority
-  /// `tools/list` publishes, so the list cannot drift from the struct.
-  async fn call_tool(
-    &self,
-    request: CallToolRequestParams,
-    context: RequestContext<RoleServer>,
-  ) -> Result<CallToolResponse, McpError> {
-    let router = Self::tool_router();
-    let tool = request.name.to_string();
-    let accepted = accepted_fields(&router, &tool);
-    let response = router
-      .call(ToolCallContext::new(self, request, context))
-      .await?;
-    let CallToolResponse::Complete(mut result) = response else {
-      return Ok(response);
-    };
-    if result.is_error == Some(true)
-      && let Some(ContentBlock::Text(text)) = result.content.first_mut()
-      && let Some(house) = house_form_params(&tool, &accepted, &text.text)
-    {
-      text.text = house;
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
-    Ok(CallToolResponse::Complete(result))
-  }
+
+    /// The one boundary every call crosses, so the parameter errors are stated
+    /// in one voice. rmcp answers a rejected argument set with serde's own
+    /// message; a typo is a silently unscoped call otherwise, so the message is
+    /// rewritten here to name the unrecognised field and the fields the tool
+    /// does accept — read from the served schema, which is the same authority
+    /// `tools/list` publishes, so the list cannot drift from the struct.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        let router = Self::tool_router();
+        let tool = request.name.to_string();
+        let accepted = accepted_fields(&router, &tool);
+        let response = router
+            .call(ToolCallContext::new(self, request, context))
+            .await?;
+        let CallToolResponse::Complete(mut result) = response else {
+            return Ok(response);
+        };
+        if result.is_error == Some(true)
+            && let Some(ContentBlock::Text(text)) = result.content.first_mut()
+            && let Some(house) = house_form_params(&tool, &accepted, &text.text)
+        {
+            text.text = house;
+        }
+        Ok(CallToolResponse::Complete(result))
+    }
 }
 
 /// rmcp's prefix on a rejected argument set: everything after it is serde's
@@ -1696,48 +1696,48 @@ const PARAM_ERROR_PREFIX: &str = "failed to deserialize parameters:";
 /// The house form for a rejected argument set, or `None` when the error is
 /// not a parameter error and must be left alone.
 fn house_form_params(tool: &str, accepted: &[String], raw: &str) -> Option<String> {
-  let message = raw.trim_start_matches(PARAM_ERROR_PREFIX).trim();
-  if message.len() == raw.len() && !raw.starts_with(PARAM_ERROR_PREFIX) {
-    return None;
-  }
-  // serde appends " at line 1 column 42" to every message it produces from a
-  // `serde_json::Value`; the position is noise to a caller holding a tool
-  // call, and the house errors carry the position nowhere.
-  let message = message
-    .rsplit_once(" at line ")
-    .filter(|(_, tail)| {
-      tail.trim_end()
-        .chars()
-        .all(|c| c.is_ascii_digit() || c == ' ')
-    })
-    .map_or(message, |(head, _)| head);
-  let accepts = format!("{tool} accepts: {}", accepted.join("|"));
-  if let Some(field) = message
-    .strip_prefix("unknown field ")
-    .and_then(|rest| rest.split('`').nth(1))
-  {
-    return Some(format!(
-      "{tool}: unrecognised field `{field}` — a typo is a call run on the wrong scope; {accepts}"
-    ));
-  }
-  Some(format!("{tool}: {message} — {accepts}"))
+    let message = raw.trim_start_matches(PARAM_ERROR_PREFIX).trim();
+    if message.len() == raw.len() && !raw.starts_with(PARAM_ERROR_PREFIX) {
+        return None;
+    }
+    // serde appends " at line 1 column 42" to every message it produces from a
+    // `serde_json::Value`; the position is noise to a caller holding a tool
+    // call, and the house errors carry the position nowhere.
+    let message = message
+        .rsplit_once(" at line ")
+        .filter(|(_, tail)| {
+            tail.trim_end()
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ' ')
+        })
+        .map_or(message, |(head, _)| head);
+    let accepts = format!("{tool} accepts: {}", accepted.join("|"));
+    if let Some(field) = message
+        .strip_prefix("unknown field ")
+        .and_then(|rest| rest.split('`').nth(1))
+    {
+        return Some(format!(
+            "{tool}: unrecognised field `{field}` — a typo is a call run on the wrong scope; {accepts}"
+        ));
+    }
+    Some(format!("{tool}: {message} — {accepts}"))
 }
 
 /// The parameter names a tool's served schema declares, sorted. Read from the
 /// schema the server publishes rather than from a second list kept beside the
 /// struct.
 fn accepted_fields(
-  router: &rmcp::handler::server::router::tool::ToolRouter<TotalRecallServer>,
-  tool: &str,
+    router: &rmcp::handler::server::router::tool::ToolRouter<TotalRecallServer>,
+    tool: &str,
 ) -> Vec<String> {
-  let mut fields: Vec<String> = router
-    .get(tool)
-    .and_then(|tool| tool.input_schema.get("properties"))
-    .and_then(|props| props.as_object())
-    .map(|props| props.keys().cloned().collect())
-    .unwrap_or_default();
-  fields.sort();
-  fields
+    let mut fields: Vec<String> = router
+        .get(tool)
+        .and_then(|tool| tool.input_schema.get("properties"))
+        .and_then(|props| props.as_object())
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default();
+    fields.sort();
+    fields
 }
 
 /// The validated `line_histogram` selectors. `mode` is an enum, not a free
@@ -1747,82 +1747,82 @@ fn accepted_fields(
 /// needs both ends, `start` may not sit past `end`, and a selector without
 /// `mode: extract` is a request the histogram mode would ignore.
 struct LineSelectors {
-  mode: Option<String>,
-  line: Option<u64>,
-  start: Option<u64>,
-  end: Option<u64>,
+    mode: Option<String>,
+    line: Option<u64>,
+    start: Option<u64>,
+    end: Option<u64>,
 }
 
 fn line_selectors(
-  mode: Option<&str>,
-  line: Option<i64>,
-  start: Option<i64>,
-  end: Option<i64>,
+    mode: Option<&str>,
+    line: Option<i64>,
+    start: Option<i64>,
+    end: Option<i64>,
 ) -> Result<LineSelectors, String> {
-  let mode = match mode {
-    None | Some("") | Some("histogram") => "histogram",
-    Some("extract") => "extract",
-    Some(other) => {
-      return Err(format!(
-        "line_histogram: unknown mode `{other}` — pass histogram (the default) or extract"
-      ));
-    }
-  };
-  let line = line
-    .map(|l| number("line_histogram", "line", l, 1, i64::MAX, LINE_CHEAP))
-    .transpose()?
-    .map(|l| l as u64);
-  let start = start
-    .map(|s| number("line_histogram", "start", s, 1, i64::MAX, START_CHEAP))
-    .transpose()?
-    .map(|s| s as u64);
-  let end = end
-    .map(|e| number("line_histogram", "end", e, 1, i64::MAX, END_CHEAP))
-    .transpose()?
-    .map(|e| e as u64);
+    let mode = match mode {
+        None | Some("") | Some("histogram") => "histogram",
+        Some("extract") => "extract",
+        Some(other) => {
+            return Err(format!(
+                "line_histogram: unknown mode `{other}` — pass histogram (the default) or extract"
+            ));
+        }
+    };
+    let line = line
+        .map(|l| number("line_histogram", "line", l, 1, i64::MAX, LINE_CHEAP))
+        .transpose()?
+        .map(|l| l as u64);
+    let start = start
+        .map(|s| number("line_histogram", "start", s, 1, i64::MAX, START_CHEAP))
+        .transpose()?
+        .map(|s| s as u64);
+    let end = end
+        .map(|e| number("line_histogram", "end", e, 1, i64::MAX, END_CHEAP))
+        .transpose()?
+        .map(|e| e as u64);
 
-  let extract = mode == "extract";
-  if end.is_some() && start.is_none() {
-    return Err(
-      "line_histogram: `end` needs `start` — pass the inclusive range as start and end (start=1, end=40), or line for a single line"
-        .to_string(),
-    );
-  }
-  if let (Some(start), Some(end)) = (start, end)
-    && start > end
-  {
-    return Err(format!(
-      "line_histogram: `start` ({start}) is past `end` ({end}) — pass start <= end for an inclusive range"
-    ));
-  }
-  if line.is_some() && start.is_some() {
-    return Err(
-      "line_histogram: `line` and `start`/`end` are two answers to one question — pass one: line for a single line, or start with end for a range"
-        .to_string(),
-    );
-  }
-  if extract && line.is_none() && start.is_none() {
-    return Err(
-      "line_histogram: mode: extract needs a line selector — pass line=42 for one line, or start=1 with end=40 for a range"
-        .to_string(),
-    );
-  }
-  if !extract && (line.is_some() || start.is_some()) {
-    return Err(
-      "line_histogram: `line`/`start`/`end` are extract-mode selectors — pass mode: extract with them, or drop them for the histogram"
-        .to_string(),
-    );
-  }
-  Ok(LineSelectors {
-    mode: if extract {
-      Some("extract".to_string())
-    } else {
-      None
-    },
-    line,
-    start,
-    end,
-  })
+    let extract = mode == "extract";
+    if end.is_some() && start.is_none() {
+        return Err(
+            "line_histogram: `end` needs `start` — pass the inclusive range as start and end (start=1, end=40), or line for a single line"
+                .to_string(),
+        );
+    }
+    if let (Some(start), Some(end)) = (start, end)
+        && start > end
+    {
+        return Err(format!(
+            "line_histogram: `start` ({start}) is past `end` ({end}) — pass start <= end for an inclusive range"
+        ));
+    }
+    if line.is_some() && start.is_some() {
+        return Err(
+            "line_histogram: `line` and `start`/`end` are two answers to one question — pass one: line for a single line, or start with end for a range"
+                .to_string(),
+        );
+    }
+    if extract && line.is_none() && start.is_none() {
+        return Err(
+            "line_histogram: mode: extract needs a line selector — pass line=42 for one line, or start=1 with end=40 for a range"
+                .to_string(),
+        );
+    }
+    if !extract && (line.is_some() || start.is_some()) {
+        return Err(
+            "line_histogram: `line`/`start`/`end` are extract-mode selectors — pass mode: extract with them, or drop them for the histogram"
+                .to_string(),
+        );
+    }
+    Ok(LineSelectors {
+        mode: if extract {
+            Some("extract".to_string())
+        } else {
+            None
+        },
+        line,
+        start,
+        end,
+    })
 }
 
 /// One search-hit stream record: the hit's fields with the record stream's
@@ -1830,16 +1830,16 @@ fn line_selectors(
 /// per the documented hit-record shape.
 #[derive(serde::Serialize)]
 struct HitRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  session_id: &'a str,
-  score: f32,
-  #[serde(rename = "ts")]
-  timestamp: &'a str,
-  role: &'a str,
-  #[serde(rename = "thinking")]
-  in_thinking: bool,
-  fragment: &'a str,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    session_id: &'a str,
+    score: f32,
+    #[serde(rename = "ts")]
+    timestamp: &'a str,
+    role: &'a str,
+    #[serde(rename = "thinking")]
+    in_thinking: bool,
+    fragment: &'a str,
 }
 
 /// One listing row record: the row's own serde fields (session_id, title,
@@ -1848,20 +1848,20 @@ struct HitRecord<'a> {
 /// under the record stream's `type` discriminator.
 #[derive(serde::Serialize)]
 struct RowRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  #[serde(flatten)]
-  row: &'a crate::ListingRow,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    row: &'a crate::ListingRow,
 }
 
 /// One summarise section record: the composed part's name and text under the
 /// record stream's `type` discriminator; the cache footer is a named section.
 #[derive(serde::Serialize)]
 struct SectionRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  name: &'a str,
-  text: &'a str,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    name: &'a str,
+    text: &'a str,
 }
 
 /// One `todo_edit` stream record: the event's fields plus the record
@@ -1883,10 +1883,10 @@ struct SectionRecord<'a> {
 /// discriminator.
 #[derive(serde::Serialize)]
 struct BlockRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  #[serde(flatten)]
-  block: &'a crate::summary_cache::Block,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    block: &'a crate::summary_cache::Block,
 }
 
 /// The shared cache-status → record-stream render behind `summary_cache` and
@@ -1897,27 +1897,27 @@ struct BlockRecord<'a> {
 /// by the EOF marker naming that file; under the cap the bare array alone is
 /// returned and nothing is retained.
 pub(crate) fn cache_status_report(
-  tool: &str,
-  status: &crate::summary_cache::CacheStatus,
+    tool: &str,
+    status: &crate::summary_cache::CacheStatus,
 ) -> String {
-  let mut sink = crate::jsonl_sink::JsonlSink::new(
-    tool,
-    &status.session_id,
-    crate::report_cap::DEFAULT_MAX_BYTES,
-  );
-  sink.push_meta(&serde_json::json!({
-    "type": "meta",
-    "tool": tool,
-    "session_id": status.session_id,
-    "tail": serde_json::to_value(&status.tail).unwrap_or(serde_json::Value::Null),
-  }));
-  for block in &status.blocks {
-    sink.push(&BlockRecord {
-      record_type: "block",
-      block,
-    });
-  }
-  sink.finish()
+    let mut sink = crate::jsonl_sink::JsonlSink::new(
+        tool,
+        &status.session_id,
+        crate::report_cap::DEFAULT_MAX_BYTES,
+    );
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": tool,
+        "session_id": status.session_id,
+        "tail": serde_json::to_value(&status.tail).unwrap_or(serde_json::Value::Null),
+    }));
+    for block in &status.blocks {
+        sink.push(&BlockRecord {
+            record_type: "block",
+            block,
+        });
+    }
+    sink.finish()
 }
 
 /// One profile event record: the interesting-event's own serde fields
@@ -1925,10 +1925,10 @@ pub(crate) fn cache_status_report(
 /// stream's `type` discriminator.
 #[derive(serde::Serialize)]
 struct EventRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  #[serde(flatten)]
-  event: &'a crate::rollout::InterestingEvent,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    event: &'a crate::rollout::InterestingEvent,
 }
 
 /// The `profile_session` record stream: record 0 is the meta record carrying
@@ -1939,30 +1939,30 @@ struct EventRecord<'a> {
 /// marker naming that file; under the cap the bare array alone is returned
 /// and nothing is retained.
 fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> String {
-  let mut sink = crate::jsonl_sink::JsonlSink::new(
-    "profile_session",
-    &profile.session_id,
-    crate::report_cap::DEFAULT_MAX_BYTES,
-  );
-  sink.push_meta(&serde_json::json!({
-    "type": "meta",
-    "tool": "profile_session",
-    "session_id": profile.session_id,
-    "harness": harness,
-    "file_size": profile.file_size,
-    "line_count": profile.line_count,
-    "first_ts": profile.first_ts,
-    "last_ts": profile.last_ts,
-    "role_counts": profile.role_counts,
-    "has_tantivy_index": profile.has_tantivy_index,
-  }));
-  for event in &profile.interesting_events {
-    sink.push(&EventRecord {
-      record_type: "event",
-      event,
-    });
-  }
-  sink.finish()
+    let mut sink = crate::jsonl_sink::JsonlSink::new(
+        "profile_session",
+        &profile.session_id,
+        crate::report_cap::DEFAULT_MAX_BYTES,
+    );
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "profile_session",
+        "session_id": profile.session_id,
+        "harness": harness,
+        "file_size": profile.file_size,
+        "line_count": profile.line_count,
+        "first_ts": profile.first_ts,
+        "last_ts": profile.last_ts,
+        "role_counts": profile.role_counts,
+        "has_tantivy_index": profile.has_tantivy_index,
+    }));
+    for event in &profile.interesting_events {
+        sink.push(&EventRecord {
+            record_type: "event",
+            event,
+        });
+    }
+    sink.finish()
 }
 
 /// One Q/A stream record: the pair's fields plus the record stream's `type`
@@ -1973,15 +1973,15 @@ fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> St
 /// Read a session window respecting `full`, propagating read damage as a tool
 /// error. A payload that cannot be read is never reported as an empty session.
 fn read_window(
-  adapter: &dyn RolloutAdapter,
-  session_id: &str,
-  full: bool,
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+    full: bool,
 ) -> Result<Vec<crate::RolloutMessage>, String> {
-  if full {
-    adapter.read_session_mmap(session_id)
-  } else {
-    adapter.read_session_from_compaction(session_id)
-  }
+    if full {
+        adapter.read_session_mmap(session_id)
+    } else {
+        adapter.read_session_from_compaction(session_id)
+    }
 }
 
 /// Build the bounded record stream behind `extract_messages` and
@@ -1997,62 +1997,62 @@ fn read_window(
 /// file, never as an error.
 #[allow(clippy::too_many_arguments)]
 fn bounded_message_records(
-  tool: &str,
-  session_id: &str,
-  harness: &str,
-  full: bool,
-  messages: Vec<crate::RolloutMessage>,
-  limit: usize,
-  offset: Option<usize>,
-  max_bytes: usize,
-  max_record_bytes: usize,
+    tool: &str,
+    session_id: &str,
+    harness: &str,
+    full: bool,
+    messages: Vec<crate::RolloutMessage>,
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
 ) -> String {
-  let total = messages.len();
-  let (start, end) = crate::bound::window(total, offset, limit);
-  let windowed = &messages[start..end];
+    let total = messages.len();
+    let (start, end) = crate::bound::window(total, offset, limit);
+    let windowed = &messages[start..end];
 
-  // Clamp oversized records; remember which (window-relative) indices.
-  let mut clamped_indices = Vec::new();
-  let mut clamped = Vec::with_capacity(windowed.len());
-  for (i, mut m) in windowed.iter().cloned().enumerate() {
-    if crate::bound::clamp_message(&mut m, max_record_bytes) {
-      clamped_indices.push(i);
+    // Clamp oversized records; remember which (window-relative) indices.
+    let mut clamped_indices = Vec::new();
+    let mut clamped = Vec::with_capacity(windowed.len());
+    for (i, mut m) in windowed.iter().cloned().enumerate() {
+        if crate::bound::clamp_message(&mut m, max_record_bytes) {
+            clamped_indices.push(i);
+        }
+        clamped.push(m);
     }
-    clamped.push(m);
-  }
 
-  let mut sink = crate::jsonl_sink::JsonlSink::new(tool, session_id, max_bytes);
-  sink.push_meta(&serde_json::json!({
-    "type": "meta",
-    "tool": tool,
-    "session_id": session_id,
-    "harness": harness,
-    "full": full,
-    "bounds": {
-      "total_records": total,
-      "offset": start,
-      "limit": limit,
-      "max_bytes": max_bytes,
-      "clamped_record_indices": clamped_indices,
-    },
-  }));
-  for m in &clamped {
-    sink.push(&MessageRecord {
-      record_type: "message",
-      message: m,
-    });
-  }
-  sink.finish()
+    let mut sink = crate::jsonl_sink::JsonlSink::new(tool, session_id, max_bytes);
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": tool,
+        "session_id": session_id,
+        "harness": harness,
+        "full": full,
+        "bounds": {
+            "total_records": total,
+            "offset": start,
+            "limit": limit,
+            "max_bytes": max_bytes,
+            "clamped_record_indices": clamped_indices,
+        },
+    }));
+    for m in &clamped {
+        sink.push(&MessageRecord {
+            record_type: "message",
+            message: m,
+        });
+    }
+    sink.finish()
 }
 
 /// One message stream record: the message's own serde fields flattened under
 /// the record stream's `type` discriminator.
 #[derive(serde::Serialize)]
 struct MessageRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  #[serde(flatten)]
-  message: &'a crate::RolloutMessage,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    #[serde(flatten)]
+    message: &'a crate::RolloutMessage,
 }
 
 /// Build the `extract_by_type` record stream: the same bounded shape as
@@ -2064,75 +2064,75 @@ struct MessageRecord<'a> {
 /// is dead with them — overflow goes to the file + marker.
 #[allow(clippy::too_many_arguments)]
 fn extract_by_type_records(
-  session_id: &str,
-  harness: &str,
-  full: bool,
-  selected_types: &[String],
-  entries: &[&crate::rollout::RolloutEntry],
-  notes: &[String],
-  limit: usize,
-  offset: Option<usize>,
-  max_bytes: usize,
-  max_record_bytes: usize,
+    session_id: &str,
+    harness: &str,
+    full: bool,
+    selected_types: &[String],
+    entries: &[&crate::rollout::RolloutEntry],
+    notes: &[String],
+    limit: usize,
+    offset: Option<usize>,
+    max_bytes: usize,
+    max_record_bytes: usize,
 ) -> String {
-  let total = entries.len();
-  let (start, end) = crate::bound::window(total, offset, limit);
-  let windowed = &entries[start..end];
+    let total = entries.len();
+    let (start, end) = crate::bound::window(total, offset, limit);
+    let windowed = &entries[start..end];
 
-  // Serialize each record, clamping the JSON payload.
-  let mut clamped_indices = Vec::new();
-  let mut clamped_records = Vec::with_capacity(windowed.len());
-  for (i, e) in windowed.iter().enumerate() {
-    let mut record_json = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
-    if record_json.len() > max_record_bytes {
-      record_json =
-        crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
-      clamped_indices.push(i);
+    // Serialize each record, clamping the JSON payload.
+    let mut clamped_indices = Vec::new();
+    let mut clamped_records = Vec::with_capacity(windowed.len());
+    for (i, e) in windowed.iter().enumerate() {
+        let mut record_json = serde_json::to_string(&e.record).unwrap_or_else(|_| "{}".to_string());
+        if record_json.len() > max_record_bytes {
+            record_json =
+                crate::rollout::truncate_chars(&record_json, max_record_bytes).to_string();
+            clamped_indices.push(i);
+        }
+        clamped_records.push((e, record_json));
     }
-    clamped_records.push((e, record_json));
-  }
 
-  let mut sink = crate::jsonl_sink::JsonlSink::new("extract_by_type", session_id, max_bytes);
-  sink.push_meta(&serde_json::json!({
-    "type": "meta",
-    "tool": "extract_by_type",
-    "session_id": session_id,
-    "harness": harness,
-    "full": full,
-    "types": selected_types,
-    "notes": notes,
-    "bounds": {
-      "total_records": total,
-      "offset": start,
-      "limit": limit,
-      "max_bytes": max_bytes,
-      "clamped_record_indices": clamped_indices,
-    },
-  }));
-  for (e, record_json) in &clamped_records {
-    sink.push(&EntryRecord {
-      record_type: "entry",
-      entry_type: &e.entry_type,
-      ts: crate::rollout::entry_timestamp(e.timestamp.as_deref()),
-      record: serde_json::from_str(record_json).unwrap_or(serde_json::Value::Null),
-    });
-  }
-  sink.finish()
+    let mut sink = crate::jsonl_sink::JsonlSink::new("extract_by_type", session_id, max_bytes);
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "extract_by_type",
+        "session_id": session_id,
+        "harness": harness,
+        "full": full,
+        "types": selected_types,
+        "notes": notes,
+        "bounds": {
+            "total_records": total,
+            "offset": start,
+            "limit": limit,
+            "max_bytes": max_bytes,
+            "clamped_record_indices": clamped_indices,
+        },
+    }));
+    for (e, record_json) in &clamped_records {
+        sink.push(&EntryRecord {
+            record_type: "entry",
+            entry_type: &e.entry_type,
+            ts: crate::rollout::entry_timestamp(e.timestamp.as_deref()),
+            record: serde_json::from_str(record_json).unwrap_or(serde_json::Value::Null),
+        });
+    }
+    sink.finish()
 }
 
 /// One extracted-entry stream record: the entry type, its timestamp and the
 /// raw record JSON under the record stream's `type` discriminator.
 #[derive(serde::Serialize)]
 struct EntryRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'static str,
-  entry_type: &'a str,
-  ts: String,
-  record: serde_json::Value,
+    #[serde(rename = "type")]
+    record_type: &'static str,
+    entry_type: &'a str,
+    ts: String,
+    record: serde_json::Value,
 }
 
 /// Assemble the `he_said_she_said_they_did` report. Public: the CLI
-/// subcommand of the same name serves the identical stream.
+/// subcommand of the same name serves the identical stream (issue #68).
 /// Three spoken sections in
 /// chronological order — HE SAID (verbatim user text, synthetic parts
 /// skipped), SHE SAID (assistant text parts only; never thinking, never tool
@@ -2145,105 +2145,105 @@ struct EntryRecord<'a> {
 /// text under the record stream's `type` discriminator.
 #[derive(serde::Serialize)]
 struct SaidRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  ts: &'a str,
-  text: &'a str,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    ts: &'a str,
+    text: &'a str,
 }
 
 /// One action stream record (`they_did`): the ts and the call name +
 /// arguments summary (a `tool_calls_summary` entry).
 #[derive(serde::Serialize)]
 struct ActionRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  ts: &'a str,
-  call: &'a str,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    ts: &'a str,
+    call: &'a str,
 }
 
 /// One compaction-boundary stream record, inline at the point it occurred:
 /// the boundary's 1-based message id and ts.
 #[derive(serde::Serialize)]
 struct BoundaryRecord<'a> {
-  #[serde(rename = "type")]
-  record_type: &'a str,
-  message: usize,
-  ts: &'a str,
+    #[serde(rename = "type")]
+    record_type: &'a str,
+    message: usize,
+    ts: &'a str,
 }
 
 pub fn he_said_she_said_they_did_report(
-  session_id: &str,
-  harness: &str,
-  messages: &[crate::RolloutMessage],
-  markers: &[usize],
-  status: &crate::summary_cache::CacheStatus,
-  max_bytes: usize,
+    session_id: &str,
+    harness: &str,
+    messages: &[crate::RolloutMessage],
+    markers: &[usize],
+    status: &crate::summary_cache::CacheStatus,
+    max_bytes: usize,
 ) -> String {
-  let n = messages.len();
-  let (first, last) = crate::summary_cache::bounds(messages).unwrap_or_default();
-  let mut sink =
-    crate::jsonl_sink::JsonlSink::new("he_said_she_said_they_did", session_id, max_bytes);
-  // The CONTEXT section is the meta record: the period, the compaction
-  // points (1-based message ids), the summary-cache blocks and the high
-  // watermark (the first id a summarise_from may start at).
-  sink.push_meta(&serde_json::json!({
-    "type": "meta",
-    "tool": "he_said_she_said_they_did",
-    "session_id": session_id,
-    "harness": harness,
-    "period_first": first,
-    "period_last": last,
-    "messages": n,
-    "compaction_points": markers.iter().map(|i| i + 1).collect::<Vec<_>>(),
-    "cache_blocks": status
-      .blocks
-      .iter()
-      .map(|b| format!("{}..={}", b.from_id, b.to_id))
-      .collect::<Vec<_>>(),
-    "watermark": status.blocks.last().map(|b| b.to_id + 1).unwrap_or(1),
-  }));
-  // HE SAID: the user's messages verbatim, synthetic/injected parts skipped.
-  let zero = "0".to_string();
-  for m in messages {
-    if m.role != "user" || m.injected || m.content.is_empty() {
-      continue;
+    let n = messages.len();
+    let (first, last) = crate::summary_cache::bounds(messages).unwrap_or_default();
+    let mut sink =
+        crate::jsonl_sink::JsonlSink::new("he_said_she_said_they_did", session_id, max_bytes);
+    // The CONTEXT section is the meta record: the period, the compaction
+    // points (1-based message ids), the summary-cache blocks and the high
+    // watermark (the first id a summarise_from may start at).
+    sink.push_meta(&serde_json::json!({
+        "type": "meta",
+        "tool": "he_said_she_said_they_did",
+        "session_id": session_id,
+        "harness": harness,
+        "period_first": first,
+        "period_last": last,
+        "messages": n,
+        "compaction_points": markers.iter().map(|i| i + 1).collect::<Vec<_>>(),
+        "cache_blocks": status
+            .blocks
+            .iter()
+            .map(|b| format!("{}..={}", b.from_id, b.to_id))
+            .collect::<Vec<_>>(),
+        "watermark": status.blocks.last().map(|b| b.to_id + 1).unwrap_or(1),
+    }));
+    // HE SAID: the user's messages verbatim, synthetic/injected parts skipped.
+    let zero = "0".to_string();
+    for m in messages {
+        if m.role != "user" || m.injected || m.content.is_empty() {
+            continue;
+        }
+        sink.push(&SaidRecord {
+            record_type: "he_said",
+            ts: m.timestamp.as_deref().unwrap_or(&zero),
+            text: &m.content,
+        });
     }
-    sink.push(&SaidRecord {
-      record_type: "he_said",
-      ts: m.timestamp.as_deref().unwrap_or(&zero),
-      text: &m.content,
-    });
-  }
-  // SHE SAID: the assistant's text parts only — never thinking, never tool
-  // results.
-  for m in messages {
-    if m.role != "assistant" || m.content.trim().is_empty() {
-      continue;
+    // SHE SAID: the assistant's text parts only — never thinking, never tool
+    // results.
+    for m in messages {
+        if m.role != "assistant" || m.content.trim().is_empty() {
+            continue;
+        }
+        sink.push(&SaidRecord {
+            record_type: "she_said",
+            ts: m.timestamp.as_deref().unwrap_or(&zero),
+            text: &m.content,
+        });
     }
-    sink.push(&SaidRecord {
-      record_type: "she_said",
-      ts: m.timestamp.as_deref().unwrap_or(&zero),
-      text: &m.content,
-    });
-  }
-  // THEY DID: every action as the call name + arguments summary, tool
-  // results excluded; the compaction boundary is inline at the point it
-  // occurred.
-  for (i, m) in messages.iter().enumerate() {
-    if markers.contains(&i) {
-      sink.push(&BoundaryRecord {
-        record_type: "compaction_boundary",
-        message: i + 1,
-        ts: m.timestamp.as_deref().unwrap_or(&zero),
-      });
+    // THEY DID: every action as the call name + arguments summary, tool
+    // results excluded; the compaction boundary is inline at the point it
+    // occurred.
+    for (i, m) in messages.iter().enumerate() {
+        if markers.contains(&i) {
+            sink.push(&BoundaryRecord {
+                record_type: "compaction_boundary",
+                message: i + 1,
+                ts: m.timestamp.as_deref().unwrap_or(&zero),
+            });
+        }
+        for call in &m.tool_calls_summary {
+            sink.push(&ActionRecord {
+                record_type: "they_did",
+                ts: m.timestamp.as_deref().unwrap_or(&zero),
+                call,
+            });
+        }
     }
-    for call in &m.tool_calls_summary {
-      sink.push(&ActionRecord {
-        record_type: "they_did",
-        ts: m.timestamp.as_deref().unwrap_or(&zero),
-        call,
-      });
-    }
-  }
-  sink.finish()
+    sink.finish()
 }

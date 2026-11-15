@@ -12,174 +12,174 @@ use std::io::{BufRead, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn now_ms() -> i64 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap()
-    .as_millis() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64
 }
 
 /// Build an opencode fixture with three sessions: alpha and beta updated
 /// now, old updated at the unix epoch. Alpha carries many long matching
 /// parts so a report overflows a small cap.
 fn build_fixture(root: &std::path::Path) {
-  let conn = Connection::open(root.join("fixture.db")).unwrap();
-  conn.execute_batch(
-    "CREATE TABLE session (
-      id text PRIMARY KEY, parent_id text, directory text, title text,
-      time_created integer NOT NULL, time_updated integer NOT NULL);
-    CREATE TABLE message (
-      id text PRIMARY KEY, session_id text NOT NULL,
-      time_created integer NOT NULL, time_updated integer NOT NULL,
-      data text NOT NULL);
-    CREATE TABLE part (
-      id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
-      time_created integer NOT NULL, time_updated integer NOT NULL,
-      data text NOT NULL);",
-  )
-  .unwrap();
-  let now = now_ms();
-  let sessions: Vec<(&str, &str, String, i64)> = vec![
-    (
-      "ses_alpha0000000000000000000000aa",
-      "/Users/dev/alpha",
-      "alpha session".into(),
-      now,
-    ),
-    (
-      "ses_beta00000000000000000000000bb",
-      "/Users/dev/beta",
-      "beta session".into(),
-      now,
-    ),
-    (
-      "ses_old0000000000000000000000000c",
-      "/Users/dev/old",
-      "old session".into(),
-      4000,
-    ),
-    // a title so large that list_sessions overflows the default 16 KiB
-    // window: the JSON-tear contract, proven for real
-    (
-      "ses_huge000000000000000000000000d",
-      "/Users/dev/huge",
-      "H".repeat(20_000),
-      now,
-    ),
-  ];
-  for (id, dir, title, updated) in &sessions {
-    conn.execute(
-      "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
-       VALUES (?1, NULL, ?2, ?3, ?4, ?4)",
-      rusqlite::params![id, dir, title, updated],
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
     )
     .unwrap();
-  }
-  // alpha: one message with many long user parts, each matching "release"
-  conn.execute(
-    "INSERT INTO message (id, session_id, time_created, time_updated, data)
-     VALUES ('amsg1', 'ses_alpha0000000000000000000000aa', ?1, ?1,
-         '{\"role\":\"user\",\"time\":{\"created\":1}}')",
-    rusqlite::params![now],
-  )
-  .unwrap();
-  for i in 0..20 {
-    let text = format!("release alpha finding {i} {}", "x".repeat(120));
+    let now = now_ms();
+    let sessions: Vec<(&str, &str, String, i64)> = vec![
+        (
+            "ses_alpha0000000000000000000000aa",
+            "/Users/dev/alpha",
+            "alpha session".into(),
+            now,
+        ),
+        (
+            "ses_beta00000000000000000000000bb",
+            "/Users/dev/beta",
+            "beta session".into(),
+            now,
+        ),
+        (
+            "ses_old0000000000000000000000000c",
+            "/Users/dev/old",
+            "old session".into(),
+            4000,
+        ),
+        // a title so large that list_sessions overflows the default 16 KiB
+        // window: the JSON-tear contract, proven for real
+        (
+            "ses_huge000000000000000000000000d",
+            "/Users/dev/huge",
+            "H".repeat(20_000),
+            now,
+        ),
+    ];
+    for (id, dir, title, updated) in &sessions {
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?4)",
+            rusqlite::params![id, dir, title, updated],
+        )
+        .unwrap();
+    }
+    // alpha: one message with many long user parts, each matching "release"
     conn.execute(
-      "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
-       VALUES (?1, 'amsg1', 'ses_alpha0000000000000000000000aa', ?2, ?2, ?3)",
-      rusqlite::params![
-        format!("apart{i}"),
-        now,
-        serde_json::json!({"type":"text","text":text}).to_string()
-      ],
+        "INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES ('amsg1', 'ses_alpha0000000000000000000000aa', ?1, ?1,
+                 '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+        rusqlite::params![now],
     )
     .unwrap();
-  }
-  // beta: one short matching user part
-  conn.execute(
-    "INSERT INTO message (id, session_id, time_created, time_updated, data)
-     VALUES ('bmsg1', 'ses_beta00000000000000000000000bb', ?1, ?1,
-         '{\"role\":\"user\",\"time\":{\"created\":1}}')",
-    rusqlite::params![now],
-  )
-  .unwrap();
-  conn.execute(
-    "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
-     VALUES ('bpart1', 'bmsg1', 'ses_beta00000000000000000000000bb', ?1, ?1, ?2)",
-    rusqlite::params![
-      now,
-      serde_json::json!({"type":"text","text":"release beta finding"}).to_string()
-    ],
-  )
-  .unwrap();
-  // old: one part so it has content when listed with all: true
-  conn.execute(
-    "INSERT INTO message (id, session_id, time_created, time_updated, data)
-     VALUES ('omsg1', 'ses_old0000000000000000000000000c', 4000, 4000,
-         '{\"role\":\"user\",\"time\":{\"created\":1}}')",
-    [],
-  )
-  .unwrap();
+    for i in 0..20 {
+        let text = format!("release alpha finding {i} {}", "x".repeat(120));
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, 'amsg1', 'ses_alpha0000000000000000000000aa', ?2, ?2, ?3)",
+            rusqlite::params![
+                format!("apart{i}"),
+                now,
+                serde_json::json!({"type":"text","text":text}).to_string()
+            ],
+        )
+        .unwrap();
+    }
+    // beta: one short matching user part
+    conn.execute(
+        "INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES ('bmsg1', 'ses_beta00000000000000000000000bb', ?1, ?1,
+                 '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+        rusqlite::params![now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+         VALUES ('bpart1', 'bmsg1', 'ses_beta00000000000000000000000bb', ?1, ?1, ?2)",
+        rusqlite::params![
+            now,
+            serde_json::json!({"type":"text","text":"release beta finding"}).to_string()
+        ],
+    )
+    .unwrap();
+    // old: one part so it has content when listed with all: true
+    conn.execute(
+        "INSERT INTO message (id, session_id, time_created, time_updated, data)
+         VALUES ('omsg1', 'ses_old0000000000000000000000000c', 4000, 4000,
+                 '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+        [],
+    )
+    .unwrap();
 }
 
 struct Mcp {
-  child: std::process::Child,
-  reader: std::io::BufReader<std::process::ChildStdout>,
-  stdin: std::process::ChildStdin,
-  cwd: std::path::PathBuf,
-  next: u64,
+    child: std::process::Child,
+    reader: std::io::BufReader<std::process::ChildStdout>,
+    stdin: std::process::ChildStdin,
+    cwd: std::path::PathBuf,
+    next: u64,
 }
 
 impl Mcp {
-  fn send(&mut self, v: &Value) {
-    writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
-    self.stdin.flush().unwrap();
-  }
-
-  fn read_until_id(&mut self, id: u64) -> Value {
-    loop {
-      let mut line = String::new();
-      self.reader
-        .read_line(&mut line)
-        .expect("server stdout open");
-      if line.trim().is_empty() {
-        panic!("server closed stdout waiting for response {id}");
-      }
-      if let Ok(v) = serde_json::from_str::<Value>(&line)
-        && v.get("id").and_then(|i| i.as_u64()) == Some(id)
-      {
-        return v;
-      }
+    fn send(&mut self, v: &Value) {
+        writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
+        self.stdin.flush().unwrap();
     }
-  }
 
-  fn call(&mut self, name: &str, args: Value) -> (bool, String) {
-    let id = self.next;
-    self.next += 1;
-    self.send(&serde_json::json!({
-      "jsonrpc": "2.0", "id": id, "method": "tools/call",
-      "params": {"name": name, "arguments": args}
-    }));
-    let resp = self.read_until_id(id);
-    let result = resp["result"].clone();
-    let is_error = result["isError"].as_bool().unwrap_or(false);
-    (
-      is_error,
-      result["content"][0]["text"]
-        .as_str()
-        .unwrap_or("")
-        .to_string(),
-    )
-  }
+    fn read_until_id(&mut self, id: u64) -> Value {
+        loop {
+            let mut line = String::new();
+            self.reader
+                .read_line(&mut line)
+                .expect("server stdout open");
+            if line.trim().is_empty() {
+                panic!("server closed stdout waiting for response {id}");
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v.get("id").and_then(|i| i.as_u64()) == Some(id)
+            {
+                return v;
+            }
+        }
+    }
 
-  fn tools_list(&mut self) -> Value {
-    let id = self.next;
-    self.next += 1;
-    self.send(&serde_json::json!({
-      "jsonrpc": "2.0", "id": id, "method": "tools/list"
-    }));
-    self.read_until_id(id)["result"]["tools"].clone()
-  }
+    fn call(&mut self, name: &str, args: Value) -> (bool, String) {
+        let id = self.next;
+        self.next += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": {"name": name, "arguments": args}
+        }));
+        let resp = self.read_until_id(id);
+        let result = resp["result"].clone();
+        let is_error = result["isError"].as_bool().unwrap_or(false);
+        (
+            is_error,
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        )
+    }
+
+    fn tools_list(&mut self) -> Value {
+        let id = self.next;
+        self.next += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/list"
+        }));
+        self.read_until_id(id)["result"]["tools"].clone()
+    }
 }
 
 /// A fixture of `count` sessions all updated inside the default 240-hour
@@ -187,55 +187,55 @@ impl Mcp {
 /// so the listing's most-recent-first ordering is deterministic, and one
 /// tiny message + part each so the aggregates are non-zero.
 fn build_listing_fixture(root: &std::path::Path, count: usize) {
-  let conn = Connection::open(root.join("fixture.db")).unwrap();
-  conn.execute_batch(
-    "CREATE TABLE session (
-      id text PRIMARY KEY, parent_id text, directory text, title text,
-      time_created integer NOT NULL, time_updated integer NOT NULL);
-    CREATE TABLE message (
-      id text PRIMARY KEY, session_id text NOT NULL,
-      time_created integer NOT NULL, time_updated integer NOT NULL,
-      data text NOT NULL);
-    CREATE TABLE part (
-      id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
-      time_created integer NOT NULL, time_updated integer NOT NULL,
-      data text NOT NULL);",
-  )
-  .unwrap();
-  let now = now_ms();
-  for i in 0..count {
-    let sid = format!("ses_listing{i:03}0000000000000000000000aa");
-    let updated = now - (i as i64) * 1_000;
-    conn.execute(
-      "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
-       VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
-      rusqlite::params![
-        &sid,
-        format!("/Users/dev/listing{i:03}"),
-        format!("listing session {i}"),
-        updated,
-        updated
-      ],
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id text PRIMARY KEY, parent_id text, directory text, title text,
+            time_created integer NOT NULL, time_updated integer NOT NULL);
+        CREATE TABLE message (
+            id text PRIMARY KEY, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);
+        CREATE TABLE part (
+            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+            time_created integer NOT NULL, time_updated integer NOT NULL,
+            data text NOT NULL);",
     )
     .unwrap();
-    conn.execute(
-      "INSERT INTO message (id, session_id, time_created, time_updated, data)
-       VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
-      rusqlite::params![format!("lmsg{i:03}"), &sid, updated],
-    )
-    .unwrap();
-    conn.execute(
-      "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
-       VALUES (?1, ?2, ?2, ?3, ?3, ?4)",
-      rusqlite::params![
-        format!("lpart{i:03}"),
-        &sid,
-        updated,
-        serde_json::json!({"type":"text","text":format!("listing body {i}")}).to_string()
-      ],
-    )
-    .unwrap();
-  }
+    let now = now_ms();
+    for i in 0..count {
+        let sid = format!("ses_listing{i:03}0000000000000000000000aa");
+        let updated = now - (i as i64) * 1_000;
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, NULL, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                &sid,
+                format!("/Users/dev/listing{i:03}"),
+                format!("listing session {i}"),
+                updated,
+                updated
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+            rusqlite::params![format!("lmsg{i:03}"), &sid, updated],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?2, ?3, ?3, ?4)",
+            rusqlite::params![
+                format!("lpart{i:03}"),
+                &sid,
+                updated,
+                serde_json::json!({"type":"text","text":format!("listing body {i}")}).to_string()
+            ],
+        )
+        .unwrap();
+    }
 }
 
 /// The pathological row a live store really produced: `count` in-window
@@ -244,247 +244,247 @@ fn build_listing_fixture(root: &std::path::Path, count: usize) {
 /// child is stamped older than every parent so the listing's most-recent-first
 /// order stays deterministic and the parents are the rows the cap keeps.
 fn build_fanout_fixture(root: &std::path::Path, count: usize, children: usize) {
-  build_listing_fixture(root, count);
-  let conn = Connection::open(root.join("fixture.db")).unwrap();
-  let now = now_ms();
-  let parent = format!("ses_listing{:03}0000000000000000000000aa", 0);
-  for i in 0..children {
-    let updated = now - 10_000_000 - (i as i64);
-    conn.execute(
-      "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-      rusqlite::params![
-        format!("ses_child{i:05}0000000000000000000aa"),
-        &parent,
-        format!("/Users/dev/child{i:05}"),
-        format!("child session {i}"),
-        updated
-      ],
-    )
-    .unwrap();
-  }
+    build_listing_fixture(root, count);
+    let conn = Connection::open(root.join("fixture.db")).unwrap();
+    let now = now_ms();
+    let parent = format!("ses_listing{:03}0000000000000000000000aa", 0);
+    for i in 0..children {
+        let updated = now - 10_000_000 - (i as i64);
+        conn.execute(
+            "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            rusqlite::params![
+                format!("ses_child{i:05}0000000000000000000aa"),
+                &parent,
+                format!("/Users/dev/child{i:05}"),
+                format!("child session {i}"),
+                updated
+            ],
+        )
+        .unwrap();
+    }
 }
 
 fn spawn() -> (Mcp, common::scratch::ScratchRoot) {
-  spawn_fixture(build_fixture)
+    spawn_fixture(build_fixture)
 }
 
 fn spawn_fixture(build: impl FnOnce(&std::path::Path)) -> (Mcp, common::scratch::ScratchRoot) {
-  let dir = scratch("mcp_flood");
-  build(&dir);
-  let cwd = child_cwd("mcp_flood");
-  let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
-    .args(["--harness", "opencode", "mcp"])
-    .current_dir(&cwd)
-    .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
-    .env_remove("INCEPTION_API_KEY")
-    .env_remove("MISTRAL_API_KEY")
-    .stdin(std::process::Stdio::piped())
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::null())
-    .spawn()
-    .expect("spawn mcp");
-  let reader = std::io::BufReader::new(child.stdout.take().unwrap());
-  let stdin = child.stdin.take().unwrap();
-  let mut mcp = Mcp {
-    child,
-    reader,
-    stdin,
-    cwd,
-    next: 1,
-  };
-  mcp.send(&serde_json::json!({
-    "jsonrpc": "2.0", "id": 0, "method": "initialize",
-    "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-          "clientInfo": {"name": "flood-test", "version": "0"}}
-  }));
-  let _ = mcp.read_until_id(0);
-  mcp.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-  (mcp, dir)
+    let dir = scratch("mcp_flood");
+    build(&dir);
+    let cwd = child_cwd("mcp_flood");
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+        .args(["--harness", "opencode", "mcp"])
+        .current_dir(&cwd)
+        .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn mcp");
+    let reader = std::io::BufReader::new(child.stdout.take().unwrap());
+    let stdin = child.stdin.take().unwrap();
+    let mut mcp = Mcp {
+        child,
+        reader,
+        stdin,
+        cwd,
+        next: 1,
+    };
+    mcp.send(&serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                   "clientInfo": {"name": "flood-test", "version": "0"}}
+    }));
+    let _ = mcp.read_until_id(0);
+    mcp.send(&serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+    (mcp, dir)
 }
 
 fn reap(mcp: &mut Mcp) {
-  mcp.child.kill().ok();
-  mcp.child.wait().ok();
-  let _ = std::fs::remove_dir_all(&mcp.cwd);
+    mcp.child.kill().ok();
+    mcp.child.wait().ok();
+    let _ = std::fs::remove_dir_all(&mcp.cwd);
 }
 
 fn marker_path(text: &str) -> std::path::PathBuf {
-  let line = text
-    .lines()
-    .find(|l| l.starts_with("full_report: "))
-    .expect("marker names the full report path");
-  std::path::PathBuf::from(line.trim_start_matches("full_report: ").trim())
+    let line = text
+        .lines()
+        .find(|l| l.starts_with("full_report: "))
+        .expect("marker names the full report path");
+    std::path::PathBuf::from(line.trim_start_matches("full_report: ").trim())
 }
 
 #[test]
 fn every_session_scoped_tool_takes_session_id_and_the_list_is_cut_off() {
-  let (mut mcp, _dir) = spawn();
-  let tools = mcp.tools_list();
-  let names: Vec<&str> = tools
-    .as_array()
-    .unwrap()
-    .iter()
-    .filter_map(|t| t["name"].as_str())
-    .collect();
-  for expected in ["index_sessions", "do_android_dream_of_electric_sheep"] {
-    let tool = tools
-      .as_array()
-      .unwrap()
-      .iter()
-      .find(|t| t["name"].as_str() == Some(expected))
-      .unwrap_or_else(|| panic!("{expected} registered"));
-    let props = tool["inputSchema"]["properties"].as_object().unwrap();
+    let (mut mcp, _dir) = spawn();
+    let tools = mcp.tools_list();
+    let names: Vec<&str> = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    for expected in ["index_sessions", "do_android_dream_of_electric_sheep"] {
+        let tool = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"].as_str() == Some(expected))
+            .unwrap_or_else(|| panic!("{expected} registered"));
+        let props = tool["inputSchema"]["properties"].as_object().unwrap();
+        assert!(
+            props.contains_key("session_id"),
+            "{expected} takes session_id"
+        );
+        assert!(
+            !props.contains_key("sessions"),
+            "{expected} no sessions array"
+        );
+    }
     assert!(
-      props.contains_key("session_id"),
-      "{expected} takes session_id"
+        names.contains(&"line_histogram"),
+        "line_histogram is registered"
     );
-    assert!(
-      !props.contains_key("sessions"),
-      "{expected} no sessions array"
-    );
-  }
-  assert!(
-    names.contains(&"line_histogram"),
-    "line_histogram is registered"
-  );
-  reap(&mut mcp);
+    reap(&mut mcp);
 }
 
 #[test]
 fn list_sessions_default_cutoff_is_240_hours() {
-  let (mut mcp, _dir) = spawn();
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
-  assert!(!err, "list_sessions succeeds: {text}");
-  let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
-  let v: Value =
-    serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
-  assert_eq!(
-    v[0]["window_count"].as_u64(),
-    Some(3),
-    "the 240-hour default holds the three recent sessions: {text}"
-  );
-  assert!(
-    !whole_listing(&text).contains("ses_old"),
-    "the epoch-old session is cut off by the 240-hour default"
-  );
-  assert!(head.contains("ses_alpha"), "the recent session is listed");
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({"all": true}));
-  assert!(!err, "all: true succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "the 20,000-character-title row cannot fit the default budget: the prefix array plus the marker return"
-  );
-  let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
-  let v: Value =
-    serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
-  assert_eq!(
-    v[0]["window_count"].as_u64(),
-    Some(4),
-    "all: true lifts the window to the whole store: {text}"
-  );
-  // The huge row does not fit the budget: the sink drops THAT row alone —
-  // the lean rows behind it still return (no head-of-line blocking) — the
-  // marker names the cut, the file carries every row.
-  assert_eq!(
-    v.as_array().unwrap().len(),
-    4,
-    "the prefix is the meta plus the three lean rows; the huge row is in the file, not the response"
-  );
-  assert!(
-    !head.contains("ses_huge"),
-    "the 20,000-character-title row cannot fit the default budget: {text}"
-  );
-  assert!(
-    text.contains("records_returned: 3") && text.contains("records_total: 4"),
-    "the marker states the cut: {text}"
-  );
-  let written = whole_listing(&text);
-  assert!(
-    written.contains("ses_huge") && written.contains("ses_alpha"),
-    "the overflow file carries the rows the budget could not: {written}"
-  );
-  reap(&mut mcp);
+    let (mut mcp, _dir) = spawn();
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
+    let v: Value =
+        serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
+    assert_eq!(
+        v[0]["window_count"].as_u64(),
+        Some(3),
+        "the 240-hour default holds the three recent sessions: {text}"
+    );
+    assert!(
+        !whole_listing(&text).contains("ses_old"),
+        "the epoch-old session is cut off by the 240-hour default"
+    );
+    assert!(head.contains("ses_alpha"), "the recent session is listed");
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"all": true}));
+    assert!(!err, "all: true succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "the 20,000-character-title row cannot fit the default budget: the prefix array plus the marker return"
+    );
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
+    let v: Value =
+        serde_json::from_str(head.trim()).expect("the array prefix is valid JSON, never torn");
+    assert_eq!(
+        v[0]["window_count"].as_u64(),
+        Some(4),
+        "all: true lifts the window to the whole store: {text}"
+    );
+    // The huge row does not fit the budget: the sink drops THAT row alone —
+    // the lean rows behind it still return (no head-of-line blocking) — the
+    // marker names the cut, the file carries every row.
+    assert_eq!(
+        v.as_array().unwrap().len(),
+        4,
+        "the prefix is the meta plus the three lean rows; the huge row is in the file, not the response"
+    );
+    assert!(
+        !head.contains("ses_huge"),
+        "the 20,000-character-title row cannot fit the default budget: {text}"
+    );
+    assert!(
+        text.contains("records_returned: 3") && text.contains("records_total: 4"),
+        "the marker states the cut: {text}"
+    );
+    let written = whole_listing(&text);
+    assert!(
+        written.contains("ses_huge") && written.contains("ses_alpha"),
+        "the overflow file carries the rows the budget could not: {written}"
+    );
+    reap(&mut mcp);
 }
 
 #[test]
 fn an_overflowing_listing_returns_the_prefix_array_and_the_marker() {
-  let (mut mcp, _dir) = spawn();
-  // A budget too small for even the first row: the meta record leads, zero
-  // row records fit, and the marker follows the never-torn array prefix.
-  // The old "an overflowing JSON response returns the marker alone" rule is
-  // dead — the array prefix always returns.
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
-  assert!(!err, "the overflowing list still succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "a listing that cannot fit its budget overflows and returns the marker: {text}"
-  );
-  assert!(
-    text.trim_start().starts_with('['),
-    "the array prefix always returns — never the marker alone: {text}"
-  );
-  let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
-  let array: serde_json::Value =
-    serde_json::from_str(head.trim()).expect("the array prefix parses as JSON — never torn");
-  let rows = array.as_array().expect("the prefix is an array");
-  assert_eq!(
-    rows.len(),
-    1,
-    "a 100-byte budget fits the meta record alone: {rows:?}"
-  );
-  assert_eq!(rows[0]["type"], "meta", "record 0 is the meta: {rows:?}");
-  let path = marker_path(&text);
-  let written = std::fs::read_to_string(&path).unwrap();
-  let lines: Vec<&str> = written.lines().collect();
-  assert!(!lines.is_empty(), "the overflow file carries the records");
-  for line in &lines {
-    serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
-      panic!("every overflow-file line is one JSON object ({e}): {line}")
-    });
-  }
-  let first: serde_json::Value = serde_json::from_str(lines[0])
-    .unwrap_or_else(|e| panic!("the file's record 0 parses ({e}): {}", lines[0]));
-  assert_eq!(
-    first["type"], "meta",
-    "record 0 of the file is the meta record: {}",
-    lines[0]
-  );
-  assert!(
-    written.contains("ses_huge"),
-    "the file has the huge session"
-  );
-  // the line_histogram companion pages the overflow file:
-  let (err, hist) = mcp.call(
-    "line_histogram",
-    serde_json::json!({"file_path": path.to_string_lossy()}),
-  );
-  assert!(
-    !err,
-    "line_histogram succeeds over the overflow file: {hist}"
-  );
-  assert!(
-    hist.contains("Bucket Distribution"),
-    "histogram mode output"
-  );
-  let (err, lines) = mcp.call(
-    "line_histogram",
-    serde_json::json!({"file_path": path.to_string_lossy(), "mode": "extract", "start": 1, "end": 3}),
-  );
-  assert!(!err, "extract mode succeeds: {lines}");
-  assert!(!lines.trim().is_empty(), "extract returns the lines");
-  reap(&mut mcp);
+    let (mut mcp, _dir) = spawn();
+    // A budget too small for even the first row: the meta record leads, zero
+    // row records fit, and the marker follows the never-torn array prefix.
+    // The old "an overflowing JSON response returns the marker alone" rule is
+    // dead — the array prefix always returns.
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
+    assert!(!err, "the overflowing list still succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "a listing that cannot fit its budget overflows and returns the marker: {text}"
+    );
+    assert!(
+        text.trim_start().starts_with('['),
+        "the array prefix always returns — never the marker alone: {text}"
+    );
+    let head = text.split("--- [EOF-TRUNCATED] ---").next().unwrap_or("");
+    let array: serde_json::Value =
+        serde_json::from_str(head.trim()).expect("the array prefix parses as JSON — never torn");
+    let rows = array.as_array().expect("the prefix is an array");
+    assert_eq!(
+        rows.len(),
+        1,
+        "a 100-byte budget fits the meta record alone: {rows:?}"
+    );
+    assert_eq!(rows[0]["type"], "meta", "record 0 is the meta: {rows:?}");
+    let path = marker_path(&text);
+    let written = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = written.lines().collect();
+    assert!(!lines.is_empty(), "the overflow file carries the records");
+    for line in &lines {
+        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+            panic!("every overflow-file line is one JSON object ({e}): {line}")
+        });
+    }
+    let first: serde_json::Value = serde_json::from_str(lines[0])
+        .unwrap_or_else(|e| panic!("the file's record 0 parses ({e}): {}", lines[0]));
+    assert_eq!(
+        first["type"], "meta",
+        "record 0 of the file is the meta record: {}",
+        lines[0]
+    );
+    assert!(
+        written.contains("ses_huge"),
+        "the file has the huge session"
+    );
+    // the line_histogram companion pages the overflow file:
+    let (err, hist) = mcp.call(
+        "line_histogram",
+        serde_json::json!({"file_path": path.to_string_lossy()}),
+    );
+    assert!(
+        !err,
+        "line_histogram succeeds over the overflow file: {hist}"
+    );
+    assert!(
+        hist.contains("Bucket Distribution"),
+        "histogram mode output"
+    );
+    let (err, lines) = mcp.call(
+        "line_histogram",
+        serde_json::json!({"file_path": path.to_string_lossy(), "mode": "extract", "start": 1, "end": 3}),
+    );
+    assert!(!err, "extract mode succeeds: {lines}");
+    assert!(!lines.trim().is_empty(), "extract returns the lines");
+    reap(&mut mcp);
 }
 
 /// The whole listing text, whether it fit under the flood cap or overflowed
 /// into the marker's file.
 fn whole_listing(text: &str) -> String {
-  if text.contains("full_report: ") {
-    let path = marker_path(text);
-    std::fs::read_to_string(&path).expect("readable overflow file")
-  } else {
-    text.to_string()
-  }
+    if text.contains("full_report: ") {
+        let path = marker_path(text);
+        std::fs::read_to_string(&path).expect("readable overflow file")
+    } else {
+        text.to_string()
+    }
 }
 
 /// The listing cap (the scope contract): the listing streams one `type=row`
@@ -497,105 +497,105 @@ fn whole_listing(text: &str) -> String {
 /// records_returned`), and the overflow file carries every row, one per line.
 #[test]
 fn list_sessions_renders_the_row_records_the_budget_holds() {
-  let (mut mcp, _dir) = spawn_fixture(|root| build_listing_fixture(root, 250));
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
-  assert!(!err, "list_sessions succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "250 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
-  );
-  let head = text
-    .split("--- [EOF-TRUNCATED] ---")
-    .next()
-    .unwrap_or("")
-    .trim()
-    .to_string();
-  let v: Value =
-    serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
-  let array = v.as_array().expect("the prefix is an array");
-  let meta = &array[0];
-  assert_eq!(meta["type"], "meta", "record 0 is the meta: {meta}");
-  assert_eq!(
-    meta["tool"], "list_sessions",
-    "record 0 names the tool: {meta}"
-  );
-  assert_eq!(
-    meta["window_count"].as_u64(),
-    Some(250),
-    "the meta states how many rows the window holds: {meta}"
-  );
-  assert_eq!(
-    meta["max_bytes"].as_u64(),
-    Some(16_384),
-    "the meta states the budget that decided the cut: {meta}"
-  );
-  let rows = &array[1..];
-  assert!(
-    !rows.is_empty(),
-    "an overflowing listing still returns usable rows: {text}"
-  );
-  assert!(
-    rows.len() < 250,
-    "the budget cut the stream: fewer rows returned than the window holds"
-  );
-  assert!(
-    head.len() <= 16_384,
-    "the array prefix fits the default budget, got {} bytes",
-    head.len()
-  );
-  for record in rows {
-    assert_eq!(record["type"], "row", "every data record is a row");
-  }
-  assert_eq!(
-    rows[0]["session_id"].as_str(),
-    Some("ses_listing0000000000000000000000000aa"),
-    "the first row must be the most recent session of the window"
-  );
-  assert!(
-    text.contains("records_returned: ") && text.contains("records_total: 200"),
-    "the marker states the cut against the window: {text}"
-  );
-  let written = whole_listing(&text);
-  let file_rows: Vec<Value> = written
-    .lines()
-    .map(|line| {
-      serde_json::from_str(line).unwrap_or_else(|e| {
-        panic!("every overflow-file line is one JSON object ({e}): {line}")
-      })
-    })
-    .collect();
-  assert_eq!(
-    file_rows.len(),
-    201,
-    "the file carries the meta plus the 200 rows the store query bounds"
-  );
-  assert_eq!(
-    file_rows[200]["session_id"].as_str(),
-    Some("ses_listing1990000000000000000000000aa"),
-    "the oldest row the layer holds is in the file even though the response could not"
-  );
+    let (mut mcp, _dir) = spawn_fixture(|root| build_listing_fixture(root, 250));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "250 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
+    );
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let v: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let array = v.as_array().expect("the prefix is an array");
+    let meta = &array[0];
+    assert_eq!(meta["type"], "meta", "record 0 is the meta: {meta}");
+    assert_eq!(
+        meta["tool"], "list_sessions",
+        "record 0 names the tool: {meta}"
+    );
+    assert_eq!(
+        meta["window_count"].as_u64(),
+        Some(250),
+        "the meta states how many rows the window holds: {meta}"
+    );
+    assert_eq!(
+        meta["max_bytes"].as_u64(),
+        Some(16_384),
+        "the meta states the budget that decided the cut: {meta}"
+    );
+    let rows = &array[1..];
+    assert!(
+        !rows.is_empty(),
+        "an overflowing listing still returns usable rows: {text}"
+    );
+    assert!(
+        rows.len() < 250,
+        "the budget cut the stream: fewer rows returned than the window holds"
+    );
+    assert!(
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
+    );
+    for record in rows {
+        assert_eq!(record["type"], "row", "every data record is a row");
+    }
+    assert_eq!(
+        rows[0]["session_id"].as_str(),
+        Some("ses_listing0000000000000000000000000aa"),
+        "the first row must be the most recent session of the window"
+    );
+    assert!(
+        text.contains("records_returned: ") && text.contains("records_total: 200"),
+        "the marker states the cut against the window: {text}"
+    );
+    let written = whole_listing(&text);
+    let file_rows: Vec<Value> = written
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| {
+                panic!("every overflow-file line is one JSON object ({e}): {line}")
+            })
+        })
+        .collect();
+    assert_eq!(
+        file_rows.len(),
+        201,
+        "the file carries the meta plus the 200 rows the store query bounds"
+    );
+    assert_eq!(
+        file_rows[200]["session_id"].as_str(),
+        Some("ses_listing1990000000000000000000000aa"),
+        "the oldest row the layer holds is in the file even though the response could not"
+    );
 
-  // A bigger budget buys the whole layer: the row count is derived from
-  // the budget, not from a fixed cap.
-  let (err, wider) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 262_144}));
-  assert!(!err, "a wider budget succeeds: {wider}");
-  assert!(
-    !wider.contains("--- [EOF-TRUNCATED] ---"),
-    "262 KiB holds all 200 rows: {wider}"
-  );
-  let wide: Value = serde_json::from_str(&wider).expect("whole JSON");
-  let wide_array = wide.as_array().unwrap();
-  assert_eq!(
-    wide_array[0]["window_count"].as_u64(),
-    Some(250),
-    "the window is the same window"
-  );
-  assert_eq!(
-    wide_array.len() - 1,
-    200,
-    "the wider budget returns every row the layer holds"
-  );
-  reap(&mut mcp);
+    // A bigger budget buys the whole layer: the row count is derived from
+    // the budget, not from a fixed cap.
+    let (err, wider) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 262_144}));
+    assert!(!err, "a wider budget succeeds: {wider}");
+    assert!(
+        !wider.contains("--- [EOF-TRUNCATED] ---"),
+        "262 KiB holds all 200 rows: {wider}"
+    );
+    let wide: Value = serde_json::from_str(&wider).expect("whole JSON");
+    let wide_array = wide.as_array().unwrap();
+    assert_eq!(
+        wide_array[0]["window_count"].as_u64(),
+        Some(250),
+        "the window is the same window"
+    );
+    assert_eq!(
+        wide_array.len() - 1,
+        200,
+        "the wider budget returns every row the layer holds"
+    );
+    reap(&mut mcp);
 }
 
 /// A budget too small for the first row is still handed to flood control
@@ -603,32 +603,32 @@ fn list_sessions_renders_the_row_records_the_budget_holds() {
 /// file carries the untorn JSON the marker points at.
 #[test]
 fn a_budget_too_small_for_one_row_leaves_the_rows_in_the_file() {
-  let (mut mcp, _dir) = spawn();
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
-  assert!(!err, "the oversized listing still succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "a row larger than the budget overflows and returns the marker: {text}"
-  );
-  let written = whole_listing(&text);
-  let rows: Vec<Value> = written
-    .lines()
-    .map(|line| {
-      serde_json::from_str(line).unwrap_or_else(|e| {
-        panic!("every overflow-file line is one JSON object ({e}): {line}")
-      })
-    })
-    .collect();
-  assert!(
-    rows.iter().any(|r| r["type"] == "meta"),
-    "record 0 of the file is the meta record: {rows:?}"
-  );
-  assert!(
-    rows.iter()
-      .any(|r| r["session_id"] == "ses_huge000000000000000000000000d"),
-    "the overflow file carries the rows a 16 KiB budget could not: {written}"
-  );
-  reap(&mut mcp);
+    let (mut mcp, _dir) = spawn();
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({"max_bytes": 100}));
+    assert!(!err, "the oversized listing still succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "a row larger than the budget overflows and returns the marker: {text}"
+    );
+    let written = whole_listing(&text);
+    let rows: Vec<Value> = written
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|e| {
+                panic!("every overflow-file line is one JSON object ({e}): {line}")
+            })
+        })
+        .collect();
+    assert!(
+        rows.iter().any(|r| r["type"] == "meta"),
+        "record 0 of the file is the meta record: {rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|r| r["session_id"] == "ses_huge000000000000000000000000d"),
+        "the overflow file carries the rows a 16 KiB budget could not: {written}"
+    );
+    reap(&mut mcp);
 }
 
 /// The store shape that made the default listing useless: a session that
@@ -639,98 +639,98 @@ fn a_budget_too_small_for_one_row_leaves_the_rows_in_the_file() {
 /// a function of the budget again.
 #[test]
 fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
-  let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 200, 300));
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
-  assert!(!err, "list_sessions succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "500 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
-  );
-  let head = text
-    .split("--- [EOF-TRUNCATED] ---")
-    .next()
-    .unwrap_or("")
-    .trim()
-    .to_string();
-  let v: Value =
-    serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
-  let array = v.as_array().expect("the prefix is an array");
-  let meta = &array[0];
-  let sessions = &array[1..];
-  assert!(
-    head.len() <= 16_384,
-    "the array prefix fits the default budget, got {} bytes",
-    head.len()
-  );
-  assert_eq!(
-    meta["window_count"].as_u64(),
-    Some(500),
-    "the window holds the 200 parents and the 300 children"
-  );
-  let held_back = 500 - sessions.len() as u64;
-  assert!(
-    held_back > 0,
-    "a 16 KiB budget cannot hold 500 rows: {} rendered",
-    sessions.len()
-  );
-  assert!(
-    sessions.len() >= 30,
-    "a store of 200 lean rows and one 300-child row must render materially \
-     more than the 3 rows the unbounded array allowed; rendered {} of 500",
-    sessions.len()
-  );
-  // 30 is this fixture's measured floor, not a chosen target: a lean row is
-  // a few hundred bytes compact, so the budget and not any cap is what ends
-  // the listing. The unused tail is smaller than one more row would need.
-  let lean_bytes = serde_json::to_string(&sessions[1]).unwrap().len();
-  assert!(
-    lean_bytes < 700,
-    "a lean row stays under 700 bytes whatever the store holds, got {lean_bytes}"
-  );
-  assert!(
-    16_384 - head.len() < 1_024,
-    "the budget is saturated: the unused tail cannot hold another row, got {} bytes",
-    16_384 - head.len()
-  );
+    let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 200, 300));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "500 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
+    );
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let v: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let array = v.as_array().expect("the prefix is an array");
+    let meta = &array[0];
+    let sessions = &array[1..];
+    assert!(
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
+    );
+    assert_eq!(
+        meta["window_count"].as_u64(),
+        Some(500),
+        "the window holds the 200 parents and the 300 children"
+    );
+    let held_back = 500 - sessions.len() as u64;
+    assert!(
+        held_back > 0,
+        "a 16 KiB budget cannot hold 500 rows: {} rendered",
+        sessions.len()
+    );
+    assert!(
+        sessions.len() >= 30,
+        "a store of 200 lean rows and one 300-child row must render materially \
+         more than the 3 rows the unbounded array allowed; rendered {} of 500",
+        sessions.len()
+    );
+    // 30 is this fixture's measured floor, not a chosen target: a lean row is
+    // a few hundred bytes compact, so the budget and not any cap is what ends
+    // the listing. The unused tail is smaller than one more row would need.
+    let lean_bytes = serde_json::to_string(&sessions[1]).unwrap().len();
+    assert!(
+        lean_bytes < 700,
+        "a lean row stays under 700 bytes whatever the store holds, got {lean_bytes}"
+    );
+    assert!(
+        16_384 - head.len() < 1_024,
+        "the budget is saturated: the unused tail cannot hold another row, got {} bytes",
+        16_384 - head.len()
+    );
 
-  // The fan-out row itself: bounded ids, the true count beside them, and the
-  // held-back number stated rather than implied.
-  let parent = sessions
-    .iter()
-    .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
-    .expect("the newest parent is the first rendered row");
-  assert_eq!(
-    parent["type"], "row",
-    "the parent is a row record: {parent}"
-  );
-  let ids = parent["child_sessions"]
-    .as_array()
-    .expect("child_sessions is an array");
-  assert!(
-    ids.len() <= 10,
-    "the row carries at most the per-row id cap, got {}",
-    ids.len()
-  );
-  assert_eq!(
-    ids[0].as_str(),
-    Some("ses_child000000000000000000000000aa"),
-    "the ids a bounded row keeps are the most recent children, not an arbitrary ten of them"
-  );
-  assert_eq!(
-    parent["child_session_count"].as_u64(),
-    Some(300),
-    "the row states the true child count alongside the ids it carries"
-  );
-  assert!(
-    serde_json::to_string(parent).unwrap().len() < 2048,
-    "a 300-child row stays a row, not a report"
-  );
-  let notice = parent["notice"].as_str().unwrap_or_default();
-  assert!(
-    notice.contains('2') && notice.contains("child_sessions"),
-    "the row says how many child ids it held back: {notice}"
-  );
-  reap(&mut mcp);
+    // The fan-out row itself: bounded ids, the true count beside them, and the
+    // held-back number stated rather than implied.
+    let parent = sessions
+        .iter()
+        .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
+        .expect("the newest parent is the first rendered row");
+    assert_eq!(
+        parent["type"], "row",
+        "the parent is a row record: {parent}"
+    );
+    let ids = parent["child_sessions"]
+        .as_array()
+        .expect("child_sessions is an array");
+    assert!(
+        ids.len() <= 10,
+        "the row carries at most the per-row id cap, got {}",
+        ids.len()
+    );
+    assert_eq!(
+        ids[0].as_str(),
+        Some("ses_child000000000000000000000000aa"),
+        "the ids a bounded row keeps are the most recent children, not an arbitrary ten of them"
+    );
+    assert_eq!(
+        parent["child_session_count"].as_u64(),
+        Some(300),
+        "the row states the true child count alongside the ids it carries"
+    );
+    assert!(
+        serde_json::to_string(parent).unwrap().len() < 2048,
+        "a 300-child row stays a row, not a report"
+    );
+    let notice = parent["notice"].as_str().unwrap_or_default();
+    assert!(
+        notice.contains('2') && notice.contains("child_sessions"),
+        "the row says how many child ids it held back: {notice}"
+    );
+    reap(&mut mcp);
 }
 
 /// The pathological row taken to its limit: one session with five thousand
@@ -739,47 +739,47 @@ fn one_row_with_a_child_fanout_cannot_spend_the_whole_listing_budget() {
 /// the marker.
 #[test]
 fn one_row_with_five_thousand_children_still_returns_a_listing() {
-  let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 1, 5_000));
-  let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
-  assert!(!err, "list_sessions succeeds: {text}");
-  assert!(
-    text.contains("--- [EOF-TRUNCATED] ---"),
-    "5,001 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
-  );
-  let head = text
-    .split("--- [EOF-TRUNCATED] ---")
-    .next()
-    .unwrap_or("")
-    .trim()
-    .to_string();
-  assert!(
-    head.len() <= 16_384,
-    "the array prefix fits the default budget, got {} bytes",
-    head.len()
-  );
-  let parsed: Value =
-    serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
-  let parent = parsed
-    .as_array()
-    .expect("the prefix is an array")
-    .iter()
-    .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
-    .expect("the parent is rendered — the newest row leads the stream");
-  assert_eq!(
-    parent["child_session_count"].as_u64(),
-    Some(5_000),
-    "the true count is stated: a caller knows the fan-out is large"
-  );
-  assert_eq!(
-    parent["child_sessions"].as_array().map(Vec::len),
-    Some(10),
-    "the ids are bounded; the count is what tells the caller how much was held back"
-  );
-  let written = whole_listing(&text);
-  let file_lines = written.lines().count();
-  assert_eq!(
-    file_lines, 201,
-    "the file carries the meta plus the 200 rows the store query bounds (the window's 5,001 rows exceed the layer cap)"
-  );
-  reap(&mut mcp);
+    let (mut mcp, _dir) = spawn_fixture(|root| build_fanout_fixture(root, 1, 5_000));
+    let (err, text) = mcp.call("list_sessions", serde_json::json!({}));
+    assert!(!err, "list_sessions succeeds: {text}");
+    assert!(
+        text.contains("--- [EOF-TRUNCATED] ---"),
+        "5,001 rows cannot fit the 16 KiB default: the prefix array plus the marker return: {text}"
+    );
+    let head = text
+        .split("--- [EOF-TRUNCATED] ---")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    assert!(
+        head.len() <= 16_384,
+        "the array prefix fits the default budget, got {} bytes",
+        head.len()
+    );
+    let parsed: Value =
+        serde_json::from_str(&head).expect("the array prefix parses as JSON — never torn");
+    let parent = parsed
+        .as_array()
+        .expect("the prefix is an array")
+        .iter()
+        .find(|r| r["session_id"] == "ses_listing0000000000000000000000000aa")
+        .expect("the parent is rendered — the newest row leads the stream");
+    assert_eq!(
+        parent["child_session_count"].as_u64(),
+        Some(5_000),
+        "the true count is stated: a caller knows the fan-out is large"
+    );
+    assert_eq!(
+        parent["child_sessions"].as_array().map(Vec::len),
+        Some(10),
+        "the ids are bounded; the count is what tells the caller how much was held back"
+    );
+    let written = whole_listing(&text);
+    let file_lines = written.lines().count();
+    assert_eq!(
+        file_lines, 201,
+        "the file carries the meta plus the 200 rows the store query bounds (the window's 5,001 rows exceed the layer cap)"
+    );
+    reap(&mut mcp);
 }

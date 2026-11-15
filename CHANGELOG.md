@@ -9,814 +9,819 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **he-said-she-said-they-did on the CLI**. The per-session report was
- MCP-only; the same JSONL record stream (meta, he_said, she_said, they_did,
- inline compaction_boundary) is now the `he-said-she-said-they-did`
- subcommand, served from the same report assembler (the default
- flood-control cap applies; `--max-bytes` overrides).
+- **he-said-she-said-they-did on the CLI** (#68). The per-session report was
+  MCP-only; the same JSONL record stream (meta, he_said, she_said, they_did,
+  inline compaction_boundary) is now the `he-said-she-said-they-did`
+  subcommand, served from the same report assembler (the default
+  flood-control cap applies; `--max-bytes` overrides).
 
-- **extract-by-type folds todo | compaction | questions**.
- `--type all` (and omission) covers every kind: the four message-derived
- entry types plus todo edits (from the retired `todo-history`),
- compaction points, and question/answer pairs (from the retired
- `extract-qa-pairs`). A kind the harness cannot serve (e.g. todo history
- on a harness without todowrite access) is skipped with a notice in the
- meta (`notes`), never a tool error. The standalone CLI subcommand
- `todo-history` and MCP tools `todo_history` and `extract_qa_pairs` are
- retired.
+- **extract-by-type folds todo | compaction | questions** (#64 #65 #66).
+  `--type all` (and omission) covers every kind: the four message-derived
+  entry types plus todo edits (from the retired `todo-history`),
+  compaction points, and question/answer pairs (from the retired
+  `extract-qa-pairs`). A kind the harness cannot serve (e.g. todo history
+  on a harness without todowrite access) is skipped with a notice in the
+  meta (`notes`), never a tool error. The standalone CLI subcommand
+  `todo-history` and MCP tools `todo_history` and `extract_qa_pairs` are
+  retired.
 
 - **Mtime-gated reindexing with a side-path build and a search-pass
- auto-reindex**. The shadow-index meta now records the payload
- mtime it indexed (`source_mtime`); `index_session_fresh` gates on it, so
- an index is rebuilt only when its payload changed. `index_session` builds
- into `<index>.building` and swaps away the previous index only after the
- replacement and its meta are on disk — a failed build leaves the old
- index reading. Dream-search reindexes stale file-backed sessions during
- the search pass, so a hit is never silently served from old content;
- database-backed payloads cannot verify staleness and keep the explicit
- `index_sessions` pass.
+  auto-reindex** (#62 #69). The shadow-index meta now records the payload
+  mtime it indexed (`source_mtime`); `index_session_fresh` gates on it, so
+  an index is rebuilt only when its payload changed. `index_session` builds
+  into `<index>.building` and swaps away the previous index only after the
+  replacement and its meta are on disk — a failed build leaves the old
+  index reading. Dream-search reindexes stale file-backed sessions during
+  the search pass, so a hit is never silently served from old content;
+  database-backed payloads cannot verify staleness and keep the explicit
+  `index_sessions` pass.
 
 ### Fixed
 
-- **Codex resumed-segment rollouts are no longer silently dropped**.
- Modern codex writes resumed conversations as
- `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`; the adapter now lists
- each segment under its composite `<conv-uuid>_<segment-uuid>` id, reads
- it, and resolves a conversation-uuid prefix to the most recent match —
- with an exact id match always winning over a partial prefix.
+- **Codex resumed-segment rollouts are no longer silently dropped** (#60).
+  Modern codex writes resumed conversations as
+  `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`; the adapter now lists
+  each segment under its composite `<conv-uuid>_<segment-uuid>` id, reads
+  it, and resolves a conversation-uuid prefix to the most recent match —
+  with an exact id match always winning over a partial prefix.
 
 ### Changed
 
 - `SessionSummary` rows carry `backend_kind` (`file` | `database`) and the
- payload's `ctime`/`mtime` on file-backed harnesses.
+  payload's `ctime`/`mtime` on file-backed harnesses (#61).
 - The retired CLI `extract` subcommand: `extract-by-type --type all` covers
- the raw dump.
+  the raw dump (#67).
 - Usage guidance in the skill: verbatim questions get extract-by-type, not
- search; summaries only when asked to familiarise.
+  search; summaries only when asked to familiarise (#63).
 
 ## [0.26.0] - 2026-11-13
 
 ### Added
 
-- **Pi harness support** Pi writes one JSONL
- session file per project slug at
- `~/.pi/agent/sessions/<project-slug>/<ISOts>_<uuid>.jsonl`, with typed
- records (`session`, `model_change`, `thinking_level_change`,
- `context_edit`, `message`). The adapter walks the project-slug store and
- normalizes the message stream: user/assistant `text` parts become chat
- messages, assistant `thinking` parts become the reasoning payload,
- `toolCall` parts become tool-call summaries, and `toolResult` records
- become tool messages. System scaffolding records are skipped.
- `VALID_HARNESSES` is now `vibe | opencode | codex | pi`, with a
- `TOTAL_RECALL_PI_ROOT` override for fixtures and sandboxed runs.
+- **Pi harness support** (prompt-cult/total-recall#55). Pi writes one JSONL
+  session file per project slug at
+  `~/.pi/agent/sessions/<project-slug>/<ISOts>_<uuid>.jsonl`, with typed
+  records (`session`, `model_change`, `thinking_level_change`,
+  `context_edit`, `message`). The adapter walks the project-slug store and
+  normalizes the message stream: user/assistant `text` parts become chat
+  messages, assistant `thinking` parts become the reasoning payload,
+  `toolCall` parts become tool-call summaries, and `toolResult` records
+  become tool messages. System scaffolding records are skipped.
+  `VALID_HARNESSES` is now `vibe | opencode | codex | pi`, with a
+  `TOTAL_RECALL_PI_ROOT` override for fixtures and sandboxed runs.
 
 ## [0.25.0] - 2026-11-13
 
 ### Added
 
-- **Modern Codex harness support** The old
- codex adapter was dropped after v0.19.0 because it read only the flat
- `~/.codex/sessions/*.jsonl` layout. Current Codex desktop writes a typed
- JSONL record stream under
- `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`. The new
- adapter walks the date tree and normalizes the record stream: `message`
- records (user/assistant) become chat messages (developer scaffolding
- skipped), `custom_tool_call`/`function_call` records become assistant
- tool-call summaries, their outputs become tool results, and
- encrypted-at-rest `reasoning` records are skipped. A typed `compacted`
- record replays as an injected marker, so the shared compaction slicing and
- marker logic work unchanged and prose cannot forge a boundary.
- `VALID_HARNESSES` is now `vibe | opencode | codex`, with a
- `TOTAL_RECALL_CODEX_ROOT` override for fixtures and sandboxed runs.
+- **Modern Codex harness support** (prompt-cult/total-recall#56). The old
+  codex adapter was dropped after v0.19.0 because it read only the flat
+  `~/.codex/sessions/*.jsonl` layout. Current Codex desktop writes a typed
+  JSONL record stream under
+  `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-<ts>-<uuid>.jsonl`. The new
+  adapter walks the date tree and normalizes the record stream: `message`
+  records (user/assistant) become chat messages (developer scaffolding
+  skipped), `custom_tool_call`/`function_call` records become assistant
+  tool-call summaries, their outputs become tool results, and
+  encrypted-at-rest `reasoning` records are skipped. A typed `compacted`
+  record replays as an injected marker, so the shared compaction slicing and
+  marker logic work unchanged and prose cannot forge a boundary.
+  `VALID_HARNESSES` is now `vibe | opencode | codex`, with a
+  `TOTAL_RECALL_CODEX_ROOT` override for fixtures and sandboxed runs.
 
 ## [0.24.0] - 2026-11-13
 
 ### Fixed
 
-- **The vibe store reads the Mistral Vibe v3.1.2 unified layout** Mistral Vibe v3.1.2 writes a session's
- records into the unified store's content-addressed chunk files
- (`unified/<uuid>/chunks/<sha256>.json`); the `journal/*.jsonl` beside them
- is the store's *recovery* log and holds the tail of the session, not its
- history. The adapter walked the journal alone, so a live session with 129
- user turns read as 2 — a silent-partial memory in every compaction,
- handover and 48-hour-sweep pass. The chunk store is now the record: every
- user turn (`source: "turn_start"` | `"turn_steer"`), the assistant's
- messages, the reasoning records and the tool effects, each with the
- timestamp its own `createdAt` carries, in one chronological stream. The
- checkpoint's history snapshot contributes what the live records no longer
- hold (the turns that were compacted away) and the synthetic injections
- (the compaction-continuation prompt, the runtime notifications), never a
- second copy of a turn. A v3.0 store — whose journal *was* the session —
- still reads from its journal, and the legacy `session_*/messages.jsonl`
- layout is untouched.
+- **The vibe store reads the Mistral Vibe v3.1.2 unified layout**
+  (prompt-cult/total-recall#53). Mistral Vibe v3.1.2 writes a session's
+  records into the unified store's content-addressed chunk files
+  (`unified/<uuid>/chunks/<sha256>.json`); the `journal/*.jsonl` beside them
+  is the store's *recovery* log and holds the tail of the session, not its
+  history. The adapter walked the journal alone, so a live session with 129
+  user turns read as 2 — a silent-partial memory in every compaction,
+  handover and 48-hour-sweep pass. The chunk store is now the record: every
+  user turn (`source: "turn_start"` | `"turn_steer"`), the assistant's
+  messages, the reasoning records and the tool effects, each with the
+  timestamp its own `createdAt` carries, in one chronological stream. The
+  checkpoint's history snapshot contributes what the live records no longer
+  hold (the turns that were compacted away) and the synthetic injections
+  (the compaction-continuation prompt, the runtime notifications), never a
+  second copy of a turn. A v3.0 store — whose journal *was* the session —
+  still reads from its journal, and the legacy `session_*/messages.jsonl`
+  layout is untouched.
 
- A layout the adapter does not know is now an error naming the path, never
- an empty session: an unreadable store must not read as "nothing found".
- The scoped listing applies the unified store's own directory
- (`meta.json`'s `environment.working_directory`), and the compaction
- boundary is the store's injected marker message, so prose that quotes the
- marker text cannot forge one.
+  A layout the adapter does not know is now an error naming the path, never
+  an empty session: an unreadable store must not read as "nothing found".
+  The scoped listing applies the unified store's own directory
+  (`meta.json`'s `environment.working_directory`), and the compaction
+  boundary is the store's injected marker message, so prose that quotes the
+  marker text cannot forge one.
 
 ### Added
 
 - **`mistral-vibe` is accepted as a name for the `vibe` harness** — the
- product's own name for it — and `TOTAL_RECALL_MISTRAL_VIBE_ROOT` points at
- the same store as `TOTAL_RECALL_VIBE_ROOT`. `HARNESS=mistral-vibe` and
- `--harness mistral-vibe` both bind the vibe adapter.
+  product's own name for it — and `TOTAL_RECALL_MISTRAL_VIBE_ROOT` points at
+  the same store as `TOTAL_RECALL_VIBE_ROOT`. `HARNESS=mistral-vibe` and
+  `--harness mistral-vibe` both bind the vibe adapter.
 
 ## [0.23.0] - 2026-11-09
 
 ### Changed
 
-- **`help` (MCP and CLI) no longer floods — it is the clap page**. Orientation-sized, not a dump: the CLI's
- generated help page plus the house line — this tool is intended to be run as
- an MCP server in a harness, every CLI action is available over the MCP
- interface, and MCP is the preferred mode — and a pointer to `skill` for the
- full usage guide. The advertisement lives in `long_about`/after_help, so
- `total-recall --help` carries it too. At the 16,384-byte default budget the
- page fits: no EOF marker, no overflow file. The MCP `help` tool takes no
- parameters any more.
+- **`help` (MCP and CLI) no longer floods — it is the clap page** (#51,
+  prompt-cult/total-recall#52). Orientation-sized, not a dump: the CLI's
+  generated help page plus the house line — this tool is intended to be run as
+  an MCP server in a harness, every CLI action is available over the MCP
+  interface, and MCP is the preferred mode — and a pointer to `skill` for the
+  full usage guide. The advertisement lives in `long_about`/after_help, so
+  `total-recall --help` carries it too. At the 16,384-byte default budget the
+  page fits: no EOF marker, no overflow file. The MCP `help` tool takes no
+  parameters any more.
 
 ### Added
 
 - **`skill` (MCP) / `skill` (CLI)** — what `help` used to be, named for what
- it is: the release's `skills/total-recall/SKILL.md` (the tool surface and
- usage guide) through the text flood-control path (`max_bytes`, line-boundary
- cut, EOF marker naming the overflow file with its line histogram). The CLI
- form takes `--max-bytes`; 0 = unbounded. Skill resolution is unchanged:
- `TOTAL_RECALL_SKILL_PATH`, then the canonical skills directory, then a walk
- up from the server binary.
+  it is: the release's `skills/total-recall/SKILL.md` (the tool surface and
+  usage guide) through the text flood-control path (`max_bytes`, line-boundary
+  cut, EOF marker naming the overflow file with its line histogram). The CLI
+  form takes `--max-bytes`; 0 = unbounded. Skill resolution is unchanged:
+  `TOTAL_RECALL_SKILL_PATH`, then the canonical skills directory, then a walk
+  up from the server binary.
 
 ### Fixed
 
 - `tests/help.rs` no longer `drop()`s a `()` (clippy `-D warnings` broke CI
- on main for the 0.23.0 work).
+  on main for the 0.23.0 work).
 
 ## [0.22.0] - 2026-11-07
 
 ### Added
 
-- **`chat_with_mercury` (MCP) / `chat` (CLI) — the one-call key check**. One call that chats with Mercury 3 and
- returns the response, the speed and the tokens as data. THE KEY GUARD RUNS
- FIRST: a missing or EMPTY `INCEPTION_API_KEY` is refused at the front door
- with the three setup places named — the MCP config's
- `mcp.total-recall.environment` block, `export INCEPTION_API_KEY=…` in the
- shell, a `.env` at or above the working directory — and the request is
- never attempted (no more mid-flow key failures misread as a broken setup).
- Params: `message` (required), `max_tokens` (default 4000, ceiling 32000),
- `system` (optional). The MCP response is the record-stream contract: meta
- `{model, max_tokens}` + `{"type":"reply","text":…,"elapsed_s":…,
- "prompt_tokens":…,"completion_tokens":…,"total_tokens":…,"finish_reason":…}`.
- The provider gains `MercuryProvider::chat_once` (single-shot, same
- 429/5xx handling) and the response parser now reads `usage`. CLI:
- `total-recall chat <message> [--max-tokens N] [--system …]` prints the
- reply, the elapsed time and the token counts. Docs: `docs/src/tools.md`,
- `docs/src/mcp-setup.md` (the key-check story), the skill table +
- key-check recipe.
+- **`chat_with_mercury` (MCP) / `chat` (CLI) — the one-call key check**
+  (#508, prompt-cult/total-recall#50). One call that chats with Mercury 3 and
+  returns the response, the speed and the tokens as data. THE KEY GUARD RUNS
+  FIRST: a missing or EMPTY `INCEPTION_API_KEY` is refused at the front door
+  with the three setup places named — the MCP config's
+  `mcp.total-recall.environment` block, `export INCEPTION_API_KEY=…` in the
+  shell, a `.env` at or above the working directory — and the request is
+  never attempted (no more mid-flow key failures misread as a broken setup).
+  Params: `message` (required), `max_tokens` (default 4000, ceiling 32000),
+  `system` (optional). The MCP response is the record-stream contract: meta
+  `{model, max_tokens}` + `{"type":"reply","text":…,"elapsed_s":…,
+  "prompt_tokens":…,"completion_tokens":…,"total_tokens":…,"finish_reason":…}`.
+  The provider gains `MercuryProvider::chat_once` (single-shot, same
+  429/5xx handling) and the response parser now reads `usage`. CLI:
+  `total-recall chat <message> [--max-tokens N] [--system …]` prints the
+  reply, the elapsed time and the token counts. Docs: `docs/src/tools.md`,
+  `docs/src/mcp-setup.md` (the key-check story), the skill table +
+  key-check recipe.
 
 ### Fixed
 
-- The Mercury 3 reasoning-budget failure: the completion
- budget was 4000 while Mercury 3's encrypted reasoning draws from the same
- budget first — a big prompt starved content and returned the vague "no
- content". Now max_tokens 32000 (probed live: accepted, and the model
- reasons LESS with headroom), and the no-content error names
- `finish_reason` and the knob instead of nothing.
+- The Mercury 3 reasoning-budget failure (#507, 5e4d320): the completion
+  budget was 4000 while Mercury 3's encrypted reasoning draws from the same
+  budget first — a big prompt starved content and returned the vague "no
+  content". Now max_tokens 32000 (probed live: accepted, and the model
+  reasons LESS with headroom), and the no-content error names
+  `finish_reason` and the knob instead of nothing.
 
 ## [0.21.1] - 2026-11-06
 
 ### Changed
 
 - The `retry_after_zero_retries_without_waiting` test's bound moved from a
- tight wall-clock guess (`elapsed < 1s` — flaked twice under full-suite
- load, the three localhost round-trips alone can exceed a second) to the
- exponential fallback's floor (`elapsed < 3s` — the 1s + 2s the fallback
- would sleep). The pinned property is unchanged: honouring `Retry-After: 0`
- sleeps nothing, and only a real fallback-sleep regression can push the
- elapsed past 3s. No production code changed.
+  tight wall-clock guess (`elapsed < 1s` — flaked twice under full-suite
+  load, the three localhost round-trips alone can exceed a second) to the
+  exponential fallback's floor (`elapsed < 3s` — the 1s + 2s the fallback
+  would sleep). The pinned property is unchanged: honouring `Retry-After: 0`
+  sleeps nothing, and only a real fallback-sleep regression can push the
+  elapsed past 3s. No production code changed.
 
 ## [0.21.0] - 2026-11-06
 
 ### Changed
 
 - **BREAKING, no migration path (alpha software, hard cutover): every
- record-shaped MCP response is now a bare compact JSON array** cut at a
- record boundary — element 0 is the meta record
- `{"type":"meta","tool":"…",…}` and every later element is a data record
- with a `type` discriminator. One record stream feeds two
- sinks: the response array and, on overflow, a pure-JSONL file
- (`$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600, 24h
- prune) that carries ALL records even when the response is capped — so
- `rg` finds, `jq` extracts (`select(.type=="row")`), and
- `line_histogram` profiles the overflow. The old pretty-JSON-blob
- responses, the `#`-header streams, the `type,timestamp,json` lines, the
- marker-alone-for-JSON rule and the "even one record exceeds max_bytes"
- error are gone.
-- `list_sessions`: row records through the sink; the O(n²)
- measured-fit loop is dead — and the sink's per-record admission ends
- head-of-line blocking: one oversized row drops to the file while the
- lean rows behind it still return. The meta carries `window_count` +
- `max_bytes`; the cut is `records_returned`/`records_total` in the marker.
-- `extract_messages` / `extract_user_messages` / `extract_by_type`: the single-line JSON envelope is dead — records + sidecar,
- the paging inputs in the meta's `bounds`, overflow to the file instead
- of the hard error.
-- `he_said_she_said_they_did`: the `## HE SAID` prose report is
- `he_said`/`she_said`/`they_did`/`compaction_boundary` records; the
- CONTEXT section is the meta record.
-- `do_android_dream_of_electric_sheep`: `index::search` returns a
- structured `SearchOutcome`; hits stream as `type=hit` records
- (`ts`/`thinking` fields); the CLI renders its own table.
-- `summarise_from` and `prior_period_summary`: composed
- parts stream as `type=section` records; the prior-period timing map is
- the meta record (the `<!-- timing -->` comment is dead).
+  record-shaped MCP response is now a bare compact JSON array** cut at a
+  record boundary — element 0 is the meta record
+  `{"type":"meta","tool":"…",…}` and every later element is a data record
+  with a `type` discriminator (#450-#467). One record stream feeds two
+  sinks: the response array and, on overflow, a pure-JSONL file
+  (`$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600, 24h
+  prune) that carries ALL records even when the response is capped — so
+  `rg` finds, `jq` extracts (`select(.type=="row")`), and
+  `line_histogram` profiles the overflow. The old pretty-JSON-blob
+  responses, the `#`-header streams, the `type,timestamp,json` lines, the
+  marker-alone-for-JSON rule and the "even one record exceeds max_bytes"
+  error are gone.
+- `list_sessions` (#457): row records through the sink; the O(n²)
+  measured-fit loop is dead — and the sink's per-record admission ends
+  head-of-line blocking: one oversized row drops to the file while the
+  lean rows behind it still return. The meta carries `window_count` +
+  `max_bytes`; the cut is `records_returned`/`records_total` in the marker.
+- `extract_messages` / `extract_user_messages` / `extract_by_type`
+  (#461, #462): the single-line JSON envelope is dead — records + sidecar,
+  the paging inputs in the meta's `bounds`, overflow to the file instead
+  of the hard error.
+- `he_said_she_said_they_did` (#460): the `## HE SAID` prose report is
+  `he_said`/`she_said`/`they_did`/`compaction_boundary` records; the
+  CONTEXT section is the meta record.
+- `do_android_dream_of_electric_sheep` (#459): `index::search` returns a
+  structured `SearchOutcome`; hits stream as `type=hit` records
+  (`ts`/`thinking` fields); the CLI renders its own table.
+- `summarise_from` (#463) and `prior_period_summary` (#464): composed
+  parts stream as `type=section` records; the prior-period timing map is
+  the meta record (the `<!-- timing -->` comment is dead).
 - `harness`, `index_sessions`, `todo_history`, `summary_cache`,
- `cache_delete_latest`, `profile_session`, `extract_qa_pairs`: the same record-stream contract.
-- Text-path survival: `help` and `line_histogram` keep the text
- cap (cut at a line boundary, `.md` overflow); `cap_report`'s
- JSON-never-torn branch is deleted.
-- The skill carries the JSONL profiling recipes: the sed marker
- strip, `rg` find, `jq` extract, `line_histogram` profile and the
- `fdfind` sweep — with the line-histogram article and gist linked.
+  `cache_delete_latest`, `profile_session`, `extract_qa_pairs`
+  (#451-#456, #458): the same record-stream contract.
+- Text-path survival (#465): `help` and `line_histogram` keep the text
+  cap (cut at a line boundary, `.md` overflow); `cap_report`'s
+  JSON-never-torn branch is deleted.
+- The skill carries the JSONL profiling recipes (#466): the sed marker
+  strip, `rg` find, `jq` extract, `line_histogram` profile and the
+  `fdfind` sweep — with the line-histogram article and gist linked.
 
 ### Added
 
-- `jsonl_sink`: the dual-stream flood-control primitive — one
- record stream, two sinks (the MCP array + the JSONL file).
+- `jsonl_sink`: the dual-stream flood-control primitive (#450) — one
+  record stream, two sinks (the MCP array + the JSONL file).
 - `mise.toml`: binds the release binary as a mise tool
- (`github:prompt-cult/total-recall = latest`).
+  (`github:prompt-cult/total-recall = latest`).
 
 ## [0.20.0] - 2026-11-02
 
 ### Removed
 
-- The codex and claude harnesses: untested by the author, and an
- untested surface ships lying docs and unverified code paths. The adapters,
- their tests, their fixtures and every doc mention are gone. `opencode` and
- `vibe` are the supported set; the rejection error names them
- (`unknown harness '<value>'. Valid values: vibe|opencode`), and the
- `TOTAL_RECALL_CODEX_ROOT` and `TOTAL_RECALL_CLAUDE_ROOT` environment
- overrides are gone with the harnesses.
+- The codex and claude harnesses (#49): untested by the author, and an
+  untested surface ships lying docs and unverified code paths. The adapters,
+  their tests, their fixtures and every doc mention are gone. `opencode` and
+  `vibe` are the supported set; the rejection error names them
+  (`unknown harness '<value>'. Valid values: vibe|opencode`), and the
+  `TOTAL_RECALL_CODEX_ROOT` and `TOTAL_RECALL_CLAUDE_ROOT` environment
+  overrides are gone with the harnesses.
 
 ## [0.19.0] - 2026-11-02
 
 ### Added
 
-- New `he_said_she_said_they_did` MCP tool: one full, per-session
- report answering "what did we say and do" — HE SAID (the user's messages
- verbatim, synthetic/injected parts skipped), SHE SAID (the assistant's
- text parts only — explicitly not its thinking, explicitly not tool
- results), THEY DID (every action, kind-agnostic: built-in tool calls, MCP
- tool calls, plugin actions, todo actions — each as call name + arguments,
- tool results excluded) with compaction boundaries appearing inline at the
- point they occurred, spontaneous or not. A context section states the
- period the report covers, the compaction-point locations (1-based message
- ids) and where the existing summaries are: the summary-cache blocks and
- the high watermark. Session-scoped (`session_id` partial match, empty =
- the most recent session), flood-capped at `max_bytes` like every other
- report. Read-only.
-- New `help` MCP tool: returns the release's
- `skills/total-recall/SKILL.md` through the standard capped-text path.
- Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
- non-empty (the escape hatch); the skills directory
- (`~/.config/opencode/skills/total-recall/SKILL.md` — the file OpenCode
- itself loads as the skill); a walk up from the server binary (dev builds
- run from a repo `target/` tree). A missing skill degrades gracefully: the
- error names the skills-directory path and the env var. A drift test
- asserts the skill's tool table equals the server's `tools/list` in both
- directions, so a stale or lying skill fails `cargo test` before any
- release.
+- New `he_said_she_said_they_did` MCP tool (#47): one full, per-session
+  report answering "what did we say and do" — HE SAID (the user's messages
+  verbatim, synthetic/injected parts skipped), SHE SAID (the assistant's
+  text parts only — explicitly not its thinking, explicitly not tool
+  results), THEY DID (every action, kind-agnostic: built-in tool calls, MCP
+  tool calls, plugin actions, todo actions — each as call name + arguments,
+  tool results excluded) with compaction boundaries appearing inline at the
+  point they occurred, spontaneous or not. A context section states the
+  period the report covers, the compaction-point locations (1-based message
+  ids) and where the existing summaries are: the summary-cache blocks and
+  the high watermark. Session-scoped (`session_id` partial match, empty =
+  the most recent session), flood-capped at `max_bytes` like every other
+  report. Read-only.
+- New `help` MCP tool (#48): returns the release's
+  `skills/total-recall/SKILL.md` through the standard capped-text path.
+  Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
+  non-empty (the escape hatch); the skills directory
+  (`~/.config/opencode/skills/total-recall/SKILL.md` — the file OpenCode
+  itself loads as the skill); a walk up from the server binary (dev builds
+  run from a repo `target/` tree). A missing skill degrades gracefully: the
+  error names the skills-directory path and the env var. A drift test
+  asserts the skill's tool table equals the server's `tools/list` in both
+  directions, so a stale or lying skill fails `cargo test` before any
+  release.
 - The release archives carry the release's `SKILL.md` at the archive root
- beside the executable; the documented install step copies it into the
- skills directory, so a binary release and its skill land together.
+  beside the executable; the documented install step copies it into the
+  skills directory, so a binary release and its skill land together (#48).
 
 ### Removed
 
 - The `she_said_he_said_action` MCP tool and the `he-said-she-said` CLI
- subcommand: term-matched fragments only — not fit for purpose as an
- account of a session. Replaced by `he_said_she_said_they_did`; no
- term-matching behaviour remains.
+  subcommand (#47): term-matched fragments only — not fit for purpose as an
+  account of a session. Replaced by `he_said_she_said_they_did`; no
+  term-matching behaviour remains.
 
 ## [0.18.0] - 2026-10-29
 
 ### Added
 
-- Read vibe 3.x unified-session stores beside the legacy layout: the
- vibe adapter reads the 3.x unified store's sessions and message bodies
- while the legacy layout remains readable, so rollouts mined from either
- layout surface identically.
+- Read vibe 3.x unified-session stores beside the legacy layout (#46): the
+  vibe adapter reads the 3.x unified store's sessions and message bodies
+  while the legacy layout remains readable, so rollouts mined from either
+  layout surface identically.
 
 ## [0.17.0] - 2026-10-29
 
 ### Added
 
-- Read opencode 2.2 stores: the new `session_v2`/`session_message`
- layout is read beside the legacy `session`/`message` tables — the store
- layout is detected per database, and both layouts serve the same tool
- surface.
+- Read opencode 2.2 stores (#44): the new `session_v2`/`session_message`
+  layout is read beside the legacy `session`/`message` tables — the store
+  layout is detected per database, and both layouts serve the same tool
+  surface.
 
 ## [0.16.2] - 2026-10-27
 
 ### Changed
 
-- Summarisation runs on Mercury 3: model `mercury-3`, a 500K
- input budget (half of Mercury 3's 1M context — summarisation is kept
- lossless by sending more session intact instead of pruning harder), and
- the bytes→tokens guard stated where the cap is documented (~4
- chars/token). Endpoint and key unchanged; rate limits and concurrency
- unchanged.
+- Summarisation runs on Mercury 3 (#41, #42): model `mercury-3`, a 500K
+  input budget (half of Mercury 3's 1M context — summarisation is kept
+  lossless by sending more session intact instead of pruning harder), and
+  the bytes→tokens guard stated where the cap is documented (~4
+  chars/token). Endpoint and key unchanged; rate limits and concurrency
+  unchanged.
 
 ## [0.16.1] - 2026-10-19
 
 ### Fixed
 
 - Canonical session resolution is a store-side match, not a full-store
- listing: resolving a partial session id no longer lists every session to
- find the most recent match — the match runs inside the store read.
+  listing: resolving a partial session id no longer lists every session to
+  find the most recent match — the match runs inside the store read.
 
 ## [0.16.0] - 2026-10-18
 
 ### Added
 
-- Summary cache blocks: `summary_cache` introspection (the cached
- blocks' id ranges, counts, sizes and part files plus the unsummarised
- tail), `summarise_from` (explicit 1-based id to summarise from, guarded to
- the first unsummarised id), and `cache_delete_latest` (roll the cache back
- one block).
+- Summary cache blocks (#39): `summary_cache` introspection (the cached
+  blocks' id ranges, counts, sizes and part files plus the unsummarised
+  tail), `summarise_from` (explicit 1-based id to summarise from, guarded to
+  the first unsummarised id), and `cache_delete_latest` (roll the cache back
+  one block).
 
 ### Changed
 
-- The prior period is the work SINCE the last compaction boundary —
- the docs state the boundary rule plainly for both flows.
+- The prior period is the work SINCE the last compaction boundary (#38) —
+  the docs state the boundary rule plainly for both flows.
 
 ### Removed
 
-- The deprecated implicit `summarise_current_session` form: the
- explicit tool surface is the whole surface.
+- The deprecated implicit `summarise_current_session` form (#40): the
+  explicit tool surface is the whole surface.
 
 ## [0.15.0] - 2026-10-18
 
 ### Added
 
 - Summaries cached by default via a range ledger, and the profile cache on
- by default: repeated summary and profile reads serve from the
- cache; `profile_session` takes `cache: false` to force a recompute.
-- `summarise_current_session`, replacing the deprecated
- `compact_session`.
+  by default (#36, #37): repeated summary and profile reads serve from the
+  cache; `profile_session` takes `cache: false` to force a recompute.
+- `summarise_current_session` (#35), replacing the deprecated
+  `compact_session` (#34).
 
 ### Changed
 
-- One tool, one job: the `full` flag is gone — the boundary a tool
- reads from is the tool's own contract, not a caller's modifier.
+- One tool, one job (#34): the `full` flag is gone — the boundary a tool
+  reads from is the tool's own contract, not a caller's modifier.
 
 ### Fixed
 
 - The per-call summarisation input cap is 90% of the 260K context window,
- not 1M tokens: the cap guards against overrun instead of trusting a
- vendor's ceiling the request could exceed.
+  not 1M tokens: the cap guards against overrun instead of trusting a
+  vendor's ceiling the request could exceed.
 
 ## [0.14.0] - 2026-10-17
 
 ### Added
 
 - New `prior_period_summary` MCP tool and `prior-period-summary` CLI
- subcommand: a voluntary summary of a prior period — not a compaction. The
- harness owns compaction; this tool is only ever invoked voluntarily, so
- the output is named for what it covers. Two flows, two correct answers:
- after a `/compact`, `full: false` (the default) summarises since that
- compaction point — the last period between compactions; before a `/new`
- drop, `full: true` summarises the whole session up to the point of the
- drop, including what earlier compactions folded away. On top of the
- metadata (recent rollouts, plan/todo files, instructions) it folds in the
- period's todo log — items opened and closed with timings, the
- state-change history (opened → in_progress → completed/cancelled
- transitions), and a churn note when items open faster than they close,
- with the human's recent steers read into it — the commits made in the
- period, a compaction-points FYI footer (the last few compaction points
- with message and line counts since each), and a fixed orientation warning
- appended last: the summary does not attempt to show what was in-flight or
- the next steps — those are known from the todo list, the user's most
- recent inputs, and the commit history — so take stock and get your
- bearings before picking up the work. The todo log is opencode-only
- (todowrite flushes are only readable there); on every other harness the
- section says so instead of failing or silently reading as "no todos".
+  subcommand: a voluntary summary of a prior period — not a compaction. The
+  harness owns compaction; this tool is only ever invoked voluntarily, so
+  the output is named for what it covers. Two flows, two correct answers:
+  after a `/compact`, `full: false` (the default) summarises since that
+  compaction point — the last period between compactions; before a `/new`
+  drop, `full: true` summarises the whole session up to the point of the
+  drop, including what earlier compactions folded away. On top of the
+  metadata (recent rollouts, plan/todo files, instructions) it folds in the
+  period's todo log — items opened and closed with timings, the
+  state-change history (opened → in_progress → completed/cancelled
+  transitions), and a churn note when items open faster than they close,
+  with the human's recent steers read into it — the commits made in the
+  period, a compaction-points FYI footer (the last few compaction points
+  with message and line counts since each), and a fixed orientation warning
+  appended last: the summary does not attempt to show what was in-flight or
+  the next steps — those are known from the todo list, the user's most
+  recent inputs, and the commit history — so take stock and get your
+  bearings before picking up the work. The todo log is opencode-only
+  (todowrite flushes are only readable there); on every other harness the
+  section says so instead of failing or silently reading as "no todos".
 
 ### Fixed
 
 - The opencode compaction boundary is the typed compaction part, not a
- substring match. The old rule matched ANY message whose text contains
- "context compaction" — and the live store is full of prose and tool
- payloads that quote it (code the session read, discussion of the boundary
- itself) — so one such forgery silently shrank a 430-message session's
- `full: false` read to a 9-message sliver. The boundary is now discovered
- from the typed compaction part's normalized marker (`compaction_markers`),
- which prose cannot forge; every other harness keeps the text heuristic.
- Every `full: false` path on opencode reads the corrected slice: the
- summary prompts, the commits and the churn counts share it.
+  substring match. The old rule matched ANY message whose text contains
+  "context compaction" — and the live store is full of prose and tool
+  payloads that quote it (code the session read, discussion of the boundary
+  itself) — so one such forgery silently shrank a 430-message session's
+  `full: false` read to a 9-message sliver. The boundary is now discovered
+  from the typed compaction part's normalized marker (`compaction_markers`),
+  which prose cannot forge; every other harness keeps the text heuristic.
+  Every `full: false` path on opencode reads the corrected slice: the
+  summary prompts, the commits and the churn counts share it.
 - The prior-period todo log no longer contradicts itself: the opened and
- closed summary headline is gone (the lists carry the counts), and the
- Opened list excludes a restated first flush exactly as the churn counts
- did, so a carried-in item is counted neither as opened nor shown.
+  closed summary headline is gone (the lists carry the counts), and the
+  Opened list excludes a restated first flush exactly as the churn counts
+  did, so a carried-in item is counted neither as opened nor shown.
 
 ### Removed
 
 - `total_recall` MCP tool and `recall` CLI subcommand: deleted after their
- live comparison against `prior_period_summary`. On the same rollout the
- old tool's Mercury call on a 204 KB bounded prompt returned a raw
- transcript echo with none of the structured sections, while the todo log
- and commits carried the true record — the comparison the tool was kept
- for concluded. `prior_period_summary` / `prior-period-summary` is the one
- tool.
+  live comparison against `prior_period_summary`. On the same rollout the
+  old tool's Mercury call on a 204 KB bounded prompt returned a raw
+  transcript echo with none of the structured sections, while the todo log
+  and commits carried the true record — the comparison the tool was kept
+  for concluded. `prior_period_summary` / `prior-period-summary` is the one
+  tool.
 
 ## [0.13.0] - 2026-10-14
 
 ### Added
 
 - New `extract_qa_pairs` MCP tool: the question/answer pairs from sessions
- where the harness asked through a question tool — the question text, its
- header and options where the format carries them, paired with the answers
- the user picked or typed, chronologically. Opencode `question` parts are
- read store-side (`state.input.questions`, the picks under
- `state.metadata.answers`, the tool result output as fallback); vibe
- `ask_user_question` pairs its arguments' questions against the following
- `tool_result` output's answers by `tool_call_id`, and a cancelled question
- yields nothing. Session selection matches the window tools: a `session_id`
- (partial match) selects one session; empty works the `hours_back` window
- (default 48, `0` = omitted; `directory` substring; `all: true` is the
- whole store), most-recent-first, one section per session that has pairs
- with the scanned count in the header. Each session carries at most the
- most recent 100 pairs, the held-back count stated, and the report is
- flood-capped at `max_bytes` like every other one. MCP only — there is no
- CLI subcommand.
+  where the harness asked through a question tool — the question text, its
+  header and options where the format carries them, paired with the answers
+  the user picked or typed, chronologically. Opencode `question` parts are
+  read store-side (`state.input.questions`, the picks under
+  `state.metadata.answers`, the tool result output as fallback); vibe
+  `ask_user_question` pairs its arguments' questions against the following
+  `tool_result` output's answers by `tool_call_id`, and a cancelled question
+  yields nothing. Session selection matches the window tools: a `session_id`
+  (partial match) selects one session; empty works the `hours_back` window
+  (default 48, `0` = omitted; `directory` substring; `all: true` is the
+  whole store), most-recent-first, one section per session that has pairs
+  with the scanned count in the header. Each session carries at most the
+  most recent 100 pairs, the held-back count stated, and the report is
+  flood-capped at `max_bytes` like every other one. MCP only — there is no
+  CLI subcommand.
 
 ## [0.12.0] - 2026-10-08
 
 ### Added
 
 - New `todo_history` MCP tool and `todo-history` CLI subcommand: recover a
- rollout's todo-list edits as a JSONL event stream — one compact JSON object
- per line (`{"ts","action","todo"[,"status"]}`), in ts order. Every
- `todowrite` flush in the session is replayed as the edits between
- consecutive list states: `added`, `updated`, the item's new status on a
- status change, or `removed` (`status` omitted). Item identity is the
- `itemNN:` slug prefix, else the full content string; folding the events
- reproduces the flushes. `full` defaults to true (the whole rollout's todo
- history); `false` reads from the last compaction point. The MCP report
- carries a `#`-prefixed header and is flood-capped at `max_bytes` (default
- 16384, 8 MiB ceiling) with the EOF marker and overflow file; the CLI
- streams the bare JSONL unbounded. Opencode only — every other harness
- refuses with an explicit error, never an empty list.
+  rollout's todo-list edits as a JSONL event stream — one compact JSON object
+  per line (`{"ts","action","todo"[,"status"]}`), in ts order. Every
+  `todowrite` flush in the session is replayed as the edits between
+  consecutive list states: `added`, `updated`, the item's new status on a
+  status change, or `removed` (`status` omitted). Item identity is the
+  `itemNN:` slug prefix, else the full content string; folding the events
+  reproduces the flushes. `full` defaults to true (the whole rollout's todo
+  history); `false` reads from the last compaction point. The MCP report
+  carries a `#`-prefixed header and is flood-capped at `max_bytes` (default
+  16384, 8 MiB ceiling) with the EOF marker and overflow file; the CLI
+  streams the bare JSONL unbounded. Opencode only — every other harness
+  refuses with an explicit error, never an empty list.
 
 ## [0.11.2] - 2026-10-04
 
 ### Fixed
 
 - `list_sessions` renders materially more rows at the default budget. The two
- id arrays a row carried were unbounded, so one session with a subagent fan-out
- (a live row held ~300 child ids, ~10 KB) spent the response budget on its own
- and a default call printed 11 rows of the 380 its window held. Each row now
- carries at most the 10 most recent `child_sessions` ids and the 10 first
- `aliases`, with `child_session_count` / `alias_count` stating the true totals
- beside them and the row's `notice` naming what it held back. Every
- navigational field stays, the row count is still the budget's to decide, and
- `max_bytes` still widens the slice. Child ids are ordered most-recent-first at
- the source, so the cap cuts the tail of a fan-out rather than an arbitrary ten
- of it.
+  id arrays a row carried were unbounded, so one session with a subagent fan-out
+  (a live row held ~300 child ids, ~10 KB) spent the response budget on its own
+  and a default call printed 11 rows of the 380 its window held. Each row now
+  carries at most the 10 most recent `child_sessions` ids and the 10 first
+  `aliases`, with `child_session_count` / `alias_count` stating the true totals
+  beside them and the row's `notice` naming what it held back. Every
+  navigational field stays, the row count is still the budget's to decide, and
+  `max_bytes` still widens the slice. Child ids are ordered most-recent-first at
+  the source, so the cap cuts the tail of a fan-out rather than an arbitrary ten
+  of it.
 
 ## [0.11.1] - 2026-10-04
 
 ### Fixed
 
-- `hours_back: 0` no longer fails every window-tool call. The served
- schema states `minimum: 1` so a schema-honouring client cannot send it, and
- the handler reads `0` (and `null`) as "omitted" — the tool's default window,
- never the whole store. `all: true` with `hours_back: 0` reaches the whole
- store the caller explicitly asked for; `all: true` with a real window is
- still rejected as the contradiction it is. `total_recall`'s `hours_back`
- reads `0` the same way, closing the last route to the adapter's unbounded
- mechanism except `all: true`.
-- `list_sessions` returns rows again. The row count it renders is
- derived from the response budget (`max_bytes`, default 16,384) instead of a
- fixed 200 fat rows that the 16 KiB flood cap replaced whole, so a default
- call returns rows and states `held_back`. A row larger than the whole
- budget is still handed to flood control, which is the escape hatch every
- other report has.
-- Unknown parameters are rejected by name on every tool: `hour_back`
- or `directorys` is answered with the unrecognised field and the fields the
- tool does accept, instead of running the call on the default scope.
-- Numeric inputs are validated in the house form on every tool:
- negatives and over-ceiling values for `hours_back`, `limit`, `offset`,
- `max_bytes`, `max_record_bytes`, `line`, `start` and `end` return
- "<tool>: `<field>` is out of range — <cheap form>" instead of a raw serde
- type error, and the served schemas state the same `minimum`/`maximum` the
- handlers enforce. `line_histogram`'s `mode`/`line`/`start`/`end` sets are
- validated as a set: an unknown mode, `mode: extract` with no selector,
- `end` without `start`, `start` past `end`, and a selector without
- `mode: extract` are all named errors.
+- `hours_back: 0` no longer fails every window-tool call (#25). The served
+  schema states `minimum: 1` so a schema-honouring client cannot send it, and
+  the handler reads `0` (and `null`) as "omitted" — the tool's default window,
+  never the whole store. `all: true` with `hours_back: 0` reaches the whole
+  store the caller explicitly asked for; `all: true` with a real window is
+  still rejected as the contradiction it is. `total_recall`'s `hours_back`
+  reads `0` the same way, closing the last route to the adapter's unbounded
+  mechanism except `all: true`.
+- `list_sessions` returns rows again (#25). The row count it renders is
+  derived from the response budget (`max_bytes`, default 16,384) instead of a
+  fixed 200 fat rows that the 16 KiB flood cap replaced whole, so a default
+  call returns rows and states `held_back`. A row larger than the whole
+  budget is still handed to flood control, which is the escape hatch every
+  other report has.
+- Unknown parameters are rejected by name on every tool (#25): `hour_back`
+  or `directorys` is answered with the unrecognised field and the fields the
+  tool does accept, instead of running the call on the default scope.
+- Numeric inputs are validated in the house form on every tool (#25):
+  negatives and over-ceiling values for `hours_back`, `limit`, `offset`,
+  `max_bytes`, `max_record_bytes`, `line`, `start` and `end` return
+  "<tool>: `<field>` is out of range — <cheap form>" instead of a raw serde
+  type error, and the served schemas state the same `minimum`/`maximum` the
+  handlers enforce. `line_histogram`'s `mode`/`line`/`start`/`end` sets are
+  validated as a set: an unknown mode, `mode: extract` with no selector,
+  `end` without `start`, `start` past `end`, and a selector without
+  `mode: extract` are all named errors.
 
 ## [0.11.0] - 2026-10-04
 
 ### Added
 
 - The window tools (`list_sessions`, `she_said_he_said_action`,
- `index_sessions`, `do_android_dream_of_electric_sheep`) take `all: true`
- as the explicit whole-store opt-in — every session of every project the
- store holds — and reject `all: true` combined with `hours_back`: pass
- one, not both. The adapter keeps `0` as its unbounded mechanism; only
- `all: true` reaches it.
+  `index_sessions`, `do_android_dream_of_electric_sheep`) take `all: true`
+  as the explicit whole-store opt-in — every session of every project the
+  store holds — and reject `all: true` combined with `hours_back`: pass
+  one, not both. The adapter keeps `0` as its unbounded mechanism; only
+  `all: true` reaches it.
 
 ### Changed
 
 - The scope contract: every tool defaults to the smallest useful scope,
- work is bounded where the data lives, breadth is an explicit opt-in, and an
- unscoped request is rejected with the cheap forms named — never clamped,
- never silently run (README, docs/src/tools.md).
+  work is bounded where the data lives, breadth is an explicit opt-in, and an
+  unscoped request is rejected with the cheap forms named — never clamped,
+  never silently run (README, docs/src/tools.md).
 - `hours_back` is a window in hours, `1` or more, on the four window tools:
- `hours_back: 0` is rejected as a tool error naming the cheap forms —
- never clamped, never "no bound". The old "0 = no bound" default is gone
- from the MCP layer; the CLI keeps its own doctrine (`--hours 0` is the
- unbounded stream, the command typed is the scope asked for).
+  `hours_back: 0` is rejected as a tool error naming the cheap forms —
+  never clamped, never "no bound". The old "0 = no bound" default is gone
+  from the MCP layer; the CLI keeps its own doctrine (`--hours 0` is the
+  unbounded stream, the command typed is the scope asked for).
 - `index_sessions` defaults to `hours_back: 24` — the natural call indexes
- the last day, not the whole store; whole-store indexing is `all: true`,
- explicit.
+  the last day, not the whole store; whole-store indexing is `all: true`,
+  explicit.
 - The window tools' schema descriptions speak in one voice: `session_id`
- "Empty = the window (hours_back / directory / all)", hours_back "a window
- in hours, 1 or more; 0 is rejected", and every "0 = no bound" is gone
- from the MCP schema strings.
+  "Empty = the window (hours_back / directory / all)", hours_back "a window
+  in hours, 1 or more; 0 is rejected", and every "0 = no bound" is gone
+  from the MCP schema strings.
 
 ## [0.10.0] - 2026-10-03
 
 ### Changed
 
 - The two LLM prompts of the recall path are byte-bounded: the current-state
- summary keeps the newest messages and the user-goals summary keeps the newest
- user messages, each under a 200 KB payload budget (~50K tokens, ~3s of
- ingest at the documented 1,000,000 input tokens/minute free-tier ceiling).
- A session too large to send in one piece now costs a bounded prompt instead of
- a request that cannot be ingested: past the vendor's input ceiling it was a
- hard error, and under it the ingest alone outran the client's deadline, which
- is why `total_recall` timed out on a multi-gigabyte store.
- Truncation is tail-kept at a line and character boundary, never mid-character,
- and never silent.
+  summary keeps the newest messages and the user-goals summary keeps the newest
+  user messages, each under a 200 KB payload budget (~50K tokens, ~3s of
+  ingest at the documented 1,000,000 input tokens/minute free-tier ceiling).
+  A session too large to send in one piece now costs a bounded prompt instead of
+  a request that cannot be ingested: past the vendor's input ceiling it was a
+  hard error, and under it the ingest alone outran the client's deadline, which
+  is why `total_recall` timed out on a multi-gigabyte store (issue #17).
+  Truncation is tail-kept at a line and character boundary, never mid-character,
+  and never silent.
 - The recent-rollouts table holds at most 200 rows, the most recent in the
- window, and states how many older sessions in the window it did not print.
+  window, and states how many older sessions in the window it did not print.
 
 ### Fixed
 
 - A bounded recall prompt now says what it dropped: a marker line inside the
- prompt names the number of items and the number of bytes, and the timing
- comment at the top of the `total_recall` response carries both prompts' byte
- sizes and dropped counts.
+  prompt names the number of items and the number of bytes, and the timing
+  comment at the top of the `total_recall` response carries both prompts' byte
+  sizes and dropped counts.
 - The vendored `line_histogram.awk` is published to its shared staged path
- atomically (write beside, rename over) instead of truncated and rewritten in
- place. Concurrent capped calls — parallel tool calls, or the test binaries
- cargo runs side by side — could previously read a half-written script, and a
- call that lost the race returned no bucket distribution at all: the overflow
- marker silently dropped the histogram it exists to carry. Measured on the old
- staging, 1 to 8 of 96 concurrent histogram calls came back empty.
+  atomically (write beside, rename over) instead of truncated and rewritten in
+  place. Concurrent capped calls — parallel tool calls, or the test binaries
+  cargo runs side by side — could previously read a half-written script, and a
+  call that lost the race returned no bucket distribution at all: the overflow
+  marker silently dropped the histogram it exists to carry. Measured on the old
+  staging, 1 to 8 of 96 concurrent histogram calls came back empty.
 
 ## [0.9.2] - 2026-10-03
 
 ### Fixed
 
 - An omitted `session_id` deserialized as a hard failure instead of the
- documented "Empty = most recent" default. Six params structs
- lacked `#[serde(default)]` on the field — profile, extract messages,
- extract user messages, extract by type, compact and total_recall — so
- `total_recall` with only `hours_back` failed with "missing field
- `session_id`" while `{"session_id": ""}` worked. The description was
- right; the struct was wrong.
+  documented "Empty = most recent" default (issue #18). Six params structs
+  lacked `#[serde(default)]` on the field — profile, extract messages,
+  extract user messages, extract by type, compact and total_recall — so
+  `total_recall` with only `hours_back` failed with "missing field
+  `session_id`" while `{"session_id": ""}` worked. The description was
+  right; the struct was wrong.
 
 ## [0.9.1] - 2026-10-02
 
 ### Added
 
 - Flood control, generic and open-ended. Every tool response that can
- overflow without its own bound routes through one capped helper:
- `max_bytes` (default 16,384, settable on `she_said_he_said_action`,
- `do_android_dream_of_electric_sheep` and `total_recall`), the whole
- response written to a private file under `$TMPDIR/total-recall/`
- (mode 600), a line-boundary cut, and a line-oriented EOF marker naming
- the tool, the byte counts, the line count, the file's path, the 24-hour
- prune policy and the file's line histogram. JSON responses are never
- torn: an overflowing JSON response returns the marker alone. The
- bounded-extraction tools keep their own envelope as their flood control.
+  overflow without its own bound routes through one capped helper:
+  `max_bytes` (default 16,384, settable on `she_said_he_said_action`,
+  `do_android_dream_of_electric_sheep` and `total_recall`), the whole
+  response written to a private file under `$TMPDIR/total-recall/`
+  (mode 600), a line-boundary cut, and a line-oriented EOF marker naming
+  the tool, the byte counts, the line count, the file's path, the 24-hour
+  prune policy and the file's line histogram. JSON responses are never
+  torn: an overflowing JSON response returns the marker alone. The
+  bounded-extraction tools keep their own envelope as their flood control.
 - The `line_histogram` MCP tool, running the vendored
- `scripts/line_histogram.awk` (the author's gist
- 0454936144ee8dbc55bdc96ef532555e, byte-identical, embedded at compile
- time) with a direct `awk -f` spawn: histogram mode profiles any file in
- ten buckets (2 MB in, ~2 KB out), extract mode pages line ranges.
+  `scripts/line_histogram.awk` (the author's gist
+  0454936144ee8dbc55bdc96ef532555e, byte-identical, embedded at compile
+  time) with a direct `awk -f` spawn: histogram mode profiles any file in
+  ten buckets (2 MB in, ~2 KB out), extract mode pages line ranges.
 
 ### Changed
 
 - `she_said_he_said_action`, `index_sessions` and
- `do_android_dream_of_electric_sheep` take one `session_id` (partial
- match) instead of a sessions array, matching the rest of the tool
- surface. `list_sessions` — the one listing tool — takes a `hours_back`
- cutoff that now defaults to 240 hours (10 days; 0 = no bound), so an
- unbounded full-store list is no longer the default.
+  `do_android_dream_of_electric_sheep` take one `session_id` (partial
+  match) instead of a sessions array, matching the rest of the tool
+  surface. `list_sessions` — the one listing tool — takes a `hours_back`
+  cutoff that now defaults to 240 hours (10 days; 0 = no bound), so an
+  unbounded full-store list is no longer the default.
 - The markdown docs no longer repeat the generated parameter surfaces:
- `tools/list` for the MCP tools and `total-recall --help` for the CLI are
- the authority, and the prose states the generic contracts that apply to
- tools added later.
+  `tools/list` for the MCP tools and `total-recall --help` for the CLI are
+  the authority, and the prose states the generic contracts that apply to
+  tools added later.
 
 ### Fixed
 
 - Redaction panicked on multibyte text: the prefix scanner walked
- byte-wise and sliced inside an em-dash, so compacting any session whose
- prose contains one died. Compaction of the authoring session was the
- reproduction.
+  byte-wise and sliced inside an em-dash, so compacting any session whose
+  prose contains one died. Compaction of the authoring session was the
+  reproduction.
 - Overflow files collided when two capped calls landed in the same second,
- the second silently overwriting the first's file; the name now carries
- millis, pid and a per-process counter.
+  the second silently overwriting the first's file; the name now carries
+  millis, pid and a per-process counter.
 
 ## [0.9.0] - 2026-10-02
 
 ### Fixed
 
 - The `compact_session` MCP tool description no longer claims `--provider`
- selects the vendor. The flag is a CLI option; the MCP server constructs the
- compiled-in default provider and never read it, so the description
- advertised a control that did not exist. It now states the vendor compiled
- in as the default without naming the flag at all, and a new invariant test
- fails if any tool description mentions `--provider` again.
+  selects the vendor. The flag is a CLI option; the MCP server constructs the
+  compiled-in default provider and never read it, so the description
+  advertised a control that did not exist. It now states the vendor compiled
+  in as the default without naming the flag at all, and a new invariant test
+  fails if any tool description mentions `--provider` again.
 
 ### Changed
 
 - The test suite's scratch directories are unique per call, from one shared
- helper (`tests/common/scratch.rs`), with a hygiene test failing if any test
- file reintroduces a name-keyed temporary path. Two test files were observed
- failing under concurrent runs before the change: `sheep.rs` (four
- concurrent runs, all four red) and `rollout_opencode.rs` (four runs, all
- four red, on "table session already exists" and "disk I/O error").
+  helper (`tests/common/scratch.rs`), with a hygiene test failing if any test
+  file reintroduces a name-keyed temporary path. Two test files were observed
+  failing under concurrent runs before the change: `sheep.rs` (four
+  concurrent runs, all four red) and `rollout_opencode.rs` (four runs, all
+  four red, on "table session already exists" and "disk I/O error").
 - Every spawned test child runs outside the repository working tree with the
- vendor keys removed from its environment. `dotenvy` walks up parent
- directories, so a child started from the crate root could have read the
- developer's `.env`.
+  vendor keys removed from its environment. `dotenvy` walks up parent
+  directories, so a child started from the crate root could have read the
+  developer's `.env`.
 - Timing assertions moved out of the test suite and into a criterion bench
- (`bench_committed_fixtures`, over committed fixtures). The old 10 ms
- formatting budget was a load detector — it failed twice at 12.04 ms and
- 21.02 ms against a ~2.5 ms median on a loaded machine, which is a bound no
- budget can be both tight enough to guard and loose enough to survive.
+  (`bench_committed_fixtures`, over committed fixtures). The old 10 ms
+  formatting budget was a load detector — it failed twice at 12.04 ms and
+  21.02 ms against a ~2.5 ms median on a loaded machine, which is a bound no
+  budget can be both tight enough to guard and loose enough to survive.
 
 ## [0.8.0] - 2026-10-01
 
 ### Added
 
 - Secret redaction in the prompt path. `redact_secrets()` replaces every
- recognised credential shape with a `[REDACTED:<kind>]` marker before session
- content is sent to a vendor: vendor key shapes (`sk_`, `sk-`, `sk-ant-`,
- `tvly-`, `ctx7sk-`, Slack, GitLab, Google), GitHub tokens, `Bearer` header
- values, `key = value` assignments for credential-named keys, PEM private-key
- blocks, and JWTs. Unconditional — no flag, no environment variable, no
- vendor-by-vendor opt-out. It runs in prompt assembly (before the 500-char
- tool-result snip, so a key cannot be cut in half and have its prefix
- shipped) and again in `mercury::send_guarded`, so a future prompt builder
- that forgets the call still cannot put a key on the wire. SECURITY.md now
- documents what is redacted and the two limits of shape matching. This
- restores to the Rust implementation the redaction that 0.2.1 shipped in
- `compact.py` and that was lost when that file was deleted as dead code.
+  recognised credential shape with a `[REDACTED:<kind>]` marker before session
+  content is sent to a vendor: vendor key shapes (`sk_`, `sk-`, `sk-ant-`,
+  `tvly-`, `ctx7sk-`, Slack, GitLab, Google), GitHub tokens, `Bearer` header
+  values, `key = value` assignments for credential-named keys, PEM private-key
+  blocks, and JWTs. Unconditional — no flag, no environment variable, no
+  vendor-by-vendor opt-out. It runs in prompt assembly (before the 500-char
+  tool-result snip, so a key cannot be cut in half and have its prefix
+  shipped) and again in `mercury::send_guarded`, so a future prompt builder
+  that forgets the call still cannot put a key on the wire. SECURITY.md now
+  documents what is redacted and the two limits of shape matching. This
+  restores to the Rust implementation the redaction that 0.2.1 shipped in
+  `compact.py` and that was lost when that file was deleted as dead code.
 - LLM vendors are compile-time cargo features. `default = ["mercury", "mistral"]`;
- a `--no-default-features` build makes no LLM call, needs no API key, and does
- not even load a `.env` (`dotenvy` is behind the vendor features). Vendor URLs,
- models, keys and dotenv loading are behind `cfg`, and provider construction
- funnels through `mercury::provider_for`.
+  a `--no-default-features` build makes no LLM call, needs no API key, and does
+  not even load a `.env` (`dotenvy` is behind the vendor features). Vendor URLs,
+  models, keys and dotenv loading are behind `cfg`, and provider construction
+  funnels through `mercury::provider_for`.
 - `compact` honours `--provider`, which it previously ignored. An unrecognised
- provider is now an error instead of a silent fall-back to Mercury.
+  provider is now an error instead of a silent fall-back to Mercury.
 - `TOTAL_RECALL_{VIBE,CLAUDE,CODEX,OPENCODE}_ROOT` storage-root overrides and
- the `TOTAL_RECALL_SANDBOX=1` guard that fails closed rather than reading a
- live store.
+  the `TOTAL_RECALL_SANDBOX=1` guard that fails closed rather than reading a
+  live store.
 - A documentation site at https://prompt-cult.github.io/total-recall/, built
- from `book.toml` + `docs/src` with mdBook and deployed to GitHub Pages by the
- official `upload-pages-artifact` / `deploy-pages` path. PRs build the book and
- run a link check (mdBook resolves links but does not verify that a target
- exists); only a push to main deploys.
+  from `book.toml` + `docs/src` with mdBook and deployed to GitHub Pages by the
+  official `upload-pages-artifact` / `deploy-pages` path. PRs build the book and
+  run a link check (mdBook resolves links but does not verify that a target
+  exists); only a push to main deploys.
 
 ### Changed
 
 - MCP tools stay registered when their vendor is compiled out, returning a tool
- error naming the feature to rebuild with, rather than vanishing from
- `tools/list` and breaking clients that bind by name.
+  error naming the feature to rebuild with, rather than vanishing from
+  `tools/list` and breaking clients that bind by name.
 - The MCP server key is `total-recall` in both registration snippets (was
- `compaction`); MCP tool names derive from it, so the old key showed the tool
- surface under the wrong identity. The snippets now carry
- `INCEPTION_API_KEY` in their environment blocks, because a spawned server
- only resolves `.env` relative to a working directory the MCP client controls.
+  `compaction`); MCP tool names derive from it, so the old key showed the tool
+  surface under the wrong identity. The snippets now carry
+  `INCEPTION_API_KEY` in their environment blocks, because a spawned server
+  only resolves `.env` relative to a working directory the MCP client controls.
 - `docs/opencode-store-vacuum.md` replaces the root-level `vacuum.md`, which
- pointed at a gitignored rehearsal artefact no cloner could have.
+  pointed at a gitignored rehearsal artefact no cloner could have.
 - Documentation DoD: `LICENSE-MIT` and `LICENSE-APACHE` (dual
- `MIT OR Apache-2.0`), `SECURITY.md`, `CONTRIBUTING.md`,
- `CODE_OF_CONDUCT.md`, this changelog, and the Cargo package metadata
- (`license`, `repository`, `homepage`, `readme`, `keywords`, `categories`,
- `exclude`).
+  `MIT OR Apache-2.0`), `SECURITY.md`, `CONTRIBUTING.md`,
+  `CODE_OF_CONDUCT.md`, this changelog, and the Cargo package metadata
+  (`license`, `repository`, `homepage`, `readme`, `keywords`, `categories`,
+  `exclude`).
 - Release assets are laid out for the tool fetchers: each platform leg stages
- `total-recall_<version>_<target-triple>.tar.gz` with the single executable at
- the archive root, plus a `SHA256SUMS` covering them. Archives are
- reproducible (ustar, zeroed mtime, uid/gid 0, `gzip -n`), so the same source
- yields the same bytes. `mise use github:prompt-cult/total-recall` installs
- from a release without a `matching=` hint.
+  `total-recall_<version>_<target-triple>.tar.gz` with the single executable at
+  the archive root, plus a `SHA256SUMS` covering them. Archives are
+  reproducible (ustar, zeroed mtime, uid/gid 0, `gzip -n`), so the same source
+  yields the same bytes. `mise use github:prompt-cult/total-recall` installs
+  from a release without a `matching=` hint.
 
 ### Fixed
 
 - Unreadable rollout data is an error, never an empty session. Every adapter
- read path swallowed I/O failure and returned zero messages, so a missing
- file, a directory where `messages.jsonl` should be, and an unopenable
- database each looked exactly like a store with nothing in it.
- `RolloutAdapter` read methods now return `ReadResult<T> = Result<T, String>`
- with messages naming the failed path; the `File::create("/dev/null")` and
- `Mmap::ok() -> &[]` fallbacks are gone; `list_sessions` sets `read_error` for
- codex, claude and mock, matching the rule vibe already used; malformed JSONL
- lines are traced with their line number; MCP tools answer `isError` and the
- CLI exits 2. Tool response payloads are unchanged — no field added, removed
- or renamed.
+  read path swallowed I/O failure and returned zero messages, so a missing
+  file, a directory where `messages.jsonl` should be, and an unopenable
+  database each looked exactly like a store with nothing in it.
+  `RolloutAdapter` read methods now return `ReadResult<T> = Result<T, String>`
+  with messages naming the failed path; the `File::create("/dev/null")` and
+  `Mmap::ok() -> &[]` fallbacks are gone; `list_sessions` sets `read_error` for
+  codex, claude and mock, matching the rule vibe already used; malformed JSONL
+  lines are traced with their line number; MCP tools answer `isError` and the
+  CLI exits 2. Tool response payloads are unchanged — no field added, removed
+  or renamed.
 - `scripts/opencode-db-vacuum.sh`: `OPENDOC_DB` → `OPENCODE_DB`, and a dropped
- `OPENDOC_SKIP_PROCESS_CHECK` line that documented a flag `cmd_check` never
- read.
+  `OPENDOC_SKIP_PROCESS_CHECK` line that documented a flag `cmd_check` never
+  read.
 - Removed committed scratch: the tracked borrow-checker (`test_borrow.rs`) and
- its compiled binary from the repository root, plus the `test_borrow`
- artefacts the tree carried since 0.6.1.
+  its compiled binary from the repository root, plus the `test_borrow`
+  artefacts the tree carried since 0.6.1.
 - Test scratch directories are unique per call rather than per process. The
- vendor-feature tests keyed a child process's working directory on the pid,
- which every test in one binary shares, so a helper deleted the directory out
- from under a sibling thread's running child — an intermittent failure that
- only bit right after a recompile.
+  vendor-feature tests keyed a child process's working directory on the pid,
+  which every test in one binary shares, so a helper deleted the directory out
+  from under a sibling thread's running child — an intermittent failure that
+  only bit right after a recompile.
 
 ## [0.7.0] - 2026-09-24
 
 ### Added
 
 - Opt-in `profile_session` cache. `--cache` (CLI global flag) and the `cache`
- argument (MCP) serve a profile from `tr_<session-id>_meta.json` in the
- adapter's shadow root, with staleness checked against one cheap
- `time_updated` source (a single `SELECT time_updated` row for opencode, the
- source file's mtime elsewhere) and a 15 s tolerance. Fresh → served from
- cache; stale, missing or corrupt → recomputed and rewritten. Cached payloads
- are validated on read through an RFC 8927 JSON Type Definition schema
- (`schemas/profile-cache.jtd`) compiled by `jtd-codegen`; a payload failing
- that gate is treated as corrupt. With the flag off, behaviour is
- byte-for-byte the pre-cache path and no cache file is created.
-- Cheap most-recent-session resolution.
+  argument (MCP) serve a profile from `tr_<session-id>_meta.json` in the
+  adapter's shadow root, with staleness checked against one cheap
+  `time_updated` source (a single `SELECT time_updated` row for opencode, the
+  source file's mtime elsewhere) and a 15 s tolerance. Fresh → served from
+  cache; stale, missing or corrupt → recomputed and rewritten. Cached payloads
+  are validated on read through an RFC 8927 JSON Type Definition schema
+  (`schemas/profile-cache.jtd`) compiled by `jtd-codegen`; a payload failing
+  that gate is treated as corrupt. With the flag off, behaviour is
+  byte-for-byte the pre-cache path and no cache file is created.
+- Cheap most-recent-session resolution (#11).
 
 ### Fixed
 
-- Claude adapter against the real `~/.claude/projects` store: nested
- project-dir session discovery, uuid-stem ids, `ai-title`, timestamps,
- directory, thinking blocks, array-form `tool_result`, `subagents/` excluded.
+- Claude adapter against the real `~/.claude/projects` store (#13): nested
+  project-dir session discovery, uuid-stem ids, `ai-title`, timestamps,
+  directory, thinking blocks, array-form `tool_result`, `subagents/` excluded.
 
 ## [0.6.2] - 2026-09-22
 
 ### Fixed
 
 - Bounded extraction emits compact JSON and computes bounding on the same
- compact serialization that is emitted, so the payload respects `max_bytes`
- exactly with no pretty-print inflation past the contract.
+  compact serialization that is emitted, so the payload respects `max_bytes`
+  exactly with no pretty-print inflation past the contract.
 - When even one record cannot fit under the budget after the envelope reserve,
- the tool emits a descriptive error instead of silently breaking the cap (same
- guard on the CLI: stderr, exit 2).
+  the tool emits a descriptive error instead of silently breaking the cap (same
+  guard on the CLI: stderr, exit 2).
 - An empty result window — an empty session, or paging past the end — never
- signals truncation in `bounds`.
+  signals truncation in `bounds`.
 - `list_sessions` surfaces read damage: a payload that cannot be read carries
- `read_error` on the entry. A missing file is not damage.
+  `read_error` on the entry. A missing file is not damage.
 - `extract_by_type` gains `include_injected` (MCP) / `--include-injected` (CLI)
- to reconstruct sessions containing synthetic records; the record carries the
- `injected` flag either way.
+  to reconstruct sessions containing synthetic records; the record carries the
+  `injected` flag either way.
 
 ## [0.6.1] - 2026-09-21
 
 ### Added
 
 - `TOTAL_RECALL_{VIBE,CLAUDE,CODEX,OPENCODE}_ROOT` environment overrides, and
- `TOTAL_RECALL_SANDBOX=1` to make `make_adapter` fail closed rather than read a
- live store.
+  `TOTAL_RECALL_SANDBOX=1` to make `make_adapter` fail closed rather than read a
+  live store.
 - `list_sessions` emits one canonical entry per vibe rollout payload, with other
- directory names that resolve to the same payload listed under `aliases`, so a
- caller paging the index never processes the same rollout twice. The canonical
- id is the one whose directory-name date prefix agrees with the session's
- start time.
+  directory names that resolve to the same payload listed under `aliases`, so a
+  caller paging the index never processes the same rollout twice. The canonical
+  id is the one whose directory-name date prefix agrees with the session's
+  start time.
 - `extract_messages` / `extract_user_messages` return a bounded JSON envelope —
- default most-recent-100, 8 MiB ceiling, 256 KiB per-record clamp — with
- `next_offset` paging and an explicit truncation notice. **Breaking shape
- change** from a bare array.
+  default most-recent-100, 8 MiB ceiling, 256 KiB per-record clamp — with
+  `next_offset` paging and an explicit truncation notice. **Breaking shape
+  change** from a bare array.
 - New `extract_by_type` MCP tool and `extract-by-type` CLI subcommand: a raw
- recovery dump as `type,timestamp,json` lines under a `#`-prefixed header
- carrying the bounds. For vibe the records are the byte-faithful source lines
- re-parsed from `messages.jsonl`.
+  recovery dump as `type,timestamp,json` lines under a `#`-prefixed header
+  carrying the bounds. For vibe the records are the byte-faithful source lines
+  re-parsed from `messages.jsonl`.
 - Documentation: the opencode store vacuum write-up (measured breakdown, safe
- prune/vacuum/swap procedure), its helper script, and the harness skills for
- the dream-pass search and the vacuum.
+  prune/vacuum/swap procedure), its helper script, and the harness skills for
+  the dream-pass search and the vacuum.
 
 ## [0.5.0] - 2026-09-20
 
 ### Added
 
 - `do_android_dream_of_electric_sheep`: tantivy per-session shadow-index
- full-text search over `content` **and** `thinking`, merging the top hits per
- session into one score-ordered ranking. `list_sessions` and `profile_session`
- gain a `has_tantivy_index` presence flag.
+  full-text search over `content` **and** `thinking`, merging the top hits per
+  session into one score-ordered ranking. `list_sessions` and `profile_session`
+  gain a `has_tantivy_index` presence flag.
 
 ### Changed
 
 - Rationalisation pass: simplified `fragment_for`, moved `is_iso8601`, deduped
- `resolve_session`, slimmed tokio features. `.tantivy` is now gitignored.
+  `resolve_session`, slimmed tokio features. `.tantivy` is now gitignored.
 
 ### Documentation
 
@@ -827,8 +832,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Batch parallelism is now asserted from served-request overlap rather than a
- wall-clock fraction, which was flaky on CI. Results-order and count checks are
- kept.
+  wall-clock fraction, which was flaky on CI. Results-order and count checks are
+  kept.
 
 ## [0.4.1] - 2026-09-15
 
@@ -841,14 +846,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `she_said_he_said_action`: term-matched dialogue and tool mining, with
- matching pushed down into SQLite as a custom scalar function on a read-only
- connection. Emits HE SAID (user text), SHE SAID (assistant text) and THEY DID
- (tool calls) per session as a markdown report, most-recent session first.
+  matching pushed down into SQLite as a custom scalar function on a read-only
+  connection. Emits HE SAID (user text), SHE SAID (assistant text) and THEY DID
+  (tool calls) per session as a markdown report, most-recent session first.
 - `list_sessions` gains `hours_back` and `directory` bounds, rewritten as a
- single GROUP BY query with no correlated subqueries.
+  single GROUP BY query with no correlated subqueries.
 - Mercury ingestion guardrails: a 1M-token per-call input cap, concurrency 4,
- 429/Retry-After backoff, and `compact_batch`. Measured against a PAYG key on
- 2026-09-15 with real rollout payloads.
+  429/Retry-After backoff, and `compact_batch`. Measured against a PAYG key on
+  2026-09-15 with real rollout payloads.
 
 ### Changed
 
@@ -859,13 +864,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `total_recall` MCP tool and `recall` CLI subcommand: two parallel Mercury 2.5
- calls (state summary + user goals, tasks and steers), a recent-rollouts table
- with the current session marked `SUMMARISED`, plan/todo files from
- `.tmp/delegation/` and `~/.vibe/plans/`, assembled metadata-first /
- substance-middle / instructions-last for autoregressive LLMs. Supports
- `--provider mistral` for A/B comparison.
+  calls (state summary + user goals, tasks and steers), a recent-rollouts table
+  with the current session marked `SUMMARISED`, plan/todo files from
+  `.tmp/delegation/` and `~/.vibe/plans/`, assembled metadata-first /
+  substance-middle / instructions-last for autoregressive LLMs. Supports
+  `--provider mistral` for A/B comparison.
 - `MercuryProvider::with_api()` and `new_mistral()` for provider switching;
- `reasoning_effort` is now conditional on Mercury.
+  `reasoning_effort` is now conditional on Mercury.
 
 ### Changed
 
@@ -878,18 +883,18 @@ The first tagged release, and the end of the Python prototype.
 ### Added
 
 - Universal context compaction: detect JSONL (Vibe, Codex, Claude) or SQLite
- (OpenCode, Cursor), find the last compaction point, prune large tool outputs,
- preserve recent messages, and summarize with Inception Mercury 2.5.
+  (OpenCode, Cursor), find the last compaction point, prune large tool outputs,
+  preserve recent messages, and summarize with Inception Mercury 2.5.
 - Secret redaction in the prompt path — `redact_secrets()` stripping `sk_*`
- keys, `INCEPTION_API_KEY=*`, `MISTRAL_API_KEY=*` and Bearer tokens before text
- left for the vendor. This was part of the Python implementation
- (`compact.py`), which was removed as dead code in 0.4.0; the redaction did not
- carry into the Rust implementation.
+  keys, `INCEPTION_API_KEY=*`, `MISTRAL_API_KEY=*` and Bearer tokens before text
+  left for the vendor. This was part of the Python implementation
+  (`compact.py`), which was removed as dead code in 0.4.0; the redaction did not
+  carry into the Rust implementation.
 - Pairwise summarization evaluations: Mercury against Mistral Small and against
- Haiku, chunked-vs-full comparisons with timings, and promptfoo prompt-variant
- experiments.
+  Haiku, chunked-vs-full comparisons with timings, and promptfoo prompt-variant
+  experiments.
 - Release workflow building Linux and macOS; Windows removed from the matrix,
- and the GitHub ARM runner used instead of Blacksmith.
+  and the GitHub ARM runner used instead of Blacksmith.
 
 [0.13.0]: https://github.com/prompt-cult/total-recall/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/prompt-cult/total-recall/compare/v0.11.2...v0.12.0

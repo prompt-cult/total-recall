@@ -60,12 +60,12 @@ exceed what an MCP client can hold:
 
 ```json
 { "session_id": "…", "harness": "vibe", "full": false,
- "bounds": { "total_records": 7525, "returned_records": 100, "offset": 7425,
-       "limit": 100, "next_offset": null, "truncated": true,
-       "truncation_reason": "record_limit", "max_bytes": 8388608,
-       "bytes": 153220, "clamped_record_indices": [],
-       "notice": "TRUNCATED: returned records 7425..7525 of 7525 …" },
- "messages": [ … ] }
+  "bounds": { "total_records": 7525, "returned_records": 100, "offset": 7425,
+              "limit": 100, "next_offset": null, "truncated": true,
+              "truncation_reason": "record_limit", "max_bytes": 8388608,
+              "bytes": 153220, "clamped_record_indices": [],
+              "notice": "TRUNCATED: returned records 7425..7525 of 7525 …" },
+  "messages": [ … ] }
 ```
 
 `extract_user_messages` is identical with `user_messages` in place of
@@ -126,10 +126,10 @@ typed, chronologically:
 --- QA 1 (2026-10-12T08:15:04Z)
 HEADER: Branch
 OPTIONS:
- - main — the trunk, release when green
- - feature — cut a branch instead
+  - main — the trunk, release when green
+  - feature — cut a branch instead
 ANSWERS:
- - main
+  - main
 ```
 
 For opencode the pairs are read store-side from the `question` tool parts
@@ -255,18 +255,18 @@ it (each also a CLI subcommand: `summary-cache`, `summarise-from`,
 `cache-delete-latest`):
 
 - **`summary_cache`** — read-only introspection: the cached blocks with their
- id ranges, type counts, chars and token estimates, plus the **tail** (the
- first unsummarised id and what a summarise from there would cost), or
- `tail: null` when everything is covered. Never calls the LLM, never writes.
+  id ranges, type counts, chars and token estimates, plus the **tail** (the
+  first unsummarised id and what a summarise from there would cost), or
+  `tail: null` when everything is covered. Never calls the LLM, never writes.
 - **`summarise_from`** (`session_id` + `from_id`) — summarise from an explicit
- id. The guard: `from_id` must be the first unsummarised id (one past the
- last block's `to_id`, or `1` with no blocks) — anything else is an error
- naming the expected id. On success: the composed parts
- (`### part N: from_ts → to_ts (ids from_id..to_id)`) plus the
- `summary cache:` footer, and the new block stored.
+  id. The guard: `from_id` must be the first unsummarised id (one past the
+  last block's `to_id`, or `1` with no blocks) — anything else is an error
+  naming the expected id. On success: the composed parts
+  (`### part N: from_ts → to_ts (ids from_id..to_id)`) plus the
+  `summary cache:` footer, and the new block stored.
 - **`cache_delete_latest`** — roll the cache back one block: the newest ledger
- row and its part file are deleted and the new cache status is returned. No
- blocks → an error, not a no-op.
+  row and its part file are deleted and the new cache status is returned. No
+  blocks → an error, not a no-op.
 
 `list_sessions` rows carry a `summary_cache` marker
 (`{through_id, through_ts}`, absent when nothing is cached), so a listing
@@ -298,29 +298,29 @@ the store holds), and breadth is an explicit opt-in — never a default, never
 a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
- `extract_user_messages`, `extract_by_type`,
- `prior_period_summary`, `he_said_she_said_they_did`): `session_id` partial match; empty = the
- most recent session.
+  `extract_user_messages`, `extract_by_type`,
+  `prior_period_summary`, `he_said_she_said_they_did`): `session_id` partial match; empty = the
+  most recent session.
 - **Window tools** (`list_sessions`,
- `index_sessions`,
- `do_android_dream_of_electric_sheep`): `session_id`
- selects explicitly; when empty the tool works its window — `hours_back`
- (a window in hours, `1` or more) and optionally `directory`. `0` means
- "omitted", so it takes the tool's default window — never the whole store.
- `all: true` (the explicit whole-store opt-in) combined with a real
- `hours_back` is rejected as the contradiction it is. Every rejection names
- the cheap forms — the error is the documentation. The same rule governs
- every numeric input: `limit` above 1000, a `max_bytes` above the 8 MiB
- ceiling, a 0-based `line`/`start`, and an empty search query.
+  `index_sessions`,
+  `do_android_dream_of_electric_sheep`): `session_id`
+  selects explicitly; when empty the tool works its window — `hours_back`
+  (a window in hours, `1` or more) and optionally `directory`. `0` means
+  "omitted", so it takes the tool's default window — never the whole store.
+  `all: true` (the explicit whole-store opt-in) combined with a real
+  `hours_back` is rejected as the contradiction it is. Every rejection names
+  the cheap forms — the error is the documentation. The same rule governs
+  every numeric input: `limit` above 1000, a `max_bytes` above the 8 MiB
+  ceiling, a 0-based `line`/`start`, and an empty search query.
 - Unknown parameters are rejected by name — a typo is a silently unscoped
- call otherwise — and every served schema states the bounds the handlers
- enforce (`minimum`, `maximum`).
+  call otherwise — and every served schema states the bounds the handlers
+  enforce (`minimum`, `maximum`).
 - Listings render as many of the most recent rows as the response budget
- holds (at most the 200 the store query bounds) and state how many rows the
- window holds but did not print.
+  holds (at most the 200 the store query bounds) and state how many rows the
+  window holds but did not print.
 - The CLI keeps its own doctrine: stdout is a stream, `0` means unbounded,
- and the command typed is the scope asked for. The MCP tools — the ones an
- agent calls on the caller's behalf — reject the unscoped call instead.
+  and the command typed is the scope asked for. The MCP tools — the ones an
+  agent calls on the caller's behalf — reject the unscoped call instead.
 
 ## Ingestion guardrails
 
@@ -331,30 +331,30 @@ tokens, concurrency ramped 1→64). The free tier carries the same caps —
 exceeding any of them returns HTTP 429:
 
 - **The binding limit is ~1M input tokens/minute** (the documented input
- cap). Requests/min (1,000) and output tokens/min (100,000) never bind for
- compaction workloads.
+  cap). Requests/min (1,000) and output tokens/min (100,000) never bind for
+  compaction workloads.
 - **Per-call input cap: 450,000 tokens — 90% of Mercury 3's 500K context
- window** (half of the model's 1M window, deliberately, so summarisation
- keeps headroom and sends more of the session intact rather than pruning
- harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
- rollout is never slung in one call; an over-cap prompt is rejected with an
- error, never truncated. Practical calls stay far below the cap — tool
- results are snipped to 500 chars in prompt assembly, and a prompt built
- from a whole session is held to a byte budget, so an over-cap prompt is
- never assembled in the first place.
+  window** (half of the model's 1M window, deliberately, so summarisation
+  keeps headroom and sends more of the session intact rather than pruning
+  harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
+  rollout is never slung in one call; an over-cap prompt is rejected with an
+  error, never truncated. Practical calls stay far below the cap — tool
+  results are snipped to 500 chars in prompt assembly, and a prompt built
+  from a whole session is held to a byte budget, so an over-cap prompt is
+  never assembled in the first place.
 - **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
- sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
- (latency is flat across payload sizes and concurrency). Beyond
- concurrency 8 the 429 wall arrives with no throughput gain.
+  sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s
+  (latency is flat across payload sizes and concurrency). Beyond
+  concurrency 8 the 429 wall arrives with no throughput gain.
 - **429 handling**: at most 5 retries, then a descriptive error naming the
- status and the exhausted budget — never a silent drop. `Retry-After`
- (seconds form) is honoured in full and capped at 10s per attempt, so
- `Retry-After: 0` comes back immediately; with no parseable header the wait
- doubles from 1s (1s, 2s, 4s, 8s, capped at 10s). Every 429 is logged via
- `tracing`.
+  status and the exhausted budget — never a silent drop. `Retry-After`
+  (seconds form) is honoured in full and capped at 10s per attempt, so
+  `Retry-After: 0` comes back immediately; with no parseable header the wait
+  doubles from 1s (1s, 2s, 4s, 8s, capped at 10s). Every 429 is logged via
+  `tracing`.
 - **5xx handling**: 3 retries at ~1s spacing, then an error naming the
- status. The two budgets are independent: 429s never consume 5xx retries
- or vice versa.
+  status. The two budgets are independent: 429s never consume 5xx retries
+  or vice versa.
 
 These contracts are asserted against a local mock server in
 `tests/mercury_guardrails.rs`; no test ever calls the real API.
@@ -372,15 +372,15 @@ cannot forge.
 2. Lists recent rollouts (24h filter, configurable) with the current session marked SUMMARISED
 3. Lists plan/todo files from `.tmp/delegation/` and `~/.vibe/plans/`
 4. Folds in the period's todo log (opencode) — items opened and closed with
-  timings, the state-change history, and a churn note when items open
-  faster than they close, with the human's recent steers read into it —
-  and the commits made in the period
+   timings, the state-change history, and a churn note when items open
+   faster than they close, with the human's recent steers read into it —
+   and the commits made in the period
 5. Appends a compaction-points FYI footer (the last few compaction points
-  with message/line counts since each) and a fixed orientation warning:
-  the summary does not attempt to show what was in-flight or the next
-  steps — those are known from the todo list, the user's most recent
-  inputs, and the commit history — so take stock and get your bearings
-  before picking up the work
+   with message/line counts since each) and a fixed orientation warning:
+   the summary does not attempt to show what was in-flight or the next
+   steps — those are known from the todo list, the user's most recent
+   inputs, and the commit history — so take stock and get your bearings
+   before picking up the work
 6. Assembles output in deliberate ordering for autoregressive LLMs: metadata first, ground truth next, substance middle, action last
 
 CLI: `total-recall --harness <h> --session <id> prior-period-summary [--provider mistral]`.
@@ -412,13 +412,13 @@ build is a first-class artifact.
 ```toml
 [features]
 default = ["mercury", "mistral"]
-mercury = ["dep:dotenvy"]  # Inception Mercury 3 (the default provider)
-mistral = ["dep:dotenvy"]  # Mistral, selected with --provider mistral
+mercury = ["dep:dotenvy"]   # Inception Mercury 3 (the default provider)
+mistral = ["dep:dotenvy"]   # Mistral, selected with --provider mistral
 ```
 
 ```bash
-cargo build --release            # both vendors (default)
-cargo build --release --no-default-features  # vendor-free
+cargo build --release                        # both vendors (default)
+cargo build --release --no-default-features   # vendor-free
 ```
 
 A **vendor-free build makes no LLM calls and needs no API key** — it never
@@ -519,12 +519,12 @@ Three vibe store layouts are read, side by side:
 
 - **pre-3.x** — flat `session_*/messages.jsonl` directories.
 - **3.0** — a unified store per session under `unified/<uuid>/`, whose
- hash-chained `journal/*.jsonl` was the session's whole record.
+  hash-chained `journal/*.jsonl` was the session's whole record.
 - **3.1.2 and later** — the same unified store, with the session's records in
- content-addressed `chunks/<sha256>.json` files. The journal is now the
- store's *recovery* log and holds only the tail of a session, so the chunk
- files are what answer "what did the user say" — a session with 129 user
- turns reads as one turn when only the journal is walked.
+  content-addressed `chunks/<sha256>.json` files. The journal is now the
+  store's *recovery* log and holds only the tail of a session, so the chunk
+  files are what answer "what did the user say" — a session with 129 user
+  turns reads as one turn when only the journal is walked.
 
 The adapter detects the layout per session, reads the chunk store where it
 exists and the journal where it does not, and reads the legacy
@@ -615,11 +615,11 @@ Register it in OpenCode (`~/.config/opencode/opencode.jsonc`):
 
 ```json
 "mcp": {
- "total-recall": {
-  "type": "local",
-  "command": ["/path/to/total-recall", "mcp"],
-  "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
- }
+  "total-recall": {
+    "type": "local",
+    "command": ["/path/to/total-recall", "mcp"],
+    "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
+  }
 }
 ```
 
@@ -631,25 +631,25 @@ launches the client; the server inherits it.
 ## Operations
 
 - [opencode store vacuum](docs/opencode-store-vacuum.md) — measured breakdown
- of the opencode SQLite session store and the safe prune/vacuum/swap
- procedure.
+  of the opencode SQLite session store and the safe prune/vacuum/swap
+  procedure.
 - [`scripts/opencode-db-vacuum.sh`](scripts/opencode-db-vacuum.sh) — the
- helper script implementing that procedure (`check`, `counts`, `backup`,
- `vacuum-into`, `prune-events`, `swap`, `verify`). The store path comes from
- the `OPENCODE_DB` env var.
+  helper script implementing that procedure (`check`, `counts`, `backup`,
+  `vacuum-into`, `prune-events`, `swap`, `verify`). The store path comes from
+  the `OPENCODE_DB` env var.
 
 ## Troubleshooting
 
 - **"LLM provider `mercury` is not compiled into this build"** — the binary
- was built with `--no-default-features` (or without that vendor's feature).
- Rebuild with `cargo build --release --features mercury`, or keep the
- vendor-free build and use the log-mining tools, which need no key.
+  was built with `--no-default-features` (or without that vendor's feature).
+  Rebuild with `cargo build --release --features mercury`, or keep the
+  vendor-free build and use the log-mining tools, which need no key.
 
 - **401 "Incorrect API key" from `prior_period_summary`** — the MCP
- server's environment block is missing `INCEPTION_API_KEY`. List/profile
- work without it (no LLM call); Mercury calls fail. Add the key to the
- snippet's environment (see MCP server above) or export it in the launching
- shell.
+  server's environment block is missing `INCEPTION_API_KEY`. List/profile
+  work without it (no LLM call); Mercury calls fail. Add the key to the
+  snippet's environment (see MCP server above) or export it in the launching
+  shell.
 
 ## Setup
 
@@ -694,16 +694,16 @@ layout above is what such an entry targets:
 
 ```yaml
 packages:
- - type: github_release
-  repo_owner: prompt-cult
-  repo_name: total-recall
-  asset: 'total-recall_{{trimV .Version}}_{{.Arch}}-{{.OS}}.tar.gz'
-  format: tar.gz
-  replacements:
-   amd64: x86_64
-   arm64: aarch64
-   darwin: apple-darwin
-   linux: unknown-linux-gnu
+  - type: github_release
+    repo_owner: prompt-cult
+    repo_name: total-recall
+    asset: 'total-recall_{{trimV .Version}}_{{.Arch}}-{{.OS}}.tar.gz'
+    format: tar.gz
+    replacements:
+      amd64: x86_64
+      arm64: aarch64
+      darwin: apple-darwin
+      linux: unknown-linux-gnu
 ```
 
 `aqua g -i prompt-cult/total-recall` works once that entry is in a registry

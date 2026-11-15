@@ -26,6 +26,6 @@ Be precise. Include file paths, function names, and specific details.
 
 /// Build the structured prompt with the conversation text injected.
 pub fn build_structured_prompt(messages: &[RolloutMessage]) -> String {
-  let conversation = messages_to_text(messages);
-  STRUCTURED_PROMPT.replace("{conversation}", &conversation)
+    let conversation = messages_to_text(messages);
+    STRUCTURED_PROMPT.replace("{conversation}", &conversation)
 }
