@@ -103,19 +103,17 @@ static STAGING_SERIAL: AtomicU64 = AtomicU64::new(0);
 /// Stage the embedded awk script for `awk -f` and return its path. The
 /// shebang in the script is never executed; a direct spawn of `awk` is.
 ///
-/// The staged path is content-stable per release (the script is a build
-/// constant), so concurrent callers never rename over a file a concurrent
-/// `awk -f` holds open — on Windows a rename over an open file either
-/// fails with a sharing violation or lets the reader see an unlinked
-/// file, and the symptom is a histogram call that returns no histogram.
-/// Every writer publishes the SAME bytes under the SAME name, so which
-/// writer's rename wins is irrelevant: the first publication serves all
-/// callers, later ones see the file exists and reuse it.
+/// The staging file is UNIQUE per call — no other thread, process, or
+/// histogram invocation ever names it — so `awk -f` can only ever see the
+/// whole completed script. Shared published names (plain or versioned) are
+/// not robust: on Windows a rename over a file a concurrent `awk -f` holds
+/// open hits sharing-violation territory, and any reader racing the very
+/// first publication can observe a partial file — the symptom being a
+/// histogram call that returns no histogram (the overflow marker silently
+/// losing the bucket distribution it exists to carry). The caller removes
+/// the file after the `awk` run; the temp-root pruning sweeps abandoned
+/// stagings too.
 fn stage_awk_script() -> PathBuf {
-    let path = temp_root().join(format!("line_histogram.{}.awk", env!("CARGO_PKG_VERSION")));
-    if path.is_file() {
-        return path;
-    }
     let _ = fs::create_dir_all(temp_root());
     let staging = temp_root().join(format!(
         ".line_histogram.awk.{}.{}",
@@ -133,15 +131,12 @@ fn stage_awk_script() -> PathBuf {
         use std::io::Write;
         f.write_all(LINE_HISTOGRAM_AWK.as_bytes())
     });
-    match staged {
-        // Only a completely written script is allowed to become the shared
-        // one; a failed write leaves the previous script in place.
-        Ok(()) if fs::rename(&staging, &path).is_ok() => {}
-        _ => {
-            let _ = fs::remove_file(&staging);
-        }
+    if staged.is_err() {
+        // Nothing usable was staged; the caller's awk spawn will fail with
+        // its own error naming the missing file, the house error form.
+        return staging;
     }
-    path
+    staging
 }
 
 /// Run the vendored `line_histogram.awk` over `file`.
@@ -179,6 +174,7 @@ pub fn line_histogram(
     let output = cmd
         .output()
         .map_err(|e| format!("cannot spawn awk -f: {e}"))?;
+    let _ = fs::remove_file(&script);
     if !output.status.success() {
         return Err(format!(
             "line_histogram.awk failed: {}",
