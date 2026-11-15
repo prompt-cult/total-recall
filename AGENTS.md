@@ -51,6 +51,18 @@ suite, and commits (`wip: <summary>` until the feature set is complete).
 - Scratch: use `.tmp/<unique-folder>/`, delete when done. Never use `/tmp`.
 - Timeouts: 30s on commands first; escalate to 120s only with justification.
 
+## The gate (non-negotiable)
+
+`cargo test` alone is not the contract — CI also runs
+`cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`, and
+lint errors found by CI after a push are process failures, not CI noise.
+Nothing may be pushed — by any agent, human or tooling — before the
+pre-push hook runs: `core.hooksPath` is set to `.githooks/` (already
+configured in this clone; a fresh clone does
+`git config core.hooksPath .githooks`). The hook runs the full CI set and
+blocks the push when any of it is red. CI is the second net, not the
+first: branch protection requires the green checks on `main`.
+
 ## Scope
 
 - Never commit `*.env`, `.env`, or anything under `.tmp/`.

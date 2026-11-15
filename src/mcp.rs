@@ -187,54 +187,6 @@ pub struct ExtractByTypeParams {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct QaPairsParams {
-    #[schemars(
-        description = "Session ID (partial match). Empty = the window (hours_back / directory / all)."
-    )]
-    #[serde(default)]
-    pub session_id: String,
-    #[schemars(
-        description = "Hours back when session_id is empty. A window in hours, 1 or more; omitted or 0 = the default window (Default: 48).",
-        range(min = 1)
-    )]
-    #[serde(default)]
-    pub hours_back: Option<i64>,
-    #[schemars(
-        description = "The whole store, explicitly: every session of every project. Default false; with hours_back set it is rejected — pass one, not both."
-    )]
-    #[serde(default)]
-    pub all: bool,
-    #[schemars(description = "Optional directory substring filter (empty-session-id mode).")]
-    pub directory: Option<String>,
-    #[schemars(
-        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
-        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-    )]
-    #[serde(default = "default_max_bytes")]
-    pub max_bytes: i64,
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TodoHistoryParams {
-    #[schemars(description = "Session ID (partial match). Empty = most recent.")]
-    #[serde(default)]
-    pub session_id: String,
-    #[schemars(
-        description = "If true (the default), recover the whole rollout's todo history. If false, read from the last compaction point. Default true, deliberately: this tool's entire purpose is the whole rollout's todo history, and a compaction slice would silently hide most of it."
-    )]
-    #[serde(default = "default_true")]
-    pub full: bool,
-    #[schemars(
-        description = "Flood-control cap on the returned record stream, bytes: 1 or more, up to the 8 MiB ceiling. Default: 16384. The array is cut at a record boundary; on overflow the fitting prefix is followed by an EOF marker naming the pure-JSONL overflow file that carries every record, with its line histogram.",
-        range(min = 1, max = "crate::bound::MAX_BYTES_CEILING")
-    )]
-    #[serde(default = "default_max_bytes")]
-    pub max_bytes: i64,
-}
-
-#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct SummaryCacheParams {
     #[schemars(description = "Session ID (partial match). Empty = most recent.")]
     #[serde(default)]
@@ -329,17 +281,6 @@ fn default_hours() -> i64 {
 fn default_true() -> bool {
     true
 }
-
-/// The natural question/answer call indexes the last two days, like the
-/// other window tools; the whole store is `all: true`, explicit.
-fn default_qa_hours() -> u64 {
-    48
-}
-
-/// The most-recent pairs one session's `extract_qa_pairs` section carries:
-/// the tail is kept, and the held-back count is stated in the section, the
-/// same most-recent-100 default the extraction envelopes use.
-const QA_PAIR_CAP: usize = 100;
 
 /// The natural call indexes the last day, not the whole store; whole-store
 /// indexing is `all: true`, explicit.
@@ -508,10 +449,10 @@ Total-recall: log mining of agent session rollouts as a long-term memory store.
 This tool is intended to be run as an MCP server in a harness (the `mcp` \
 subcommand): MCP is the preferred mode. Every CLI action is available over \
 the MCP interface — list_sessions, profile_session, extract_messages, \
-extract_user_messages, extract_qa_pairs, extract_by_type, index_sessions, \
+extract_user_messages, extract_by_type, index_sessions, \
 do_android_dream_of_electric_sheep, he_said_she_said_they_did, \
 summary_cache, summarise_from, cache_delete_latest, prior_period_summary, \
-todo_history, line_histogram, chat_with_mercury, skill — so a harness agent \
+line_histogram, chat_with_mercury, skill — so a harness agent \
 never needs the CLI at all.
 
 Run the `skill` tool (or `total-recall skill` on the CLI) for the full \
@@ -1103,7 +1044,7 @@ impl TotalRecallServer {
         Parameters(params): Parameters<ExtractByTypeParams>,
     ) -> Result<CallToolResult, McpError> {
         // Validate type selection up front.
-        const VALID: [&str; 4] = ["user", "assistant", "tool", "thinking"];
+        const VALID: [&str; 7] = crate::rollout::EXTRACT_TYPES;
         let want_all = params.types.is_empty() || params.types.iter().any(|t| t == "all");
         if !want_all {
             for t in &params.types {
@@ -1136,16 +1077,33 @@ impl TotalRecallServer {
             )]));
         }
 
-        let entries =
+        let mut entries =
             match adapter.read_session_entries(&session_id, params.full, params.include_injected) {
                 Ok(e) => e,
                 Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
             };
+        let mut notes: Vec<String> = Vec::new();
         let selected: Vec<String> = if want_all {
             VALID.iter().map(|s| s.to_string()).collect()
         } else {
             params.types.clone()
         };
+        // The folded derived kinds (todo|compaction|questions) come from the
+        // adapter's accessors, appended after the message-derived entries
+        //.
+        let kinds: Vec<&str> = if want_all {
+            crate::rollout::DERIVED_KINDS.to_vec()
+        } else {
+            params.types.iter().map(|t| t.as_str()).collect()
+        };
+        if !kinds.is_empty() {
+            let derived =
+                crate::rollout::derived_entries(adapter.as_ref(), &session_id, params.full, &kinds);
+            entries.extend(derived.entries);
+            if !derived.notices.is_empty() {
+                notes = derived.notices;
+            }
+        }
         let filtered: Vec<&crate::rollout::RolloutEntry> = entries
             .iter()
             .filter(|e| want_all || params.types.contains(&e.entry_type))
@@ -1159,149 +1117,12 @@ impl TotalRecallServer {
                 params.full,
                 &selected,
                 &filtered,
+                &notes,
                 limit,
                 offset,
                 max_bytes,
                 max_record_bytes,
             ),
-        )]))
-    }
-
-    #[tool(
-        name = "extract_qa_pairs",
-        description = "Total-recall MCP tool: extract question/answer pairs from sessions where the harness asked through a question tool (opencode `question`, vibe `ask_user_question`) as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"extract_qa_pairs\",\"scope\":\"…\",\"sessions_scanned\":N,\"sessions_with_pairs\":N,\"per_session_cap\":100}, followed by one {\"type\":\"qa\",\"session_id\":\"…\",\"harness\":\"…\",\"qa\":N,\"ts\":\"…\"?,\"header\":\"…\"?,\"question\":\"…\",\"options\":[…],\"answers\":[…],\"held_back\":N?} record per pair, chronologically; the held-back count rides the session's last record when the per-session cap dropped pairs. The session_id (partial match) selects one session, or, when empty, the window (hours_back, default 48 — 0 or omitted means that default; directory; or all: true) resolves sessions most-recent-first; sessions without pairs contribute no records. Over max_bytes the fitting-prefix array is followed by the EOF marker; the overflow file carries every pair, one per line."
-    )]
-    async fn extract_qa_pairs(
-        &self,
-        Parameters(params): Parameters<QaPairsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // The numeric bound is checked before the session is resolved, so a
-        // bad bound is answered as a bound and never as "no sessions found".
-        let max_bytes = match number(
-            "extract_qa_pairs",
-            "max_bytes",
-            params.max_bytes,
-            1,
-            crate::bound::MAX_BYTES_CEILING as i64,
-            REPORT_MAX_BYTES_CHEAP,
-        ) {
-            Ok(v) => v as usize,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let adapter = self.adapter()?;
-        let hours = match window_hours(
-            "extract_qa_pairs",
-            params.hours_back,
-            params.all,
-            default_qa_hours(),
-        ) {
-            Ok(h) => h,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-
-        if !params.session_id.is_empty() {
-            let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-                .unwrap_or_default();
-            if session_id.is_empty() {
-                return Ok(CallToolResult::error(vec![ContentBlock::text(
-                    "No sessions found".to_string(),
-                )]));
-            }
-            let pairs = match adapter.read_qa_pairs(&session_id) {
-                Ok(p) => p,
-                Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-            };
-            let mut sink =
-                crate::jsonl_sink::JsonlSink::new("extract_qa_pairs", &session_id, max_bytes);
-            sink.push_meta(&serde_json::json!({
-                "type": "meta",
-                "tool": "extract_qa_pairs",
-                "scope": session_id,
-                "sessions_scanned": 1,
-                "sessions_with_pairs": usize::from(!pairs.is_empty()),
-                "per_session_cap": QA_PAIR_CAP,
-            }));
-            push_qa_records(&mut sink, &session_id, self.harness(), &pairs, QA_PAIR_CAP);
-            return Ok(CallToolResult::success(vec![ContentBlock::text(
-                sink.finish(),
-            )]));
-        }
-
-        // Window mode: sessions most-recent-first; sessions without question
-        // calls contribute no records — the meta carries the scanned count.
-        let (selected, _unmatched) = crate::index::select_sessions(
-            adapter.as_ref(),
-            &[],
-            hours,
-            params.directory.as_deref(),
-        );
-        let mut with_pairs = Vec::new();
-        for summary in &selected {
-            let Ok(pairs) = adapter.read_qa_pairs(&summary.session_id) else {
-                continue;
-            };
-            if !pairs.is_empty() {
-                with_pairs.push((summary.session_id.clone(), pairs));
-            }
-        }
-        let mut sink = crate::jsonl_sink::JsonlSink::new("extract_qa_pairs", "window", max_bytes);
-        sink.push_meta(&serde_json::json!({
-            "type": "meta",
-            "tool": "extract_qa_pairs",
-            "scope": "window",
-            "sessions_scanned": selected.len(),
-            "sessions_with_pairs": with_pairs.len(),
-            "per_session_cap": QA_PAIR_CAP,
-        }));
-        for (session_id, pairs) in &with_pairs {
-            push_qa_records(&mut sink, session_id, self.harness(), pairs, QA_PAIR_CAP);
-        }
-        Ok(CallToolResult::success(vec![ContentBlock::text(
-            sink.finish(),
-        )]))
-    }
-
-    #[tool(
-        name = "todo_history",
-        description = "Total-recall MCP tool: recover a session rollout's todo-list edits as a JSONL record stream — a bare compact JSON array whose element 0 is the meta record {\"type\":\"meta\",\"tool\":\"todo_history\",\"session_id\":\"…\",\"harness\":\"…\",\"full\":bool,\"events\":N,\"max_bytes\":N}, followed by one {\"type\":\"todo_edit\",\"ts\":\"…\",\"action\":\"…\",\"todo\":\"…\"[,\"status\":\"…\"]} record per edit, in ts order. Replays every todowrite flush and emits the edits between consecutive list states: added, updated, the new status on a status change, or removed. full defaults to true (the whole rollout)."
-    )]
-    async fn todo_history(
-        &self,
-        Parameters(params): Parameters<TodoHistoryParams>,
-    ) -> Result<CallToolResult, McpError> {
-        // The numeric bound is checked before the session is resolved, so a
-        // bad bound is answered as a bound and never as "no sessions found".
-        let max_bytes = match number(
-            "todo_history",
-            "max_bytes",
-            params.max_bytes,
-            1,
-            crate::bound::MAX_BYTES_CEILING as i64,
-            REPORT_MAX_BYTES_CHEAP,
-        ) {
-            Ok(v) => v as usize,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let adapter = self.adapter()?;
-        let session_id = crate::harness::resolve_session(adapter.as_ref(), &params.session_id)
-            .unwrap_or_default();
-        if session_id.is_empty() {
-            return Ok(CallToolResult::error(vec![ContentBlock::text(
-                "No sessions found".to_string(),
-            )]));
-        }
-
-        let writes = match adapter.read_todo_writes(&session_id, params.full) {
-            Ok(w) => w,
-            Err(e) => return Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
-        };
-        let events = crate::todo_history::diff_todo_states(&writes);
-        // The record stream through the shared sink at the caller's
-        // max_bytes: meta record 0, one todo_edit record per event. Errors
-        // (bad bounds, an unresolved session, a failed read) never enter the
-        // sink — everything above returned before the stream was built.
-        Ok(CallToolResult::success(vec![ContentBlock::text(
-            todo_history_report(&session_id, self.harness(), params.full, &events, max_bytes),
         )]))
     }
 
@@ -2034,57 +1855,6 @@ struct SectionRecord<'a> {
     text: &'a str,
 }
 
-/// One `todo_edit` stream record: the event's fields plus the record
-/// stream's `type` discriminator, `status` omitted on a removal exactly as
-/// the pure JSONL event line omits it.
-#[derive(serde::Serialize)]
-struct TodoEditRecord<'a> {
-    #[serde(rename = "type")]
-    record_type: &'a str,
-    ts: &'a str,
-    action: &'a str,
-    todo: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    status: &'a Option<String>,
-}
-
-/// Assemble the `todo_history` response through the dual-stream sink at the
-/// tool's `max_bytes` param. Record 0 is the meta record
-/// `{"type":"meta","tool":"todo_history","session_id":"…","harness":"…", "full":bool,"events":N,"max_bytes":N}`;
-/// every data record is a `todo_edit` — the event's fields plus the `type` discriminator — in ts
-/// order. The same records stream as pure JSONL to the overflow file:
-/// over `max_bytes` the fitting-prefix array is followed by the EOF marker
-/// naming that file, which holds ALL records; under the cap the bare array
-/// alone is returned and nothing is retained.
-fn todo_history_report(
-    session_id: &str,
-    harness: &str,
-    full: bool,
-    events: &[crate::todo_history::TodoEditEvent],
-    max_bytes: usize,
-) -> String {
-    let mut sink = crate::jsonl_sink::JsonlSink::new("todo_history", session_id, max_bytes);
-    sink.push_meta(&serde_json::json!({
-        "type": "meta",
-        "tool": "todo_history",
-        "session_id": session_id,
-        "harness": harness,
-        "full": full,
-        "events": events.len(),
-        "max_bytes": max_bytes,
-    }));
-    for e in events {
-        sink.push(&TodoEditRecord {
-            record_type: "todo_edit",
-            ts: &e.ts,
-            action: &e.action,
-            todo: &e.todo,
-            status: &e.status,
-        });
-    }
-    sink.finish()
-}
-
 /// One cache-status block record: the block's own serde fields (from_id/
 /// from_ts/to_id/to_ts, the user/assistant/tool/thinking counts, chars,
 /// tokens_est, part_file) flattened under the record stream's `type`
@@ -2171,58 +1941,6 @@ fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> St
         });
     }
     sink.finish()
-}
-
-/// One Q/A stream record: the pair's fields plus the record stream's `type`
-/// discriminator and the session context; `ts`/`header` omitted when the
-/// format carries none, `held_back` present only on the session's last
-/// record when the per-session cap dropped pairs.
-#[derive(serde::Serialize)]
-struct QaRecord<'a> {
-    #[serde(rename = "type")]
-    record_type: &'a str,
-    session_id: &'a str,
-    harness: &'a str,
-    qa: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ts: &'a Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    header: &'a Option<String>,
-    question: &'a str,
-    options: &'a [crate::rollout::QaOption],
-    answers: &'a [String],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    held_back: Option<usize>,
-}
-
-/// Push one session's Q/A pairs into the record stream: pairs in
-/// chronological order, at most the most-recent `cap` of them, the
-/// held-back count carried by the session's last record.
-fn push_qa_records(
-    sink: &mut crate::jsonl_sink::JsonlSink,
-    session_id: &str,
-    harness: &str,
-    pairs: &[crate::rollout::QaPair],
-    cap: usize,
-) {
-    let total = pairs.len();
-    let shown = &pairs[total.saturating_sub(cap)..];
-    for (i, pair) in shown.iter().enumerate() {
-        sink.push(&QaRecord {
-            record_type: "qa",
-            session_id,
-            harness,
-            qa: i + 1,
-            ts: &pair.timestamp,
-            header: &pair.header,
-            question: &pair.question,
-            options: &pair.options,
-            answers: &pair.answers,
-            held_back: (i + 1 == shown.len())
-                .then(|| total - shown.len())
-                .filter(|held_back| *held_back > 0),
-        });
-    }
 }
 
 /// Read a session window respecting `full`, propagating read damage as a tool
@@ -2324,6 +2042,7 @@ fn extract_by_type_records(
     full: bool,
     selected_types: &[String],
     entries: &[&crate::rollout::RolloutEntry],
+    notes: &[String],
     limit: usize,
     offset: Option<usize>,
     max_bytes: usize,
@@ -2354,6 +2073,7 @@ fn extract_by_type_records(
         "harness": harness,
         "full": full,
         "types": selected_types,
+        "notes": notes,
         "bounds": {
             "total_records": total,
             "offset": start,
@@ -2384,7 +2104,9 @@ struct EntryRecord<'a> {
     record: serde_json::Value,
 }
 
-/// Assemble the `he_said_she_said_they_did` report. Three spoken sections in
+/// Assemble the `he_said_she_said_they_did` report. Public: the CLI
+/// subcommand of the same name serves the identical stream.
+/// Three spoken sections in
 /// chronological order — HE SAID (verbatim user text, synthetic parts
 /// skipped), SHE SAID (assistant text parts only; never thinking, never tool
 /// results), THEY DID (every action as name+arguments, tool results excluded,
@@ -2422,7 +2144,7 @@ struct BoundaryRecord<'a> {
     ts: &'a str,
 }
 
-fn he_said_she_said_they_did_report(
+pub fn he_said_she_said_they_did_report(
     session_id: &str,
     harness: &str,
     messages: &[crate::RolloutMessage],

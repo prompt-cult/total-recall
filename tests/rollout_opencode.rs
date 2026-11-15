@@ -574,7 +574,7 @@ fn test_opencode_list_sessions_scoped_caps_at_200_and_reports_the_window_count()
     );
 }
 
-/// The #21 regression: a store of 3,000 sessions outside the window, each
+/// a store of 3,000 sessions outside the window, each
 /// carrying payload aggregates, and ~50 inside. The scoped listing returns
 /// the 50 with their aggregates and reports window_count 50 — the 3,000 are
 /// invisible, not just unprinted.

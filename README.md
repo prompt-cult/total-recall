@@ -113,12 +113,13 @@ For vibe the records are the byte-faithful source lines re-parsed from
 `messages.jsonl`; other harnesses derive entries from the normalized message
 stream.
 
-### `extract_qa_pairs` — question/answer pairs
+### Question/answer pairs — `extract-by-type --type questions`
 
-The question/answer pairs from sessions where the harness asked through a
-question tool — the question text, its header and options where the format
-carries them, paired with the answers the user picked or typed,
-chronologically:
+`extract_qa_pairs` is retired: the pairs come from `extract-by-type --type
+questions` now. The question/answer pairs from sessions where the harness
+asked through a question tool — the question text, its header and options
+where the format carries them, paired with the answers the user picked or
+typed, chronologically:
 
 ```
 === ses_ee8e8f72 (opencode)
@@ -298,10 +299,10 @@ a silent clamp.
 
 - **Session tools** (`profile_session`, `extract_messages`,
   `extract_user_messages`, `extract_by_type`,
-  `prior_period_summary`, `todo_history`, `he_said_she_said_they_did`): `session_id` partial match; empty = the
+  `prior_period_summary`, `he_said_she_said_they_did`): `session_id` partial match; empty = the
   most recent session.
 - **Window tools** (`list_sessions`,
-  `extract_qa_pairs`, `index_sessions`,
+  `index_sessions`,
   `do_android_dream_of_electric_sheep`): `session_id`
   selects explicitly; when empty the tool works its window — `hours_back`
   (a window in hours, `1` or more) and optionally `directory`. `0` means
@@ -426,7 +427,7 @@ file.
 
 | Tool | Vendor-free build | Default build |
 |------|-------------------|---------------|
-| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `extract_qa_pairs`, `index_sessions`, `do_android_dream_of_electric_sheep`, `todo_history`, `summary_cache`, `cache_delete_latest`, `he_said_she_said_they_did` | works | works |
+| `list_sessions`, `profile_session`, `extract_messages`, `extract_user_messages`, `extract_by_type`, `index_sessions`, `do_android_dream_of_electric_sheep`, `summary_cache`, `cache_delete_latest`, `he_said_she_said_they_did` | works | works |
 | `summarise_from` (MCP), `summarise-from` (CLI) | registered; the guard and a covered tail serve the cache with no LLM call, a real summarise returns an error naming the missing feature | calls Mercury only when there is something new to summarise, or `--provider mistral` |
 | `prior_period_summary` (MCP), `prior-period-summary` (CLI) | registered; returns an error naming the missing feature | calls Mercury, or `--provider mistral` |
 
@@ -471,10 +472,13 @@ $B --harness vibe --session 4836855e user-messages --markdown
 $B --harness vibe --session 4836855e extract-by-type --type user --type thinking
 # CLI extraction is unbounded by default; bound it explicitly when paging large
 # sessions (--limit/--offset/--max-bytes/--max-record-bytes, notice on stderr)
-$B --harness vibe --session 4836855e extract --limit 100 --offset 0
+$B --harness vibe --session 4836855e extract-by-type --type all --limit 100 --offset 0
 
-# Todo-list edits as a JSONL event stream (one {ts,action,todo} object per line)
-$B --harness opencode --session ses_ee8e8f72 todo-history
+# Todo-list edits, question/answer pairs, compaction points — the folded
+# derived types of extract-by-type (todo-history and extract-qa-pairs are
+# retired into it)
+$B --harness opencode --session ses_ee8e8f72 extract-by-type --type todo
+$B --harness opencode --session ses_ee8e8f72 extract-by-type --type questions
 
 # The summary cache as an explicit data structure: inspect it, summarise an
 # explicit range, roll it back one block
@@ -547,10 +551,10 @@ live sessions.
 The binary runs as an MCP stdio server exposing `harness`, `list_sessions`
 (with optional `hours_back`/`directory` bounds and a `has_tantivy_index`
 flag), `profile_session` (the on-by-default cache; `cache: false` to recompute), `extract_messages`,
-`extract_user_messages`, `extract_by_type`, `extract_qa_pairs`,
+`extract_user_messages`, `extract_by_type`,
 `summary_cache`, `summarise_from`,
 `cache_delete_latest`, `index_sessions`,
-`do_android_dream_of_electric_sheep`, `prior_period_summary`, `todo_history`,
+`do_android_dream_of_electric_sheep`, `prior_period_summary`,
 `line_histogram`, `he_said_she_said_they_did`, `help`:
 
 Every tool is session-scoped through a `session_id` parameter (partial match,
@@ -769,3 +773,32 @@ built from [`book.toml`](book.toml) and [`docs/src/`](docs/src) by
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
 | [LICENSE-MIT](LICENSE-MIT) · [LICENSE-APACHE](LICENSE-APACHE) | dual licensed `MIT OR Apache-2.0` |
 | [docs/opencode-store-vacuum.md](docs/opencode-store-vacuum.md) | store-vacuum runbook (see [Operations](#operations)) |
+
+## Install from a local (repo) marketplace
+
+This repo is packaged as a Codex plugin and carries its own marketplace index:
+
+- `plugin.json` at the repo root (portable Agent Plugins schema)
+- `mcp.json` at the repo root — the MCP server (`total-recall mcp` over stdio, `HARNESS=codex` by default)
+- `skills/total-recall/SKILL.md` — the bundled skill
+- `.agents/plugins/marketplace.json` — the marketplace catalog
+
+The `total-recall` binary must be installed and on `PATH`
+(`cargo install --path .` or the release binary).
+
+From a local checkout:
+
+```bash
+codex plugin marketplace add /path/to/total-recall
+codex plugin list --marketplace total-recall
+codex plugin add total-recall@total-recall
+```
+
+Uninstall with `codex plugin remove total-recall@total-recall`.
+
+For a repo-scoped install (when a project already has a `total-recall`
+checkout), add `[plugins."total-recall@total-recall"] enabled = true` to the
+project's `.codex/config.toml`.
+
+The MCP server harness defaults to `codex`; override per server with the
+plugin's `mcp_servers` config or edit `env.HARNESS` in `mcp.json`.

@@ -49,17 +49,26 @@ is behind, run the latest CLI from inside that harness and compare `--version`.
 | `total-recall_extract_user_messages` | `user-messages` | record stream: meta carries the paging inputs, `type=message` records verbatim, injected skipped |
 | `total-recall_extract_messages` | `extract` | all messages as a record stream (meta + `type=message` records) |
 | `do_android_dream_of_electric_sheep` | `do-android-dream-of-electric-sheep` | **tantivy full-text search** — meta + `type=hit` records ranked by score, phrase-capable, covers assistant thinking |
-| `he_said_she_said_they_did` | — | one full per-session report as records: `he_said`/`she_said`/`they_did` + inline `compaction_boundary`; the meta carries the period, compaction points and summary-cache blocks |
 | `index_sessions` | `index` | build/refresh the per-session tantivy shadow indexes; `type=indexed` records per session |
 | `prior_period_summary` | `prior-period-summary` | orientation summary of a prior period |
 | `harness` | — | report which harness this server is bound to |
 | `list_sessions` | `list` | record stream: meta carries `window_count`, `type=row` records most-recent-first |
-| `extract_by_type` | `extract-by-type` | raw extract as `type=entry` records (entry_type/ts/record) filtered by type |
-| `extract_qa_pairs` | `extract-qa-pairs` | question/answer pairs as `type=qa` records |
-| `todo_history` | `todo-history` | todo-list edits as `type=todo_edit` records |
+| `extract_by_type` | `extract-by-type` | raw extract as `type=entry` records (entry_type/ts/record) filtered by type: `user\|assistant\|tool\|thinking` plus the folded derived kinds `todo\|compaction\|questions` (the retired todo-history and extract-qa-pairs surfaces; `"all"` includes everything, and a kind a harness cannot serve is skipped with a notice in the meta rather than an error) |
+| `he_said_she_said_they_did` | `he-said-she-said-they-did` | one full per-session report: same stream as the MCP tool |
 | `line_histogram` | `line-histogram` | line-size distribution or extract lines (the text path) |
 | `help` | — | short orientation — the CLI's generated help page (clap) plus the house line: intended to be run as MCP in a harness, every CLI action is available over the MCP interface, MCP is the preferred mode; points to `skill` for the full guide (the text path, no parameters) |
 | `skill` | `skill` | the full tool surface and usage guide — this file, through the text flood-control path (capped at `max_bytes`, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram) |
+
+## Choosing the pass (usage rule)
+
+- A verbatim question ("what did the user say about X", "which question was
+  asked") gets `extract-by-type` — the exact record, not a ranked search.
+  `do_android_dream_of_electric_sheep` is for finding *where* something was
+  said when you don't know; once you do, extract, don't search.
+- Summaries (`prior_period_summary`, `summarise_from`) are only for when the
+  user asks to familiarise or orient. Reading passes
+  (`he_said_she_said_they_did`, `extract-by-type`) don't spend LLM calls;
+  reach for them first, summarise only on request.
 
 ## The dream pass (tantivy search)
 

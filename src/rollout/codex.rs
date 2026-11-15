@@ -32,16 +32,36 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
-    SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window,
-    no_session_error, read_error, resolve_root, slice_from_compaction, summarize_tool_call,
+    BackendKind, CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter,
+    RolloutMessage, SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error,
+    mtime_in_window, no_session_error, read_error, resolve_root, slice_from_compaction,
+    summarize_tool_call,
 };
 
-/// The UUID in a rollout filename: `rollout-<ts>-<uuid>.jsonl`.
+/// The UUID in a rollout filename: `rollout-<ts>-<uuid>.jsonl`, or for a
+/// resumed conversation `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`. A
+/// segment file yields the composite `<conv-uuid>_<segment-uuid>` id so both
+/// segments of one conversation stay addressable.
 fn uuid_from_filename(name: &str) -> Option<String> {
     let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+    // A resumed segment splits at the last '_': conversation part and
+    // segment-uuid part. Both parts end in a full UUID.
+    let (conv_part, seg_part) = match stem.split_once('_') {
+        Some((c, s)) => (c, Some(s)),
+        None => (stem, None),
+    };
+    let conv_uuid = trailing_uuid(conv_part)?;
+    let seg_uuid = match seg_part {
+        Some(s) => trailing_uuid(s)?,
+        None => return Some(conv_uuid),
+    };
+    Some(format!("{conv_uuid}_{seg_uuid}"))
+}
+
+/// The trailing dash-separated tail of `stem` when it forms a UUID
+/// (8-4-4-4-12 hex); `None` otherwise.
+fn trailing_uuid(stem: &str) -> Option<String> {
     let tokens: Vec<&str> = stem.split('-').collect();
-    // The UUID is the last five dash-separated segments (8-4-4-4-12 hex).
     if tokens.len() < 5 {
         return None;
     }
@@ -348,18 +368,22 @@ impl CodexAdapter {
     }
 
     /// Resolve a (possibly partial) session id to a rollout file. Empty id =
-    /// most recent session. A partial id matches UUID prefixes; most recent
-    /// wins. An id nothing matches yields `None` — the caller produces the
-    /// precise "no session matching … under …" error.
+    /// most recent session. An exact id match wins; otherwise a partial id
+    /// matches UUID prefixes, most recent wins. A composite
+    /// `<conv-uuid>_<segment-uuid>` id (a resumed segment) exact-matches its
+    /// own file, so a conversation-uuid prefix never shadows it. An id
+    /// nothing matches yields `None` — the caller produces the precise
+    /// "no session matching … under …" error.
     fn resolve_path(&self, session_id: &str) -> Option<PathBuf> {
         let files = self.session_files();
         if session_id.is_empty() {
             return files.into_iter().next().map(|(path, _)| path);
         }
         files
-            .into_iter()
-            .find(|(_, uuid)| uuid.starts_with(session_id))
-            .map(|(path, _)| path)
+            .iter()
+            .find(|(_, uuid)| uuid == session_id)
+            .or_else(|| files.iter().find(|(_, uuid)| uuid.starts_with(session_id)))
+            .map(|(path, _)| path.clone())
     }
 
     fn summarize_file(&self, path: &Path, uuid: &str) -> SessionSummary {
@@ -383,6 +407,9 @@ impl CodexAdapter {
                     parent_session_id: None,
                     child_sessions: Vec::new(),
                     has_tantivy_index: false,
+                    backend_kind: Some(BackendKind::File),
+                    ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+                    mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
                     aliases: Vec::new(),
                     read_error: Some(e),
                 };
@@ -411,6 +438,9 @@ impl CodexAdapter {
             parent_session_id: None,
             child_sessions: Vec::new(),
             has_tantivy_index: false,
+            backend_kind: Some(BackendKind::File),
+            ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+            mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
             aliases: Vec::new(),
             read_error: None,
         }
@@ -630,7 +660,12 @@ impl RolloutAdapter for CodexAdapter {
         }
         self.session_files()
             .into_iter()
-            .find(|(_, uuid)| uuid.starts_with(session_id))
+            .find(|(_, uuid)| uuid == session_id)
+            .or_else(|| {
+                self.session_files()
+                    .into_iter()
+                    .find(|(_, uuid)| uuid.starts_with(session_id))
+            })
             .map(|(_, uuid)| uuid)
     }
 }

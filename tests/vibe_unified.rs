@@ -1,4 +1,4 @@
-//! Issue #45: vibe 3.0.3 replaced its rollout layout — sessions moved from
+//! vibe 3.0.3 replaced its rollout layout — sessions moved from
 //! `session_<ts>/` dirs to `unified/<uuid>/` stores with a hash-chained
 //! journal (`CURRENT` pointer, `journal/NNN.jsonl` segments,
 //! `chunks/<sha256>.json` payloads). The adapter must read both layouts.

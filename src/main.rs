@@ -110,25 +110,16 @@ pub enum Command {
     },
     /// Profile a specific rollout (file size, counts, events)
     Profile,
-    /// Extract all data that would be summarised from a rollout
-    Extract,
     /// Extract what the user said verbatim
     UserMessages,
-    /// Raw extract of entries by type (user|assistant|tool|thinking), one
+    /// Raw extract of entries by type (user|assistant|tool|thinking plus the
+    /// folded todo|compaction|questions), one
     /// `type,timestamp,json` record per line, for recovering large/damaged sessions
     #[command(name = "extract-by-type")]
     ExtractByType {
-        /// Entry type to include (repeatable): user|assistant|tool|thinking, or "all"
+        /// Entry type to include (repeatable): user|assistant|tool|thinking|todo|compaction|questions, or "all"
         #[arg(long = "type", value_name = "kind")]
         types: Vec<String>,
-    },
-    /// Recover a rollout's todo-list edits as a JSONL event stream: one
-    /// {ts,action,todo} object per line, in ts order
-    #[command(name = "todo-history")]
-    TodoHistory {
-        /// Read from the last compaction point instead of the whole rollout
-        #[arg(long = "no-full")]
-        no_full: bool,
     },
     /// Introspect a rollout's summary cache: the cached blocks (id ranges,
     /// type counts, chars, token estimates) plus the unsummarised tail.
@@ -200,6 +191,14 @@ pub enum Command {
         #[arg(long)]
         directory: Option<String>,
     },
+    /// One full, per-session report as a JSONL record stream: meta record
+    /// (period, compaction points, summary-cache blocks, watermark), then
+    /// he_said (the user's messages verbatim), she_said (assistant text
+    /// only), they_did (every action, results excluded) and inline
+    /// compaction boundaries. Read-only, no LLM call. Same stream the MCP
+    /// `he_said_she_said_they_did` tool serves; --max-bytes (global) caps it
+    #[command(name = "he-said-she-said-they-did")]
+    HeSaidSheSaidTheyDid,
     /// Print the release's skills/total-recall/SKILL.md — the tool surface
     /// and usage guide (what the MCP `skill` tool serves through the text
     /// flood-control path)
@@ -596,34 +595,6 @@ async fn main() -> Result<()> {
             }
         }
 
-        Command::Extract => {
-            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
-            let messages = bound_cli_messages(
-                messages,
-                cli.limit,
-                cli.offset,
-                cli.max_bytes,
-                cli.max_record_bytes,
-            );
-            if cli.json || !cli.markdown {
-                for msg in &messages {
-                    let json = serde_json::to_string(msg)?;
-                    println!("{}", json);
-                }
-            } else {
-                for msg in &messages {
-                    println!("[{}]", msg.role.to_uppercase());
-                    if !msg.content.is_empty() {
-                        println!("{}", msg.content);
-                    }
-                    for tc in &msg.tool_calls_summary {
-                        println!("  -> {}", tc);
-                    }
-                    println!();
-                }
-            }
-        }
-
         Command::UserMessages => {
             let messages = unwrap_read(adapter.extract_user_messages(&session_id));
             let messages = bound_cli_strings(
@@ -645,7 +616,7 @@ async fn main() -> Result<()> {
         }
 
         Command::ExtractByType { types } => {
-            const VALID: [&str; 4] = ["user", "assistant", "tool", "thinking"];
+            const VALID: [&str; 7] = total_recall::rollout::EXTRACT_TYPES;
             let want_all = types.is_empty() || types.iter().any(|t| t == "all");
             if !want_all {
                 for t in &types {
@@ -659,7 +630,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            let entries =
+            let mut entries =
                 match adapter.read_session_entries(&session_id, cli.full, cli.include_injected) {
                     Ok(e) => e,
                     Err(e) => {
@@ -667,6 +638,28 @@ async fn main() -> Result<()> {
                         std::process::exit(2);
                     }
                 };
+            // The folded derived kinds (todo|compaction|questions) come from
+            // the adapter's accessors, appended after the message-derived
+            // entries.
+            let kinds: Vec<&str> = if want_all {
+                VALID
+                    .iter()
+                    .filter(|t| !["user", "assistant", "tool", "thinking"].contains(t))
+                    .copied()
+                    .collect()
+            } else {
+                types.iter().map(|t| t.as_str()).collect()
+            };
+            let derived = total_recall::rollout::derived_entries(
+                adapter.as_ref(),
+                &session_id,
+                cli.full,
+                &kinds,
+            );
+            for notice in &derived.notices {
+                eprintln!("note: {notice}");
+            }
+            entries.extend(derived.entries);
             let filtered: Vec<&total_recall::rollout::RolloutEntry> = entries
                 .iter()
                 .filter(|e| want_all || types.contains(&e.entry_type))
@@ -726,21 +719,6 @@ async fn main() -> Result<()> {
             }
             for r in kept {
                 println!("{}", r.json);
-            }
-            let _ = std::io::stdout().flush();
-        }
-
-        Command::TodoHistory { no_full } => {
-            // The whole rollout is this command's natural scope (matching the
-            // MCP tool's full=true default); --no-full slices at the last
-            // compaction point.
-            let full = cli.full || !no_full;
-            let writes = unwrap_read(adapter.read_todo_writes(&session_id, full));
-            let events = total_recall::todo_history::diff_todo_states(&writes);
-            // CLI: unbounded — stdout is a stream, one JSONL event per line.
-            for e in &events {
-                let line = serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string());
-                println!("{}", line);
             }
             let _ = std::io::stdout().flush();
         }
@@ -963,6 +941,34 @@ async fn main() -> Result<()> {
 
         Command::Mcp => {}
         Command::Chat { .. } => {}
+        Command::HeSaidSheSaidTheyDid => {
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
+            let messages = unwrap_read(adapter.read_session_mmap(&session_id));
+            let markers = adapter.compaction_markers(&messages);
+            let status = total_recall::summary_cache::status(
+                &adapter.shadow_index_root(),
+                &session_id,
+                &messages,
+            );
+            // 0 = the tool's default cap; the CLI stream is capped the same
+            // way the MCP envelope is.
+            let max_bytes = if cli.max_bytes == 0 {
+                total_recall::report_cap::DEFAULT_MAX_BYTES
+            } else {
+                cli.max_bytes
+            };
+            let report = total_recall::mcp::he_said_she_said_they_did_report(
+                &session_id,
+                adapter.name(),
+                &messages,
+                &markers,
+                &status,
+                max_bytes,
+            );
+            println!("{report}");
+        }
+
         Command::Skill { .. } => {}
     }
 

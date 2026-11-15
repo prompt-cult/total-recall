@@ -1,0 +1,12 @@
+#!/bin/sh
+# The gate: nothing pushes unless the CI-equivalent checks pass here first.
+# fmt --check, clippy -D warnings, cargo test --locked — the commands CI
+# runs, before the push leaves the machine. A red gate blocks the push.
+set -e
+echo "gate: cargo fmt --check"
+cargo fmt --check
+echo "gate: cargo clippy --all-targets -- -D warnings"
+cargo clippy --all-targets -- -D warnings
+echo "gate: cargo test --locked"
+cargo test --locked
+echo "gate: green"

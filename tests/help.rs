@@ -344,7 +344,7 @@ fn skill_drift_skill_table_matches_tool_surface() {
     }
 }
 
-// --- the uplifted help: clap docs, not the skill dump (#51) ---
+// --- the uplifted help: clap docs, not the skill dump ---
 
 #[test]
 fn help_returns_clap_docs_not_the_skill() {
