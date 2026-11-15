@@ -1040,3 +1040,124 @@ pub fn resolve_root(var: &str, home_segments: &[&str]) -> (PathBuf, bool) {
     }
     (path, false)
 }
+
+/// The full extract-by-type kind list: the four raw message-derived kinds
+/// and the three derived kinds folded in from their retired standalone
+/// commands/todo-history and extract-qa-pairs (issues #64, #65, #66).
+pub const EXTRACT_TYPES: [&str; 7] = [
+    "user", "assistant", "tool", "thinking", "todo", "compaction", "questions",
+];
+
+/// The derived entry kinds an `extract-by-type` call materializes from the
+/// adapter's own accessors rather than the raw entry stream. `all` includes
+/// every one of them: the last three are exactly the types of the retired
+/// `todo-history` and `extract-qa-pairs` commands.
+pub fn derived_extract_types(kinds: &[&str]) -> Vec<&'static str> {
+    DERIVED_KINDS
+        .iter()
+        .copied()
+        .filter(|k| kinds.contains(k))
+        .collect()
+}
+
+/// The derived kinds in their fixed fold order.
+pub const DERIVED_KINDS: [&str; 3] = ["todo", "compaction", "questions"];
+
+/// Build the derived (non-message) entries for the extended
+/// `extract-by-type` kinds. Ordering: within each kind, ts order of the
+/// source; kinds appear in [`DERIVED_KINDS`] order after the base
+/// message-derived entries. A kind the harness cannot serve (e.g. todo
+/// history on a harness without todowrite access) is skipped, not fatal —
+/// its reason is carried in [`DerivedEntries::notices`].
+pub fn derived_entries(
+    adapter: &dyn RolloutAdapter,
+    session_id: &str,
+    full: bool,
+    kinds: &[&str],
+) -> DerivedEntries {
+    let mut out: Vec<RolloutEntry> = Vec::new();
+    let mut notices: Vec<String> = Vec::new();
+    for kind in derived_extract_types(kinds) {
+        let wanted: Vec<RolloutEntry> = match kind {
+            "todo" => {
+                let writes = match adapter.read_todo_writes(session_id, full) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        notices.push(format!("type 'todo' unavailable: {e}"));
+                        continue;
+                    }
+                };
+                crate::todo_history::diff_todo_states(&writes)
+                    .into_iter()
+                    .map(|e| {
+                        let ts = e.ts.clone();
+                        RolloutEntry {
+                            index: 0,
+                            entry_type: "todo".to_string(),
+                            timestamp: Some(ts),
+                            record: serde_json::to_value(&e).unwrap_or_default(),
+                        }
+                    })
+                    .collect()
+            }
+            "compaction" => {
+                let messages = match adapter.read_session_mmap(session_id) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        notices.push(format!("type 'compaction' unavailable: {e}"));
+                        continue;
+                    }
+                };
+                adapter
+                    .compaction_markers(&messages)
+                    .into_iter()
+                    .map(|i| {
+                        let ts = messages[i].timestamp.clone();
+                        RolloutEntry {
+                            index: 0,
+                            entry_type: "compaction".to_string(),
+                            timestamp: ts.clone(),
+                            record: serde_json::json!({
+                                "type": "compaction",
+                                "message": i + 1,
+                                "ts": ts.unwrap_or_default(),
+                            }),
+                        }
+                    })
+                    .collect()
+            }
+            "questions" => {
+                let pairs = match adapter.read_qa_pairs(session_id) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        notices.push(format!("type 'questions' unavailable: {e}"));
+                        continue;
+                    }
+                };
+                pairs
+                    .into_iter()
+                    .map(|p| RolloutEntry {
+                        index: 0,
+                        entry_type: "questions".to_string(),
+                        timestamp: p.timestamp.clone(),
+                        record: serde_json::to_value(&p).unwrap_or_default(),
+                    })
+                    .collect()
+            }
+            _ => unreachable!("derived kinds are closed over DERIVED_KINDS"),
+        };
+        out.extend(wanted);
+    }
+    // Indexes are assigned after the merge, dense over the derived block.
+    for (n, e) in out.iter_mut().enumerate() {
+        e.index = n;
+    }
+    DerivedEntries { entries: out, notices }
+}
+
+/// The derived entries plus the per-kind skip notices: a kind the harness
+/// cannot serve is skipped with its reason surfaced to the caller.
+pub struct DerivedEntries {
+    pub entries: Vec<RolloutEntry>,
+    pub notices: Vec<String>,
+}

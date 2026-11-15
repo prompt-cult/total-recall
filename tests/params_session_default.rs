@@ -4,7 +4,7 @@
 
 use total_recall::mcp::{
     CacheDeleteLatestParams, ExtractByTypeParams, ExtractParams, PriorPeriodSummaryParams,
-    ProfileParams, SummariseFromParams, SummaryCacheParams, TodoHistoryParams, UserMessagesParams,
+    ProfileParams, SummariseFromParams, SummaryCacheParams, UserMessagesParams,
 };
 
 fn de<T: serde::de::DeserializeOwned>(body: &str) -> T {
@@ -22,12 +22,7 @@ fn an_omitted_session_id_defaults_to_empty_everywhere() {
     assert_eq!(p.session_id, "");
     let p: ExtractByTypeParams = de("{}");
     assert_eq!(p.session_id, "");
-    let p: TodoHistoryParams = de("{}");
-    assert_eq!(p.session_id, "");
-    assert!(
-        p.full,
-        "todo_history's full defaults to true: the whole rollout's todo history"
-    );
+    // todo_history retired into extract-by-type; its params are gone.
     // The #18 reproduction: hours_back alone, session_id omitted.
     let p: PriorPeriodSummaryParams = de(r#"{"hours_back": 72}"#);
     assert_eq!(p.session_id, "");

@@ -25,6 +25,9 @@ fn fat_summary(children: usize, aliases: usize) -> SessionSummary {
             .map(|i| format!("ses_child{i:05}0000000000000000000aa"))
             .collect(),
         has_tantivy_index: true,
+        backend_kind: None,
+        ctime: None,
+        mtime: None,
         aliases: (0..aliases)
             .map(|i| format!("session_2026100409{i:06}_abcdef"))
             .collect(),

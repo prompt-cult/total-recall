@@ -112,21 +112,14 @@ pub enum Command {
     Profile,
     /// Extract what the user said verbatim
     UserMessages,
-    /// Raw extract of entries by type (user|assistant|tool|thinking), one
+    /// Raw extract of entries by type (user|assistant|tool|thinking plus the
+    /// folded todo|compaction|questions), one
     /// `type,timestamp,json` record per line, for recovering large/damaged sessions
     #[command(name = "extract-by-type")]
     ExtractByType {
-        /// Entry type to include (repeatable): user|assistant|tool|thinking, or "all"
+        /// Entry type to include (repeatable): user|assistant|tool|thinking|todo|compaction|questions, or "all"
         #[arg(long = "type", value_name = "kind")]
         types: Vec<String>,
-    },
-    /// Recover a rollout's todo-list edits as a JSONL event stream: one
-    /// {ts,action,todo} object per line, in ts order
-    #[command(name = "todo-history")]
-    TodoHistory {
-        /// Read from the last compaction point instead of the whole rollout
-        #[arg(long = "no-full")]
-        no_full: bool,
     },
     /// Introspect a rollout's summary cache: the cached blocks (id ranges,
     /// type counts, chars, token estimates) plus the unsummarised tail.
@@ -623,7 +616,7 @@ async fn main() -> Result<()> {
         }
 
         Command::ExtractByType { types } => {
-            const VALID: [&str; 4] = ["user", "assistant", "tool", "thinking"];
+            const VALID: [&str; 7] = total_recall::rollout::EXTRACT_TYPES;
             let want_all = types.is_empty() || types.iter().any(|t| t == "all");
             if !want_all {
                 for t in &types {
@@ -637,7 +630,7 @@ async fn main() -> Result<()> {
                     }
                 }
             }
-            let entries =
+            let mut entries =
                 match adapter.read_session_entries(&session_id, cli.full, cli.include_injected) {
                     Ok(e) => e,
                     Err(e) => {
@@ -645,6 +638,24 @@ async fn main() -> Result<()> {
                         std::process::exit(2);
                     }
                 };
+            // The folded derived kinds (todo|compaction|questions) come from
+            // the adapter's accessors, appended after the message-derived
+            // entries (issues #64, #65, #66).
+            let kinds: Vec<&str> = if want_all {
+                VALID.iter().filter(|t| !["user", "assistant", "tool", "thinking"].contains(t)).copied().collect()
+            } else {
+                types.iter().map(|t| t.as_str()).collect()
+            };
+            let derived = total_recall::rollout::derived_entries(
+                adapter.as_ref(),
+                &session_id,
+                cli.full,
+                &kinds,
+            );
+            for notice in &derived.notices {
+                eprintln!("note: {notice}");
+            }
+            entries.extend(derived.entries);
             let filtered: Vec<&total_recall::rollout::RolloutEntry> = entries
                 .iter()
                 .filter(|e| want_all || types.contains(&e.entry_type))
@@ -704,21 +715,6 @@ async fn main() -> Result<()> {
             }
             for r in kept {
                 println!("{}", r.json);
-            }
-            let _ = std::io::stdout().flush();
-        }
-
-        Command::TodoHistory { no_full } => {
-            // The whole rollout is this command's natural scope (matching the
-            // MCP tool's full=true default); --no-full slices at the last
-            // compaction point.
-            let full = cli.full || !no_full;
-            let writes = unwrap_read(adapter.read_todo_writes(&session_id, full));
-            let events = total_recall::todo_history::diff_todo_states(&writes);
-            // CLI: unbounded — stdout is a stream, one JSONL event per line.
-            for e in &events {
-                let line = serde_json::to_string(e).unwrap_or_else(|_| "{}".to_string());
-                println!("{}", line);
             }
             let _ = std::io::stdout().flush();
         }
