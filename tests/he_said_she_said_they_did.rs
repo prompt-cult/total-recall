@@ -542,3 +542,46 @@ fn max_bytes_out_of_range_is_a_bound_error() {
     );
     reap(&mut mcp);
 }
+
+/// The CLI exposes the same report the MCP tool serves: the same JSONL
+/// record stream on stdout, one record per line (issue #68). Proven against
+/// the sanitised codex fixture store shipped with the repo.
+#[test]
+fn cli_action_mirrors_the_mcp_report() {
+    use std::process::Command;
+
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("rollouts/codex_sessions")
+        .to_string_lossy()
+        .to_string();
+    let session = "01aa1111-2222-3333-4444-555566667777";
+    let out = Command::new(env!("CARGO_BIN_EXE_total-recall"))
+        .args(["--harness", "codex", "--session", session, "he-said-she-said-they-did"])
+        .env("TOTAL_RECALL_CODEX_ROOT", &root)
+        .env_remove("INCEPTION_API_KEY")
+        .env_remove("MISTRAL_API_KEY")
+        .output()
+        .expect("binary ran");
+    assert!(
+        out.status.success(),
+        "exit ok, stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stream: Value =
+        serde_json::from_str(stdout.trim()).expect("report is a bare compact JSON array");
+    let records = stream.as_array().expect("bare compact JSON array");
+    assert!(!records.is_empty(), "report carries the meta record");
+    let meta = &records[0];
+    assert_eq!(meta["type"], "meta");
+    assert_eq!(meta["tool"], "he_said_she_said_they_did");
+    assert_eq!(meta["harness"], "codex");
+    assert!(
+        records.iter().skip(1).any(|r| r["type"] == "he_said"),
+        "he_said records present"
+    );
+    assert!(
+        records.iter().any(|r| r["type"] == "compaction_boundary"),
+        "boundary inline"
+    );
+}

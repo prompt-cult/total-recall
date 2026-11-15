@@ -198,6 +198,14 @@ pub enum Command {
         #[arg(long)]
         directory: Option<String>,
     },
+    /// One full, per-session report as a JSONL record stream: meta record
+    /// (period, compaction points, summary-cache blocks, watermark), then
+    /// he_said (the user's messages verbatim), she_said (assistant text
+    /// only), they_did (every action, results excluded) and inline
+    /// compaction boundaries. Read-only, no LLM call. Same stream the MCP
+    /// `he_said_she_said_they_did` tool serves; --max-bytes (global) caps it
+    #[command(name = "he-said-she-said-they-did")]
+    HeSaidSheSaidTheyDid,
     /// Print the release's skills/total-recall/SKILL.md — the tool surface
     /// and usage guide (what the MCP `skill` tool serves through the text
     /// flood-control path)
@@ -933,6 +941,34 @@ async fn main() -> Result<()> {
 
         Command::Mcp => {}
         Command::Chat { .. } => {}
+        Command::HeSaidSheSaidTheyDid => {
+            let session_id =
+                total_recall::harness::canonical_session_id(adapter.as_ref(), &session_id);
+            let messages = unwrap_read(adapter.read_session_mmap(&session_id));
+            let markers = adapter.compaction_markers(&messages);
+            let status = total_recall::summary_cache::status(
+                &adapter.shadow_index_root(),
+                &session_id,
+                &messages,
+            );
+            // 0 = the tool's default cap; the CLI stream is capped the same
+            // way the MCP envelope is.
+            let max_bytes = if cli.max_bytes == 0 {
+                total_recall::report_cap::DEFAULT_MAX_BYTES
+            } else {
+                cli.max_bytes
+            };
+            let report = total_recall::mcp::he_said_she_said_they_did_report(
+                &session_id,
+                adapter.name(),
+                &messages,
+                &markers,
+                &status,
+                max_bytes,
+            );
+            println!("{report}");
+        }
+
         Command::Skill { .. } => {}
     }
 

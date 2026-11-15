@@ -2384,7 +2384,9 @@ struct EntryRecord<'a> {
     record: serde_json::Value,
 }
 
-/// Assemble the `he_said_she_said_they_did` report. Three spoken sections in
+/// Assemble the `he_said_she_said_they_did` report. Public: the CLI
+/// subcommand of the same name serves the identical stream (issue #68).
+/// Three spoken sections in
 /// chronological order — HE SAID (verbatim user text, synthetic parts
 /// skipped), SHE SAID (assistant text parts only; never thinking, never tool
 /// results), THEY DID (every action as name+arguments, tool results excluded,
@@ -2422,7 +2424,7 @@ struct BoundaryRecord<'a> {
     ts: &'a str,
 }
 
-fn he_said_she_said_they_did_report(
+pub fn he_said_she_said_they_did_report(
     session_id: &str,
     harness: &str,
     messages: &[crate::RolloutMessage],
