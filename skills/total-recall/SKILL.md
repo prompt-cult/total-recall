@@ -59,6 +59,17 @@ is behind, run the latest CLI from inside that harness and compare `--version`.
 | `help` | — | short orientation — the CLI's generated help page (clap) plus the house line: intended to be run as MCP in a harness, every CLI action is available over the MCP interface, MCP is the preferred mode; points to `skill` for the full guide (the text path, no parameters) |
 | `skill` | `skill` | the full tool surface and usage guide — this file, through the text flood-control path (capped at `max_bytes`, cut at a line boundary, overflow to a text file named by the EOF marker with its line histogram) |
 
+## Choosing the pass (usage rule)
+
+- A verbatim question ("what did the user say about X", "which question was
+  asked") gets `extract-by-type` — the exact record, not a ranked search.
+  `do_android_dream_of_electric_sheep` is for finding *where* something was
+  said when you don't know; once you do, extract, don't search.
+- Summaries (`prior_period_summary`, `summarise_from`) are only for when the
+  user asks to familiarise or orient. Reading passes
+  (`he_said_she_said_they_did`, `extract-by-type`) don't spend LLM calls;
+  reach for them first, summarise only on request.
+
 ## The dream pass (tantivy search)
 
 `do_android_dream_of_electric_sheep` is the ranked full-text search over
