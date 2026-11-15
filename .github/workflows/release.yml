@@ -33,11 +33,12 @@ jobs:
             arch: x86_64
             platform: macos
             triple: x86_64-apple-darwin
-          # Windows not built (20-min build too slow without Blacksmith):
-          #   - os: windows-latest
-          #     arch: x86_64
-          #     platform: windows
-          #     triple: x86_64-pc-windows-msvc
+          # Windows x86_64 on the Blacksmith runner (the public windows
+          # runner was a 20-min build without it; git-veil proves this one).
+          - os: blacksmith-4vcpu-windows-2025
+            arch: x86_64
+            platform: windows
+            triple: x86_64-pc-windows-msvc
           # Linux x86_64
           - os: ubuntu-latest
             arch: x86_64
@@ -77,7 +78,14 @@ jobs:
           VERSION="${VERSION#v}"
           NAME="total-recall_${VERSION}_${{ matrix.triple }}.tar.gz"
           mkdir -p dist
-          cp target/release/total-recall dist/total-recall
+          # Windows installs the executable under its .exe name.
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            cp target/release/total-recall.exe dist/total-recall.exe
+            EXE_ARG=total-recall.exe
+          else
+            cp target/release/total-recall dist/total-recall
+            EXE_ARG=total-recall
+          fi
           cp skills/total-recall/SKILL.md dist/SKILL.md
           # Reproducible archive: zeroed mtime, uid/gid 0 and a fixed ustar format
           # so the same source tree yields the same bytes. The mtime form is the
@@ -90,10 +98,10 @@ jobs:
           # Linux runners rejects them (v0.8.0's first release run died on
           # "tar: unrecognized option '--uname=root'"). --owner/--group pin the
           # uid/gid fields both implementations write.
-          TZ=UTC touch -t 197001010000 dist/total-recall dist/SKILL.md
-          tar --format=ustar --owner=0 --group=0 --numeric-owner \
-              -C dist -cf - total-recall SKILL.md | gzip -n -9 > "dist/$NAME"
-          rm dist/total-recall dist/SKILL.md
+          TZ=UTC touch -t 197001010000 dist/$EXE_ARG dist/SKILL.md
+          (cd dist && tar --format=ustar --owner=0 --group=0 --numeric-owner \
+              -cf - "$EXE_ARG" SKILL.md | gzip -n -9) > "dist/$NAME"
+          rm dist/$EXE_ARG dist/SKILL.md
           tar -tzf "dist/$NAME"
       - uses: actions/upload-artifact@v4
         with:

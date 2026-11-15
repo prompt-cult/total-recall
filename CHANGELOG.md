@@ -5,6 +5,28 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-11-15
+
+### Added
+
+- **Windows builds**. CI now tests and lints a windows leg (the
+  Blacksmith windows runner, proven in git-veil), and the release workflow
+  builds and uploads `total-recall_<version>_x86_64-pc-windows-msvc.tar.gz`
+  (the executable installs under its `.exe` name; SKILL.md rides the
+  archive as on every other platform). It carries a `SHA256SUMS` entry like
+  the rest.
+
+### Fixed
+
+- The mdBook documentation was updated to the folded tool surface:
+  `todo_history`, `extract_qa_pairs` and the CLI `extract` subcommand
+  removed from every table and section; extract-by-type's derived types
+  (`todo | compaction | questions`) and the meta `notes` degradation
+  contract documented; the `he-said-she-said-they-did` CLI subcommand
+  listed; listing rows document `backend_kind` and `ctime`/`mtime`; the
+  index sections document `source_mtime`, the side-path build + swap and
+  the search-pass auto-reindex.
+
 ## [0.27.0] - 2026-11-14
 
 ### Added
