@@ -641,6 +641,18 @@ pub struct ListingRow {
     pub assistant_count: u64,
     pub tool_count: u64,
     pub has_compaction: bool,
+    /// How the session's rollout is stored: a file tree or a database.
+    /// Database-backed rows carry no ctime/mtime, so `backend_kind` tells the
+    /// caller which time fields to trust. Absent only from summaries that
+    /// predate the field (never from a rendered row).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_kind: Option<BackendKind>,
+    /// Payload file creation time (file-backed harnesses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctime: Option<std::time::SystemTime>,
+    /// Payload file modification time (file-backed harnesses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<std::time::SystemTime>,
     pub directory: Option<String>,
     pub parent_session_id: Option<String>,
     /// The most recent child ids, at most [`IDS_PER_LISTING_ROW`] of them.
@@ -705,6 +717,9 @@ impl ListingRow {
             assistant_count: summary.assistant_count,
             tool_count: summary.tool_count,
             has_compaction: summary.has_compaction,
+            backend_kind: summary.backend_kind,
+            ctime: summary.ctime,
+            mtime: summary.mtime,
             directory: summary.directory.clone(),
             parent_session_id: summary.parent_session_id.clone(),
             child_sessions,
