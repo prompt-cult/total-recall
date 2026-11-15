@@ -11,83 +11,83 @@ use total_recall::rollout::{OPENCODE_ROOT_ENV_VAR, SANDBOX_ENV_VAR, VIBE_ROOT_EN
 
 /// Build a minimal vibe session dir so list_sessions finds exactly one entry.
 fn make_vibe_session(root: &Path, name: &str) {
-    let dir = root.join(name);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("messages.jsonl"),
-        "{\"role\":\"user\",\"content\":\"hello\",\"timestamp\":\"2026-05-23T20:31:11Z\",\"injected\":false}\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.join("meta.json"),
-        "{\"session_id\":\"x\",\"start_time\":\"2026-05-23T20:31:11+00:00\",\"end_time\":\"2026-05-23T20:40:00+00:00\",\"title\":\"t\",\"total_messages\":1}",
-    )
-    .unwrap();
+  let dir = root.join(name);
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(
+    dir.join("messages.jsonl"),
+    "{\"role\":\"user\",\"content\":\"hello\",\"timestamp\":\"2026-05-23T20:31:11Z\",\"injected\":false}\n",
+  )
+  .unwrap();
+  std::fs::write(
+    dir.join("meta.json"),
+    "{\"session_id\":\"x\",\"start_time\":\"2026-05-23T20:31:11+00:00\",\"end_time\":\"2026-05-23T20:40:00+00:00\",\"title\":\"t\",\"total_messages\":1}",
+  )
+  .unwrap();
 }
 
 #[test]
 fn vibe_env_override_points_make_adapter_at_fixture() {
-    let _l = lock_env();
-    let root = scratch("vibe");
-    make_vibe_session(&root, "session_20260523_203111_aaaa1111");
-    let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
-    let adapter = make_adapter("vibe").expect("vibe adapter");
-    let sessions = adapter.list_sessions();
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].session_id, "session_20260523_203111_aaaa1111");
+  let _l = lock_env();
+  let root = scratch("vibe");
+  make_vibe_session(&root, "session_20260523_203111_aaaa1111");
+  let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
+  let adapter = make_adapter("vibe").expect("vibe adapter");
+  let sessions = adapter.list_sessions();
+  assert_eq!(sessions.len(), 1);
+  assert_eq!(sessions[0].session_id, "session_20260523_203111_aaaa1111");
 }
 
 #[test]
 fn empty_override_counts_as_unset() {
-    let _l = lock_env();
-    let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, "   ");
-    // With the override effectively unset, the adapter falls back to the
-    // $HOME-derived root; root_is_from_env reports false.
-    let adapter = make_adapter("vibe").expect("vibe adapter");
-    assert!(!adapter.root_is_from_env());
+  let _l = lock_env();
+  let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, "  ");
+  // With the override effectively unset, the adapter falls back to the
+  // $HOME-derived root; root_is_from_env reports false.
+  let adapter = make_adapter("vibe").expect("vibe adapter");
+  assert!(!adapter.root_is_from_env());
 }
 
 #[test]
 fn sandbox_refuses_when_root_not_from_env() {
-    let _l = lock_env();
-    let _root = scratch("sandbox");
-    let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
-    let _u = EnvGuard::unset(VIBE_ROOT_ENV_VAR);
-    let err = match make_adapter("vibe") {
-        Ok(_) => panic!("sandbox must refuse live store"),
-        Err(e) => e,
-    };
-    assert!(
-        err.contains(SANDBOX_ENV_VAR),
-        "names the sandbox var: {err}"
-    );
-    assert!(
-        err.contains(VIBE_ROOT_ENV_VAR),
-        "names the missing override: {err}"
-    );
+  let _l = lock_env();
+  let _root = scratch("sandbox");
+  let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
+  let _u = EnvGuard::unset(VIBE_ROOT_ENV_VAR);
+  let err = match make_adapter("vibe") {
+    Ok(_) => panic!("sandbox must refuse live store"),
+    Err(e) => e,
+  };
+  assert!(
+    err.contains(SANDBOX_ENV_VAR),
+    "names the sandbox var: {err}"
+  );
+  assert!(
+    err.contains(VIBE_ROOT_ENV_VAR),
+    "names the missing override: {err}"
+  );
 }
 
 #[test]
 fn sandbox_allows_when_root_from_env() {
-    let _l = lock_env();
-    let root = scratch("sandbox_ok");
-    make_vibe_session(&root, "session_20260523_203111_bbbb2222");
-    let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
-    let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
-    let adapter = make_adapter("vibe").expect("sandbox passes with override set");
-    assert_eq!(adapter.list_sessions().len(), 1);
+  let _l = lock_env();
+  let root = scratch("sandbox_ok");
+  make_vibe_session(&root, "session_20260523_203111_bbbb2222");
+  let _s = EnvGuard::set(SANDBOX_ENV_VAR, "1");
+  let _g = EnvGuard::set(VIBE_ROOT_ENV_VAR, root.to_str().unwrap());
+  let adapter = make_adapter("vibe").expect("sandbox passes with override set");
+  assert_eq!(adapter.list_sessions().len(), 1);
 }
 
 #[test]
 fn opencode_override_is_wired() {
-    let _l = lock_env();
-    let oroot = scratch("opencode");
-    let _o = EnvGuard::set(OPENCODE_ROOT_ENV_VAR, oroot.to_str().unwrap());
-    let adapter = make_adapter("opencode").unwrap_or_else(|e| panic!("opencode: {e}"));
-    assert!(
-        adapter.root_is_from_env(),
-        "opencode root must come from env"
-    );
-    // Empty fixture roots list zero sessions but must not error/panic.
-    assert_eq!(adapter.list_sessions().len(), 0, "opencode");
+  let _l = lock_env();
+  let oroot = scratch("opencode");
+  let _o = EnvGuard::set(OPENCODE_ROOT_ENV_VAR, oroot.to_str().unwrap());
+  let adapter = make_adapter("opencode").unwrap_or_else(|e| panic!("opencode: {e}"));
+  assert!(
+    adapter.root_is_from_env(),
+    "opencode root must come from env"
+  );
+  // Empty fixture roots list zero sessions but must not error/panic.
+  assert_eq!(adapter.list_sessions().len(), 0, "opencode");
 }

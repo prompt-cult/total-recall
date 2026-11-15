@@ -2,271 +2,271 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{
-    EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionListing,
-    SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window, read_error,
-    slice_from_compaction,
+  EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage, SessionListing,
+  SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window, read_error,
+  slice_from_compaction,
 };
 
 /// Parse a pre-extracted JSONL of RolloutMessage objects. A line that is not
 /// valid JSON, or is not a message object, is skipped with a warning carrying
 /// its line number: a malformed line must be diagnosable, never silently lost.
 fn parse_jsonl(data: &[u8]) -> Vec<RolloutMessage> {
-    let text = String::from_utf8_lossy(data);
-    let mut messages = Vec::new();
+  let text = String::from_utf8_lossy(data);
+  let mut messages = Vec::new();
 
-    for (i, line) in text.lines().enumerate() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<RolloutMessage>(line) {
-            Ok(msg) => messages.push(msg),
-            Err(e) => tracing::warn!("mock rollout: skipping unparseable line {}: {e}", i + 1),
-        }
+  for (i, line) in text.lines().enumerate() {
+    if line.trim().is_empty() {
+      continue;
     }
-    messages
+    match serde_json::from_str::<RolloutMessage>(line) {
+      Ok(msg) => messages.push(msg),
+      Err(e) => tracing::warn!("mock rollout: skipping unparseable line {}: {e}", i + 1),
+    }
+  }
+  messages
 }
 
 /// The mock store's single payload summarized. Damage is surfaced: an
 /// unreadable payload still lists, with counts from whatever could be read
 /// and a `read_error` message.
 fn summarize_payload(data_path: &std::path::Path) -> SessionSummary {
-    // Distinguish read damage (permissions, I/O error) from a payload that
-    // does not exist yet: damage is surfaced on the entry.
-    let (messages, read_error) = match std::fs::read(data_path) {
-        Ok(data) => (parse_jsonl(&data), None),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
-        Err(e) => (Vec::new(), Some(read_error(data_path, &e))),
-    };
-    let file_size = std::fs::metadata(data_path).map(|m| m.len()).unwrap_or(0);
-    let line_count = messages.len() as u64;
+  // Distinguish read damage (permissions, I/O error) from a payload that
+  // does not exist yet: damage is surfaced on the entry.
+  let (messages, read_error) = match std::fs::read(data_path) {
+    Ok(data) => (parse_jsonl(&data), None),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), None),
+    Err(e) => (Vec::new(), Some(read_error(data_path, &e))),
+  };
+  let file_size = std::fs::metadata(data_path).map(|m| m.len()).unwrap_or(0);
+  let line_count = messages.len() as u64;
 
-    let mut user_count = 0u64;
-    let mut assistant_count = 0u64;
-    let mut tool_count = 0u64;
-    let mut has_compaction = false;
+  let mut user_count = 0u64;
+  let mut assistant_count = 0u64;
+  let mut tool_count = 0u64;
+  let mut has_compaction = false;
 
-    for msg in &messages {
-        match msg.role.as_str() {
-            "user" => {
-                user_count += 1;
-                if msg.content.contains("context compaction") {
-                    has_compaction = true;
-                }
-            }
-            "assistant" => assistant_count += 1,
-            "tool" => tool_count += 1,
-            _ => {}
+  for msg in &messages {
+    match msg.role.as_str() {
+      "user" => {
+        user_count += 1;
+        if msg.content.contains("context compaction") {
+          has_compaction = true;
         }
+      }
+      "assistant" => assistant_count += 1,
+      "tool" => tool_count += 1,
+      _ => {}
     }
+  }
 
-    SessionSummary {
-        session_id: "mock".to_string(),
-        title: "Mock session".to_string(),
-        start_time: String::new(),
-        end_time: String::new(),
-        file_size,
-        line_count,
-        user_count,
-        assistant_count,
-        tool_count,
-        has_compaction,
-        directory: None,
-        parent_session_id: None,
-        child_sessions: Vec::new(),
-        has_tantivy_index: false,
+  SessionSummary {
+    session_id: "mock".to_string(),
+    title: "Mock session".to_string(),
+    start_time: String::new(),
+    end_time: String::new(),
+    file_size,
+    line_count,
+    user_count,
+    assistant_count,
+    tool_count,
+    has_compaction,
+    directory: None,
+    parent_session_id: None,
+    child_sessions: Vec::new(),
+    has_tantivy_index: false,
 backend_kind: None,
-        ctime: None,
-        mtime: None,
-        aliases: Vec::new(),
-        read_error,
-    }
+    ctime: None,
+    mtime: None,
+    aliases: Vec::new(),
+    read_error,
+  }
 }
 
 /// Mocked flat-file adapter for tests. Reads a pre-extracted JSONL of RolloutMessage objects.
 pub struct MockAdapter {
-    data_path: PathBuf,
+  data_path: PathBuf,
 }
 
 impl MockAdapter {
-    pub fn new<P: Into<PathBuf>>(data_path: P) -> Self {
-        Self {
-            data_path: data_path.into(),
-        }
+  pub fn new<P: Into<PathBuf>>(data_path: P) -> Self {
+    Self {
+      data_path: data_path.into(),
     }
+  }
 
-    fn read_jsonl(&self) -> ReadResult<Vec<RolloutMessage>> {
-        let data = std::fs::read(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
-        Ok(parse_jsonl(&data))
-    }
+  fn read_jsonl(&self) -> ReadResult<Vec<RolloutMessage>> {
+    let data = std::fs::read(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
+    Ok(parse_jsonl(&data))
+  }
 
-    fn read_jsonl_mmap(&self) -> ReadResult<Vec<RolloutMessage>> {
-        let file =
-            std::fs::File::open(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
-        let mmap =
-            unsafe { memmap2::Mmap::map(&file) }.map_err(|e| mmap_error(&self.data_path, &e))?;
-        Ok(parse_jsonl(&mmap[..]))
-    }
+  fn read_jsonl_mmap(&self) -> ReadResult<Vec<RolloutMessage>> {
+    let file =
+      std::fs::File::open(&self.data_path).map_err(|e| read_error(&self.data_path, &e))?;
+    let mmap =
+      unsafe { memmap2::Mmap::map(&file) }.map_err(|e| mmap_error(&self.data_path, &e))?;
+    Ok(parse_jsonl(&mmap[..]))
+  }
 }
 
 impl RolloutAdapter for MockAdapter {
-    fn name(&self) -> &'static str {
-        "mock"
+  fn name(&self) -> &'static str {
+    "mock"
+  }
+
+  /// The mock serves one session, "mock"; a partial matches by substring.
+  fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
+    if !session_id.is_empty() && "mock".contains(session_id) {
+      Some("mock".to_string())
+    } else {
+      None
+    }
+  }
+
+  fn shadow_index_root(&self) -> PathBuf {
+    self.data_path
+      .parent()
+      .unwrap_or_else(|| std::path::Path::new("."))
+      .join(".tantivy")
+  }
+
+  fn list_sessions(&self) -> Vec<SessionSummary> {
+    vec![summarize_payload(&self.data_path)]
+  }
+
+  fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
+    // The mock store is a single payload, so its mtime is the window key;
+    // the mock summary carries no directory (None passes every filter).
+    let mtime = std::fs::metadata(&self.data_path)
+      .and_then(|m| m.modified())
+      .ok();
+    if !mtime_in_window(mtime, hours_back) {
+      return SessionListing {
+        sessions: Vec::new(),
+        window_count: 0,
+      };
+    }
+    listing_by_mtime(vec![(mtime, summarize_payload(&self.data_path))])
+  }
+
+  fn read_session(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    self.read_jsonl()
+  }
+
+  fn read_session_mmap(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    self.read_jsonl_mmap()
+  }
+
+  fn read_session_from_compaction(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    Ok(slice_from_compaction(self.read_jsonl_mmap()?))
+  }
+
+  fn profile_session_opts(&self, _session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+    let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), "mock");
+    if cache
+      && let Some(cached) = crate::profile_cache::read_fresh(
+        &cache_path,
+        crate::profile_cache::mtime_ms(&self.data_path).unwrap_or(0),
+      )
+    {
+      return Ok(cached);
     }
 
-    /// The mock serves one session, "mock"; a partial matches by substring.
-    fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
-        if !session_id.is_empty() && "mock".contains(session_id) {
-            Some("mock".to_string())
-        } else {
-            None
+    let messages = self.read_jsonl()?;
+    let file_size = std::fs::metadata(&self.data_path)
+      .map(|m| m.len())
+      .unwrap_or(0);
+    let line_count = messages.len() as u64;
+
+    let mut role_counts: HashMap<String, u64> = HashMap::new();
+    let mut interesting_events = Vec::new();
+    let mut last_event_line = 0u64;
+
+    for (i, msg) in messages.iter().enumerate() {
+      let line = i as u64 + 1;
+      *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
+
+      if msg.content.contains("context compaction") {
+        interesting_events.push(InterestingEvent {
+          line_number: line,
+          event_type: EventType::Compaction,
+          summary: "Compaction marker found".to_string(),
+          gap_lines: line - last_event_line,
+        });
+        last_event_line = line;
+      }
+
+      for tc in &msg.tool_calls_summary {
+        if tc.starts_with("todo(") {
+          let event_type = if tc.contains("write") {
+            EventType::TodoCreate
+          } else if tc.contains("delete") {
+            EventType::TodoDelete
+          } else {
+            EventType::TodoUpdate
+          };
+          interesting_events.push(InterestingEvent {
+            line_number: line,
+            event_type,
+            summary: tc.clone(),
+            gap_lines: line - last_event_line,
+          });
+          last_event_line = line;
         }
-    }
-
-    fn shadow_index_root(&self) -> PathBuf {
-        self.data_path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new("."))
-            .join(".tantivy")
-    }
-
-    fn list_sessions(&self) -> Vec<SessionSummary> {
-        vec![summarize_payload(&self.data_path)]
-    }
-
-    fn list_sessions_scoped(&self, hours_back: u64, _directory: Option<&str>) -> SessionListing {
-        // The mock store is a single payload, so its mtime is the window key;
-        // the mock summary carries no directory (None passes every filter).
-        let mtime = std::fs::metadata(&self.data_path)
-            .and_then(|m| m.modified())
-            .ok();
-        if !mtime_in_window(mtime, hours_back) {
-            return SessionListing {
-                sessions: Vec::new(),
-                window_count: 0,
-            };
+        if tc.contains("git commit") {
+          interesting_events.push(InterestingEvent {
+            line_number: line,
+            event_type: EventType::GitCommit,
+            summary: tc.clone(),
+            gap_lines: line - last_event_line,
+          });
+          last_event_line = line;
         }
-        listing_by_mtime(vec![(mtime, summarize_payload(&self.data_path))])
-    }
-
-    fn read_session(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        self.read_jsonl()
-    }
-
-    fn read_session_mmap(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        self.read_jsonl_mmap()
-    }
-
-    fn read_session_from_compaction(&self, _session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        Ok(slice_from_compaction(self.read_jsonl_mmap()?))
-    }
-
-    fn profile_session_opts(&self, _session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
-        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), "mock");
-        if cache
-            && let Some(cached) = crate::profile_cache::read_fresh(
-                &cache_path,
-                crate::profile_cache::mtime_ms(&self.data_path).unwrap_or(0),
-            )
-        {
-            return Ok(cached);
+        if tc.contains("git push") {
+          interesting_events.push(InterestingEvent {
+            line_number: line,
+            event_type: EventType::GitPush,
+            summary: tc.clone(),
+            gap_lines: line - last_event_line,
+          });
+          last_event_line = line;
         }
-
-        let messages = self.read_jsonl()?;
-        let file_size = std::fs::metadata(&self.data_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        let line_count = messages.len() as u64;
-
-        let mut role_counts: HashMap<String, u64> = HashMap::new();
-        let mut interesting_events = Vec::new();
-        let mut last_event_line = 0u64;
-
-        for (i, msg) in messages.iter().enumerate() {
-            let line = i as u64 + 1;
-            *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
-
-            if msg.content.contains("context compaction") {
-                interesting_events.push(InterestingEvent {
-                    line_number: line,
-                    event_type: EventType::Compaction,
-                    summary: "Compaction marker found".to_string(),
-                    gap_lines: line - last_event_line,
-                });
-                last_event_line = line;
-            }
-
-            for tc in &msg.tool_calls_summary {
-                if tc.starts_with("todo(") {
-                    let event_type = if tc.contains("write") {
-                        EventType::TodoCreate
-                    } else if tc.contains("delete") {
-                        EventType::TodoDelete
-                    } else {
-                        EventType::TodoUpdate
-                    };
-                    interesting_events.push(InterestingEvent {
-                        line_number: line,
-                        event_type,
-                        summary: tc.clone(),
-                        gap_lines: line - last_event_line,
-                    });
-                    last_event_line = line;
-                }
-                if tc.contains("git commit") {
-                    interesting_events.push(InterestingEvent {
-                        line_number: line,
-                        event_type: EventType::GitCommit,
-                        summary: tc.clone(),
-                        gap_lines: line - last_event_line,
-                    });
-                    last_event_line = line;
-                }
-                if tc.contains("git push") {
-                    interesting_events.push(InterestingEvent {
-                        line_number: line,
-                        event_type: EventType::GitPush,
-                        summary: tc.clone(),
-                        gap_lines: line - last_event_line,
-                    });
-                    last_event_line = line;
-                }
-                if tc.contains("git tag") {
-                    interesting_events.push(InterestingEvent {
-                        line_number: line,
-                        event_type: EventType::GitTag,
-                        summary: tc.clone(),
-                        gap_lines: line - last_event_line,
-                    });
-                    last_event_line = line;
-                }
-            }
+        if tc.contains("git tag") {
+          interesting_events.push(InterestingEvent {
+            line_number: line,
+            event_type: EventType::GitTag,
+            summary: tc.clone(),
+            gap_lines: line - last_event_line,
+          });
+          last_event_line = line;
         }
-
-        let first_ts = messages.first().and_then(|m| m.timestamp.clone());
-        let last_ts = messages.last().and_then(|m| m.timestamp.clone());
-
-        let profile = SessionProfile {
-            session_id: "mock".to_string(),
-            file_size,
-            line_count,
-            first_ts,
-            last_ts,
-            role_counts,
-            has_tantivy_index: false,
-            interesting_events,
-        };
-        if cache {
-            crate::profile_cache::write(&cache_path, &profile);
-        }
-        Ok(profile)
+      }
     }
 
-    fn extract_user_messages(&self, _session_id: &str) -> ReadResult<Vec<String>> {
-        Ok(self
-            .read_jsonl()?
-            .into_iter()
-            .filter(|m| m.role == "user" && !m.injected)
-            .map(|m| m.content)
-            .collect())
+    let first_ts = messages.first().and_then(|m| m.timestamp.clone());
+    let last_ts = messages.last().and_then(|m| m.timestamp.clone());
+
+    let profile = SessionProfile {
+      session_id: "mock".to_string(),
+      file_size,
+      line_count,
+      first_ts,
+      last_ts,
+      role_counts,
+      has_tantivy_index: false,
+      interesting_events,
+    };
+    if cache {
+      crate::profile_cache::write(&cache_path, &profile);
     }
+    Ok(profile)
+  }
+
+  fn extract_user_messages(&self, _session_id: &str) -> ReadResult<Vec<String>> {
+    Ok(self
+      .read_jsonl()?
+      .into_iter()
+      .filter(|m| m.role == "user" && !m.injected)
+      .map(|m| m.content)
+      .collect())
+  }
 }

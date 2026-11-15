@@ -34,7 +34,7 @@ const LINE_HISTOGRAM_AWK: &str = include_str!("../scripts/line_histogram.awk");
 
 /// The temp-directory root holding overflow files: `$TMPDIR/total-recall/`.
 pub fn temp_root() -> PathBuf {
-    std::env::temp_dir().join("total-recall")
+  std::env::temp_dir().join("total-recall")
 }
 
 /// Remove overflow report files (`.md`) and streamed JSONL overflow files
@@ -42,7 +42,7 @@ pub fn temp_root() -> PathBuf {
 /// is never pruned. Trivial by design: no manifest, no locks — a sweep per
 /// capped call.
 pub fn prune_older_than(cutoff: SystemTime) {
-    prune_older_than_in(&temp_root(), cutoff);
+  prune_older_than_in(&temp_root(), cutoff);
 }
 
 /// [`prune_older_than`] against an explicit root.
@@ -54,46 +54,46 @@ pub fn prune_older_than(cutoff: SystemTime) {
 /// caller in the process has just written, including one that is mid-flight
 /// into its own histogram.
 pub fn prune_older_than_in(root: &Path, cutoff: SystemTime) {
-    let Ok(entries) = fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        // The overflow files come in two flavors: the surviving text-path
-        // reports (`.md`) and the dual-stream JSONL sinks (`.jsonl`). Both
-        // are pruned on the same policy; anything else — in particular the
-        // vendored awk script — is left alone.
-        if path.extension().is_none_or(|e| e != "md" && e != "jsonl") {
-            continue;
-        }
-        let Ok(meta) = entry.metadata() else {
-            continue;
-        };
-        // ctime is not exposed portably by std; the creation time is the
-        // honest reading of "how long has this file existed", with mtime as
-        // the fallback.
-        let age_marker = meta
-            .created()
-            .unwrap_or_else(|_| meta.modified().unwrap_or(SystemTime::now()));
-        if age_marker < cutoff {
-            let _ = fs::remove_file(&path);
-        }
+  let Ok(entries) = fs::read_dir(root) else {
+    return;
+  };
+  for entry in entries.flatten() {
+    let path = entry.path();
+    // The overflow files come in two flavors: the surviving text-path
+    // reports (`.md`) and the dual-stream JSONL sinks (`.jsonl`). Both
+    // are pruned on the same policy; anything else — in particular the
+    // vendored awk script — is left alone.
+    if path.extension().is_none_or(|e| e != "md" && e != "jsonl") {
+      continue;
     }
+    let Ok(meta) = entry.metadata() else {
+      continue;
+    };
+    // ctime is not exposed portably by std; the creation time is the
+    // honest reading of "how long has this file existed", with mtime as
+    // the fallback.
+    let age_marker = meta
+      .created()
+      .unwrap_or_else(|_| meta.modified().unwrap_or(SystemTime::now()));
+    if age_marker < cutoff {
+      let _ = fs::remove_file(&path);
+    }
+  }
 }
 
 fn write_private(path: &Path, content: &str) {
-    let _ = fs::create_dir_all(path.parent().unwrap_or(path));
-    let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    if let Ok(mut f) = opts.open(path) {
-        use std::io::Write;
-        let _ = f.write_all(content.as_bytes());
-    }
+  let _ = fs::create_dir_all(path.parent().unwrap_or(path));
+  let mut opts = fs::OpenOptions::new();
+  opts.write(true).create(true).truncate(true);
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::OpenOptionsExt;
+    opts.mode(0o600);
+  }
+  if let Ok(mut f) = opts.open(path) {
+    use std::io::Write;
+    let _ = f.write_all(content.as_bytes());
+  }
 }
 
 /// Staging serial for [`stage_awk_script`]: the staging file names must not
@@ -113,33 +113,33 @@ static STAGING_SERIAL: AtomicU64 = AtomicU64::new(0);
 /// call that returns no histogram — the overflow marker silently losing the
 /// bucket distribution it exists to carry.
 fn stage_awk_script() -> PathBuf {
-    let path = temp_root().join("line_histogram.awk");
-    let _ = fs::create_dir_all(temp_root());
-    let staging = temp_root().join(format!(
-        ".line_histogram.awk.{}.{}",
-        std::process::id(),
-        STAGING_SERIAL.fetch_add(1, Ordering::Relaxed)
-    ));
-    let mut opts = fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
+  let path = temp_root().join("line_histogram.awk");
+  let _ = fs::create_dir_all(temp_root());
+  let staging = temp_root().join(format!(
+    ".line_histogram.awk.{}.{}",
+    std::process::id(),
+    STAGING_SERIAL.fetch_add(1, Ordering::Relaxed)
+  ));
+  let mut opts = fs::OpenOptions::new();
+  opts.write(true).create(true).truncate(true);
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::OpenOptionsExt;
+    opts.mode(0o600);
+  }
+  let staged = opts.open(&staging).and_then(|mut f| {
+    use std::io::Write;
+    f.write_all(LINE_HISTOGRAM_AWK.as_bytes())
+  });
+  match staged {
+    // Only a completely written script is allowed to become the shared
+    // one; a failed write leaves the previous script in place.
+    Ok(()) if fs::rename(&staging, &path).is_ok() => {}
+    _ => {
+      let _ = fs::remove_file(&staging);
     }
-    let staged = opts.open(&staging).and_then(|mut f| {
-        use std::io::Write;
-        f.write_all(LINE_HISTOGRAM_AWK.as_bytes())
-    });
-    match staged {
-        // Only a completely written script is allowed to become the shared
-        // one; a failed write leaves the previous script in place.
-        Ok(()) if fs::rename(&staging, &path).is_ok() => {}
-        _ => {
-            let _ = fs::remove_file(&staging);
-        }
-    }
-    path
+  }
+  path
 }
 
 /// Run the vendored `line_histogram.awk` over `file`.
@@ -149,41 +149,41 @@ fn stage_awk_script() -> PathBuf {
 /// inclusive range `start`..=`end`. A direct `awk -f <script> <file>` spawn
 /// — no shell, no shebang reliance.
 pub fn line_histogram(
-    file: &Path,
-    mode: Option<&str>,
-    line: Option<u64>,
-    start: Option<u64>,
-    end: Option<u64>,
+  file: &Path,
+  mode: Option<&str>,
+  line: Option<u64>,
+  start: Option<u64>,
+  end: Option<u64>,
 ) -> Result<String, String> {
-    if !file.is_file() {
-        return Err(format!("no file at {}: cannot histogram", file.display()));
-    }
-    let script = stage_awk_script();
-    let mut cmd = Command::new("awk");
-    cmd.arg("-f").arg(&script);
-    if let Some(mode) = mode {
-        cmd.arg(format!("-vmode={mode}"));
-    }
-    if let Some(line) = line {
-        cmd.arg(format!("-vline={line}"));
-    }
-    if let Some(start) = start {
-        cmd.arg(format!("-vstart={start}"));
-    }
-    if let Some(end) = end {
-        cmd.arg(format!("-vend={end}"));
-    }
-    cmd.arg(file);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("cannot spawn awk -f: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "line_histogram.awk failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+  if !file.is_file() {
+    return Err(format!("no file at {}: cannot histogram", file.display()));
+  }
+  let script = stage_awk_script();
+  let mut cmd = Command::new("awk");
+  cmd.arg("-f").arg(&script);
+  if let Some(mode) = mode {
+    cmd.arg(format!("-vmode={mode}"));
+  }
+  if let Some(line) = line {
+    cmd.arg(format!("-vline={line}"));
+  }
+  if let Some(start) = start {
+    cmd.arg(format!("-vstart={start}"));
+  }
+  if let Some(end) = end {
+    cmd.arg(format!("-vend={end}"));
+  }
+  cmd.arg(file);
+  let output = cmd
+    .output()
+    .map_err(|e| format!("cannot spawn awk -f: {e}"))?;
+  if !output.status.success() {
+    return Err(format!(
+      "line_histogram.awk failed: {}",
+      String::from_utf8_lossy(&output.stderr).trim()
+    ));
+  }
+  Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 /// Per-process sequence for overflow filenames: two overflowing calls in the
@@ -193,21 +193,21 @@ pub fn line_histogram(
 static OVERFLOW_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn overflow_file(tool: &str, scope: &str, ext: &str) -> PathBuf {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let seq = OVERFLOW_SEQ.fetch_add(1, Ordering::Relaxed);
-    let clean_tool = tool.replace(['/', ' '], "_");
-    let clean_scope = if scope.is_empty() {
-        "all".to_string()
-    } else {
-        scope.replace(['/', ' '], "_")
-    };
-    let pid = std::process::id();
-    temp_root().join(format!(
-        "{clean_tool}_{clean_scope}_{millis}_{pid}_{seq}.{ext}"
-    ))
+  let millis = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis();
+  let seq = OVERFLOW_SEQ.fetch_add(1, Ordering::Relaxed);
+  let clean_tool = tool.replace(['/', ' '], "_");
+  let clean_scope = if scope.is_empty() {
+    "all".to_string()
+  } else {
+    scope.replace(['/', ' '], "_")
+  };
+  let pid = std::process::id();
+  temp_root().join(format!(
+    "{clean_tool}_{clean_scope}_{millis}_{pid}_{seq}.{ext}"
+  ))
 }
 
 /// Flood control for the two text-path tools — `help` (the skill markdown)
@@ -224,37 +224,37 @@ pub fn overflow_file(tool: &str, scope: &str, ext: &str) -> PathBuf {
 ///
 /// Every capped call first prunes overflow files older than 24 hours.
 pub fn cap_report(tool: &str, scope: &str, content: String, max_bytes: usize) -> String {
-    prune_older_than(
-        SystemTime::now()
-            .checked_sub(PRUNE_AFTER)
-            .unwrap_or(SystemTime::UNIX_EPOCH),
-    );
-    let total = content.len();
-    if total <= max_bytes {
-        return content;
-    }
+  prune_older_than(
+    SystemTime::now()
+      .checked_sub(PRUNE_AFTER)
+      .unwrap_or(SystemTime::UNIX_EPOCH),
+  );
+  let total = content.len();
+  if total <= max_bytes {
+    return content;
+  }
 
-    let path = overflow_file(tool, scope, "md");
-    write_private(&path, &content);
-    let total_lines = content.lines().count();
+  let path = overflow_file(tool, scope, "md");
+  write_private(&path, &content);
+  let total_lines = content.lines().count();
 
-    // cut at a line boundary at or under the cap
-    let mut cut = max_bytes.min(total);
-    let bytes = content.as_bytes();
-    while cut > 0 && bytes[cut - 1] != b'\n' {
-        cut -= 1;
-    }
-    if cut == 0 {
-        cut = max_bytes.min(total);
-    }
-    let head = content[..cut].to_string();
-    let returned = head.len();
+  // cut at a line boundary at or under the cap
+  let mut cut = max_bytes.min(total);
+  let bytes = content.as_bytes();
+  while cut > 0 && bytes[cut - 1] != b'\n' {
+    cut -= 1;
+  }
+  if cut == 0 {
+    cut = max_bytes.min(total);
+  }
+  let head = content[..cut].to_string();
+  let returned = head.len();
 
-    let histogram = line_histogram(&path, None, None, None, None)
-        .unwrap_or_else(|e| format!("line histogram unavailable: {e}"));
+  let histogram = line_histogram(&path, None, None, None, None)
+    .unwrap_or_else(|e| format!("line histogram unavailable: {e}"));
 
-    format!(
-        "{head}--- [EOF-TRUNCATED] ---\ntool: {tool}\nreturned_bytes: {returned}\ntotal_bytes: {total}\ntotal_lines: {total_lines}\nfull_report: {}\nnote: overflow files older than 24 hours are pruned on every capped call; page the file with the line_histogram tool (mode=extract)\n\n{histogram}\n",
-        path.display()
-    )
+  format!(
+    "{head}--- [EOF-TRUNCATED] ---\ntool: {tool}\nreturned_bytes: {returned}\ntotal_bytes: {total}\ntotal_lines: {total_lines}\nfull_report: {}\nnote: overflow files older than 24 hours are pruned on every capped call; page the file with the line_histogram tool (mode=extract)\n\n{histogram}\n",
+    path.display()
+  )
 }

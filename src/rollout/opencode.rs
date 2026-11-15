@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 use super::{
-    BackendKind,
-    EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair, ReadResult,
-    RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
-    no_session_error, parse_questions_payload, parse_quoted_string, resolve_root,
-    summarize_tool_call,
+  BackendKind,
+  EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair, ReadResult,
+  RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
+  no_session_error, parse_questions_payload, parse_quoted_string, resolve_root,
+  summarize_tool_call,
 };
 use crate::todo_history::{TodoItemState, TodoWrite};
 
@@ -28,92 +28,92 @@ use crate::todo_history::{TodoItemState, TodoWrite};
 /// adapter detects the layout per connection and reads v2 there, legacy
 /// otherwise. Nothing is written to the database.
 pub struct OpenCodeAdapter {
-    db_path: PathBuf,
-    from_env: bool,
+  db_path: PathBuf,
+  from_env: bool,
 }
 
 impl OpenCodeAdapter {
-    pub fn new() -> Self {
-        let (db_path, from_env) = resolve_root(
-            OPENCODE_ROOT_ENV_VAR,
-            &[".local/share/opencode", "opencode.db"],
-        );
-        let db_path = normalize_db_path(db_path);
-        Self { db_path, from_env }
-    }
+  pub fn new() -> Self {
+    let (db_path, from_env) = resolve_root(
+      OPENCODE_ROOT_ENV_VAR,
+      &[".local/share/opencode", "opencode.db"],
+    );
+    let db_path = normalize_db_path(db_path);
+    Self { db_path, from_env }
+  }
 
-    /// Path points at the opencode SQLite database file. If a directory is
-    /// given, `opencode.db` inside it is used.
-    pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
-        let db_path = normalize_db_path(root.into());
-        Self {
-            db_path,
-            from_env: true,
-        }
+  /// Path points at the opencode SQLite database file. If a directory is
+  /// given, `opencode.db` inside it is used.
+  pub fn with_root<P: Into<PathBuf>>(root: P) -> Self {
+    let db_path = normalize_db_path(root.into());
+    Self {
+      db_path,
+      from_env: true,
     }
+  }
 
-    fn connect(&self) -> ReadResult<Connection> {
-        Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
-            format!(
-                "cannot open opencode database at {}: {}",
-                self.db_path.display(),
-                e
-            )
-        })
-    }
+  fn connect(&self) -> ReadResult<Connection> {
+    Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| {
+      format!(
+        "cannot open opencode database at {}: {}",
+        self.db_path.display(),
+        e
+      )
+    })
+  }
 
-    /// Resolve a (possibly partial) session id to the full id, most recent
-    /// match wins. The v2 registry is read when present — the legacy tables
-    /// hold the migrated frozen copy, so a v2-only session (anything 2.2
-    /// wrote after the migration) would otherwise die behind "no session
-    /// matching".
-    fn resolve_session_id(&self, conn: &Connection, session_id: &str) -> Option<String> {
-        if store_layout(conn) == StoreLayout::V2 {
-            return conn
-                .query_row(
-                    "SELECT id FROM session_v2 WHERE id LIKE '%' || ?1 || '%'
-                     ORDER BY time_updated DESC LIMIT 1",
-                    [session_id],
-                    |row| row.get(0),
-                )
-                .ok();
-        }
-        conn.query_row(
-            "SELECT id FROM session WHERE id LIKE '%' || ?1 || '%'
-             ORDER BY time_updated DESC LIMIT 1",
-            [session_id],
-            |row| row.get(0),
+  /// Resolve a (possibly partial) session id to the full id, most recent
+  /// match wins. The v2 registry is read when present — the legacy tables
+  /// hold the migrated frozen copy, so a v2-only session (anything 2.2
+  /// wrote after the migration) would otherwise die behind "no session
+  /// matching".
+  fn resolve_session_id(&self, conn: &Connection, session_id: &str) -> Option<String> {
+    if store_layout(conn) == StoreLayout::V2 {
+      return conn
+        .query_row(
+          "SELECT id FROM session_v2 WHERE id LIKE '%' || ?1 || '%'
+           ORDER BY time_updated DESC LIMIT 1",
+          [session_id],
+          |row| row.get(0),
         )
-        .ok()
+        .ok();
     }
+    conn.query_row(
+      "SELECT id FROM session WHERE id LIKE '%' || ?1 || '%'
+       ORDER BY time_updated DESC LIMIT 1",
+      [session_id],
+      |row| row.get(0),
+    )
+    .ok()
+  }
 }
 
 /// Which log layout the opened store carries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StoreLayout {
-    /// Pre-2.2: session/message/part with separate part rows.
-    Legacy,
-    /// 2.2+: session_v2/session_message with parts inlined in the data JSON.
-    /// A migrated store has both table sets — the v2 set is the complete one.
-    V2,
+  /// Pre-2.2: session/message/part with separate part rows.
+  Legacy,
+  /// 2.2+: session_v2/session_message with parts inlined in the data JSON.
+  /// A migrated store has both table sets — the v2 set is the complete one.
+  V2,
 }
 
 /// Detect the layout: both new tables present means 2.2. Anything else
 /// (pre-2.2, or a store without the v2 pair) reads legacy.
 fn store_layout(conn: &Connection) -> StoreLayout {
-    let n: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master
-             WHERE type = 'table' AND name IN ('session_v2', 'session_message')",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    if n >= 2 {
-        StoreLayout::V2
-    } else {
-        StoreLayout::Legacy
-    }
+  let n: i64 = conn
+    .query_row(
+      "SELECT COUNT(*) FROM sqlite_master
+       WHERE type = 'table' AND name IN ('session_v2', 'session_message')",
+      [],
+      |r| r.get(0),
+    )
+    .unwrap_or(0);
+  if n >= 2 {
+    StoreLayout::V2
+  } else {
+    StoreLayout::Legacy
+  }
 }
 
 /// Every row of a session's message log in order, as a layout-agnostic
@@ -126,59 +126,59 @@ fn store_layout(conn: &Connection) -> StoreLayout {
 /// below reads this one shape. Unparseable rows are skipped with a warning,
 /// never fatal and never silently empty.
 fn load_part_stream(
-    conn: &Connection,
-    full_id: &str,
+  conn: &Connection,
+  full_id: &str,
 ) -> ReadResult<Vec<(Value, Value, i64, bool)>> {
-    match store_layout(conn) {
-        StoreLayout::Legacy => legacy_part_stream(conn, full_id),
-        StoreLayout::V2 => v2_part_stream(conn, full_id),
-    }
+  match store_layout(conn) {
+    StoreLayout::Legacy => legacy_part_stream(conn, full_id),
+    StoreLayout::V2 => v2_part_stream(conn, full_id),
+  }
 }
 
 /// The pre-2.2 stream: message rows joined to their part rows in store order
 /// (message creation time, then part creation time).
 fn legacy_part_stream(
-    conn: &Connection,
-    full_id: &str,
+  conn: &Connection,
+  full_id: &str,
 ) -> ReadResult<Vec<(Value, Value, i64, bool)>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT m.data, p.data, p.time_created
-              FROM message m
-              JOIN part p ON m.id = p.message_id
-              WHERE m.session_id = ?1
-              ORDER BY m.time_created ASC, p.time_created ASC",
-        )
-        .map_err(|e| format!("cannot query opencode messages for {full_id}: {e}"))?;
-    let rows = stmt
-        .query_map([full_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        })
-        .map_err(|e| format!("cannot read opencode messages for {full_id}: {e}"))?;
-    let mut stream = Vec::new();
-    for row in rows.flatten() {
-        let (msg_json, part_json, part_time) = row;
-        let msg: Value = match serde_json::from_str(&msg_json) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("opencode session {full_id}: skipping unparseable message: {e}");
-                continue;
-            }
-        };
-        let part: Value = match serde_json::from_str(&part_json) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("opencode session {full_id}: skipping unparseable part: {e}");
-                continue;
-            }
-        };
-        stream.push((msg, part, part_time, false));
-    }
-    Ok(stream)
+  let mut stmt = conn
+    .prepare(
+      "SELECT m.data, p.data, p.time_created
+       FROM message m
+       JOIN part p ON m.id = p.message_id
+       WHERE m.session_id = ?1
+       ORDER BY m.time_created ASC, p.time_created ASC",
+    )
+    .map_err(|e| format!("cannot query opencode messages for {full_id}: {e}"))?;
+  let rows = stmt
+    .query_map([full_id], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, i64>(2)?,
+      ))
+    })
+    .map_err(|e| format!("cannot read opencode messages for {full_id}: {e}"))?;
+  let mut stream = Vec::new();
+  for row in rows.flatten() {
+    let (msg_json, part_json, part_time) = row;
+    let msg: Value = match serde_json::from_str(&msg_json) {
+      Ok(v) => v,
+      Err(e) => {
+        tracing::warn!("opencode session {full_id}: skipping unparseable message: {e}");
+        continue;
+      }
+    };
+    let part: Value = match serde_json::from_str(&part_json) {
+      Ok(v) => v,
+      Err(e) => {
+        tracing::warn!("opencode session {full_id}: skipping unparseable part: {e}");
+        continue;
+      }
+    };
+    stream.push((msg, part, part_time, false));
+  }
+  Ok(stream)
 }
 
 /// The 2.2 stream: `session_message` rows in `seq` order. The row types the
@@ -186,81 +186,81 @@ fn legacy_part_stream(
 /// the carried types become stream triples:
 /// - `user`: `data.text` as a text part;
 /// - `assistant`: each entry of `data.content` (text/reasoning/tool, tool
-///   parts re-keyed `name` → `tool`);
+///  parts re-keyed `name` → `tool`);
 /// - `compaction`: a `{"type":"compaction"}` part, which renders exactly the
-///   injected marker the legacy typed compaction part produced;
+///  injected marker the legacy typed compaction part produced;
 /// - `system`/`synthetic`: harness-injected user rows, rendered as text
-///   parts flagged `synthetic` so extract/profile keep them out of the
-///   user-driven views.
+///  parts flagged `synthetic` so extract/profile keep them out of the
+///  user-driven views.
 fn v2_part_stream(conn: &Connection, full_id: &str) -> ReadResult<Vec<(Value, Value, i64, bool)>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT type, data, time_created
-              FROM session_message
-              WHERE session_id = ?1
-              ORDER BY seq ASC",
-        )
-        .map_err(|e| format!("cannot query opencode messages for {full_id}: {e}"))?;
-    let rows = stmt
-        .query_map([full_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        })
-        .map_err(|e| format!("cannot read opencode messages for {full_id}: {e}"))?;
-    let mut stream = Vec::new();
-    for row in rows.flatten() {
-        let (row_type, data_json, time_created) = row;
-        let data: Value = match serde_json::from_str(&data_json) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!("opencode session {full_id}: skipping unparseable row: {e}");
-                continue;
-            }
-        };
-        match row_type.as_str() {
-            "user" => stream.push((
-                serde_json::json!({"role": "user", "time": {"created": time_created}}),
-                serde_json::json!({"type": "text", "text": data.get("text")}),
-                time_created,
-                false,
-            )),
-            "assistant" => {
-                let content: Vec<Value> = data
-                    .get("content")
-                    .and_then(|c| c.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                let msg =
-                    serde_json::json!({"role": "assistant", "time": {"created": time_created}});
-                for part in content {
-                    if let Some(normalized) = v2_normalize_part(part) {
-                        stream.push((msg.clone(), normalized, time_created, false));
-                    }
-                }
-            }
-            "compaction" => stream.push((
-                serde_json::json!({"role": "user", "time": {"created": time_created}}),
-                serde_json::json!({"type": "compaction"}),
-                time_created,
-                true,
-            )),
-            "system" | "synthetic" => stream.push((
-                serde_json::json!({"role": "user", "time": {"created": time_created}}),
-                serde_json::json!({
-                    "type": "text",
-                    "text": data.get("text"),
-                    "synthetic": true
-                }),
-                time_created,
-                false,
-            )),
-            _ => {}
+  let mut stmt = conn
+    .prepare(
+      "SELECT type, data, time_created
+       FROM session_message
+       WHERE session_id = ?1
+       ORDER BY seq ASC",
+    )
+    .map_err(|e| format!("cannot query opencode messages for {full_id}: {e}"))?;
+  let rows = stmt
+    .query_map([full_id], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, i64>(2)?,
+      ))
+    })
+    .map_err(|e| format!("cannot read opencode messages for {full_id}: {e}"))?;
+  let mut stream = Vec::new();
+  for row in rows.flatten() {
+    let (row_type, data_json, time_created) = row;
+    let data: Value = match serde_json::from_str(&data_json) {
+      Ok(v) => v,
+      Err(e) => {
+        tracing::warn!("opencode session {full_id}: skipping unparseable row: {e}");
+        continue;
+      }
+    };
+    match row_type.as_str() {
+      "user" => stream.push((
+        serde_json::json!({"role": "user", "time": {"created": time_created}}),
+        serde_json::json!({"type": "text", "text": data.get("text")}),
+        time_created,
+        false,
+      )),
+      "assistant" => {
+        let content: Vec<Value> = data
+          .get("content")
+          .and_then(|c| c.as_array())
+          .cloned()
+          .unwrap_or_default();
+        let msg =
+          serde_json::json!({"role": "assistant", "time": {"created": time_created}});
+        for part in content {
+          if let Some(normalized) = v2_normalize_part(part) {
+            stream.push((msg.clone(), normalized, time_created, false));
+          }
         }
+      }
+      "compaction" => stream.push((
+        serde_json::json!({"role": "user", "time": {"created": time_created}}),
+        serde_json::json!({"type": "compaction"}),
+        time_created,
+        true,
+      )),
+      "system" | "synthetic" => stream.push((
+        serde_json::json!({"role": "user", "time": {"created": time_created}}),
+        serde_json::json!({
+          "type": "text",
+          "text": data.get("text"),
+          "synthetic": true
+        }),
+        time_created,
+        false,
+      )),
+      _ => {}
     }
-    Ok(stream)
+  }
+  Ok(stream)
 }
 
 /// A 2.2 assistant content part in the normalized part shape the legacy
@@ -268,458 +268,458 @@ fn v2_part_stream(conn: &Connection, full_id: &str) -> ReadResult<Vec<(Value, Va
 /// legacy layout); text and reasoning parts already match. Part types the
 /// dialogue stream cannot render yield nothing (the caller skips them).
 fn v2_normalize_part(part: Value) -> Option<Value> {
-    match part.get("type").and_then(|t| t.as_str()).unwrap_or("") {
-        "text" | "reasoning" => Some(part),
-        "tool" => {
-            let mut part = part;
-            if let Some(obj) = part.as_object_mut()
-                && obj.get("tool").is_none()
-                && let Some(name) = obj.get("name").and_then(|n| n.as_str())
-            {
-                obj.insert("tool".to_string(), Value::String(name.to_string()));
-                obj.remove("name");
-            }
-            Some(part)
-        }
-        _ => None,
+  match part.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+    "text" | "reasoning" => Some(part),
+    "tool" => {
+      let mut part = part;
+      if let Some(obj) = part.as_object_mut()
+        && obj.get("tool").is_none()
+        && let Some(name) = obj.get("name").and_then(|n| n.as_str())
+      {
+        obj.insert("tool".to_string(), Value::String(name.to_string()));
+        obj.remove("name");
+      }
+      Some(part)
     }
+    _ => None,
+  }
 }
 
 /// Load every message of a session in log order — the dialogue projection of
 /// the layout-agnostic part stream.
 fn load_messages(conn: &Connection, full_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-    let stream = load_part_stream(conn, full_id)?;
-    let mut messages = Vec::new();
-    for (msg, part, _, _) in stream {
-        let role = msg
-            .get("role")
-            .and_then(|r| r.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let ts_ms = msg
-            .get("time")
-            .and_then(|t| t.get("created"))
-            .and_then(|t| t.as_i64())
-            .unwrap_or(0);
-        let timestamp = ms_to_iso8601(ts_ms);
-        append_part(&mut messages, &role, &timestamp, &part);
-    }
-    Ok(messages)
+  let stream = load_part_stream(conn, full_id)?;
+  let mut messages = Vec::new();
+  for (msg, part, _, _) in stream {
+    let role = msg
+      .get("role")
+      .and_then(|r| r.as_str())
+      .unwrap_or("unknown")
+      .to_string();
+    let ts_ms = msg
+      .get("time")
+      .and_then(|t| t.get("created"))
+      .and_then(|t| t.as_i64())
+      .unwrap_or(0);
+    let timestamp = ms_to_iso8601(ts_ms);
+    append_part(&mut messages, &role, &timestamp, &part);
+  }
+  Ok(messages)
 }
 
 /// Render one part of the log stream into dialogue messages: text prose,
 /// reasoning, tool calls with their outputs, and the compaction marker.
 fn append_part(messages: &mut Vec<RolloutMessage>, role: &str, timestamp: &str, part: &Value) {
-    let ptype = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
-    match ptype {
-        "text" => {
-            if part
-                .get("synthetic")
-                .and_then(|s| s.as_bool())
-                .unwrap_or(false)
-            {
-                return;
-            }
-            let content = part
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            messages.push(RolloutMessage {
-                role: role.to_string(),
-                content,
-                thinking: None,
-                tool_calls_summary: Vec::new(),
-                timestamp: Some(timestamp.to_string()),
-                injected: false,
-            });
-        }
-        "reasoning" => {
-            if part
-                .get("synthetic")
-                .and_then(|s| s.as_bool())
-                .unwrap_or(false)
-            {
-                return;
-            }
-            let thinking = part
-                .get("text")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            if thinking.is_empty() {
-                return;
-            }
-            messages.push(RolloutMessage {
-                role: role.to_string(),
-                content: String::new(),
-                thinking: Some(thinking),
-                tool_calls_summary: Vec::new(),
-                timestamp: Some(timestamp.to_string()),
-                injected: false,
-            });
-        }
-        "tool" => {
-            let tool = part
-                .get("tool")
-                .and_then(|t| t.as_str())
-                .unwrap_or("?")
-                .to_string();
-            let state = part.get("state").cloned().unwrap_or(Value::Null);
-            let input = state.get("input").cloned().unwrap_or(Value::Null);
-            let args = serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
-            let summary = summarize_tool_call(&tool, &args);
-            messages.push(RolloutMessage {
-                role: "assistant".to_string(),
-                content: String::new(),
-                thinking: None,
-                tool_calls_summary: vec![summary],
-                timestamp: Some(timestamp.to_string()),
-                injected: false,
-            });
-            let output = state.get("output").cloned().unwrap_or(Value::Null);
-            let out = match output {
-                Value::String(s) => s,
-                Value::Null => String::new(),
-                other => serde_json::to_string(&other).unwrap_or_default(),
-            };
-            messages.push(RolloutMessage {
-                role: "tool".to_string(),
-                content: out,
-                thinking: None,
-                tool_calls_summary: Vec::new(),
-                timestamp: Some(timestamp.to_string()),
-                injected: false,
-            });
-        }
-        "compaction" => {
-            messages.push(RolloutMessage {
-                role: "user".to_string(),
-                content: "context compaction".to_string(),
-                thinking: None,
-                tool_calls_summary: Vec::new(),
-                timestamp: Some(timestamp.to_string()),
-                injected: true,
-            });
-        }
-        _ => {}
+  let ptype = part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+  match ptype {
+    "text" => {
+      if part
+        .get("synthetic")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+      {
+        return;
+      }
+      let content = part
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+      messages.push(RolloutMessage {
+        role: role.to_string(),
+        content,
+        thinking: None,
+        tool_calls_summary: Vec::new(),
+        timestamp: Some(timestamp.to_string()),
+        injected: false,
+      });
     }
+    "reasoning" => {
+      if part
+        .get("synthetic")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false)
+      {
+        return;
+      }
+      let thinking = part
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+      if thinking.is_empty() {
+        return;
+      }
+      messages.push(RolloutMessage {
+        role: role.to_string(),
+        content: String::new(),
+        thinking: Some(thinking),
+        tool_calls_summary: Vec::new(),
+        timestamp: Some(timestamp.to_string()),
+        injected: false,
+      });
+    }
+    "tool" => {
+      let tool = part
+        .get("tool")
+        .and_then(|t| t.as_str())
+        .unwrap_or("?")
+        .to_string();
+      let state = part.get("state").cloned().unwrap_or(Value::Null);
+      let input = state.get("input").cloned().unwrap_or(Value::Null);
+      let args = serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
+      let summary = summarize_tool_call(&tool, &args);
+      messages.push(RolloutMessage {
+        role: "assistant".to_string(),
+        content: String::new(),
+        thinking: None,
+        tool_calls_summary: vec![summary],
+        timestamp: Some(timestamp.to_string()),
+        injected: false,
+      });
+      let output = state.get("output").cloned().unwrap_or(Value::Null);
+      let out = match output {
+        Value::String(s) => s,
+        Value::Null => String::new(),
+        other => serde_json::to_string(&other).unwrap_or_default(),
+      };
+      messages.push(RolloutMessage {
+        role: "tool".to_string(),
+        content: out,
+        thinking: None,
+        tool_calls_summary: Vec::new(),
+        timestamp: Some(timestamp.to_string()),
+        injected: false,
+      });
+    }
+    "compaction" => {
+      messages.push(RolloutMessage {
+        role: "user".to_string(),
+        content: "context compaction".to_string(),
+        thinking: None,
+        tool_calls_summary: Vec::new(),
+        timestamp: Some(timestamp.to_string()),
+        injected: true,
+      });
+    }
+    _ => {}
+  }
 }
 
 pub(crate) fn ms_to_iso8601(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let millis = ms.rem_euclid(1000);
-    let days = secs.div_euclid(86400);
-    let rem = secs.rem_euclid(86400);
-    let hour = rem / 3600;
-    let min = (rem % 3600) / 60;
-    let sec = rem % 60;
-    let (year, month, day) = civil_from_days(days);
-    if millis == 0 {
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-            year, month, day, hour, min, sec
-        )
-    } else {
-        format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-            year, month, day, hour, min, sec, millis
-        )
-    }
+  let secs = ms.div_euclid(1000);
+  let millis = ms.rem_euclid(1000);
+  let days = secs.div_euclid(86400);
+  let rem = secs.rem_euclid(86400);
+  let hour = rem / 3600;
+  let min = (rem % 3600) / 60;
+  let sec = rem % 60;
+  let (year, month, day) = civil_from_days(days);
+  if millis == 0 {
+    format!(
+      "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+      year, month, day, hour, min, sec
+    )
+  } else {
+    format!(
+      "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+      year, month, day, hour, min, sec, millis
+    )
+  }
 }
 
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if month <= 2 { y + 1 } else { y }, month, day)
+  let z = z + 719_468;
+  let era = z.div_euclid(146_097);
+  let doe = z.rem_euclid(146_097);
+  let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+  let y = yoe + era * 400;
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  let mp = (5 * doy + 2) / 153;
+  let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+  let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+  (if month <= 2 { y + 1 } else { y }, month, day)
 }
 
 fn normalize_db_path(path: PathBuf) -> PathBuf {
-    if path.is_dir() {
-        path.join("opencode.db")
-    } else {
-        path
-    }
+  if path.is_dir() {
+    path.join("opencode.db")
+  } else {
+    path
+  }
 }
 
 impl Default for OpenCodeAdapter {
-    fn default() -> Self {
-        Self::new()
-    }
+  fn default() -> Self {
+    Self::new()
+  }
 }
 
 impl RolloutAdapter for OpenCodeAdapter {
-    fn name(&self) -> &'static str {
-        "opencode"
+  fn name(&self) -> &'static str {
+    "opencode"
+  }
+
+  fn root_is_from_env(&self) -> bool {
+    self.from_env
+  }
+
+  fn most_recent_session_id(&self) -> Option<String> {
+    let conn = match self.connect() {
+      Ok(c) => c,
+      Err(e) => {
+        tracing::warn!("{e}");
+        return None;
+      }
+    };
+    self.resolve_session_id(&conn, "")
+  }
+
+  /// One indexed LIKE query — never the full-store aggregate listing.
+  fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
+    let conn = self.connect().ok()?;
+    self.resolve_session_id(&conn, session_id)
+  }
+
+  fn shadow_index_root(&self) -> PathBuf {
+    self.db_path
+      .parent()
+      .unwrap_or(Path::new("."))
+      .join(".tantivy")
+  }
+
+  fn list_sessions(&self) -> Vec<SessionSummary> {
+    let conn = match self.connect() {
+      Ok(c) => c,
+      Err(e) => {
+        tracing::warn!("{e}");
+        return Vec::new();
+      }
+    };
+
+    if store_layout(&conn) == StoreLayout::V2 {
+      return v2_list_all(&conn).sessions;
     }
 
-    fn root_is_from_env(&self) -> bool {
-        self.from_env
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+    if let Ok(mut stmt) =
+      conn.prepare("SELECT parent_id, id FROM session WHERE parent_id IS NOT NULL")
+      && let Ok(rows) = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+      })
+    {
+      for row in rows.flatten() {
+        children.entry(row.0).or_default().push(row.1);
+      }
     }
 
-    fn most_recent_session_id(&self) -> Option<String> {
-        let conn = match self.connect() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("{e}");
-                return None;
-            }
-        };
-        self.resolve_session_id(&conn, "")
-    }
+    // Single GROUP BY query: message and part are each aggregated once in
+    // derived tables, joined to session — no correlated subqueries per row.
+    let sql = "
+      SELECT s.id, s.title, s.parent_id, s.directory,
+        s.time_created, s.time_updated,
+        COALESCE(m.user_count, 0),
+        COALESCE(m.assistant_count, 0),
+        COALESCE(m.bytes, 0),
+        COALESCE(p.tool_count, 0),
+        COALESCE(p.compaction_count, 0),
+        COALESCE(p.part_count, 0),
+        COALESCE(p.bytes, 0)
+      FROM session s
+      LEFT JOIN (
+        SELECT session_id,
+          SUM(CASE WHEN json_extract(data, '$.role') = 'user' THEN 1 ELSE 0 END) AS user_count,
+          SUM(CASE WHEN json_extract(data, '$.role') = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
+          SUM(length(data)) AS bytes
+        FROM message GROUP BY session_id
+      ) m ON m.session_id = s.id
+      LEFT JOIN (
+        SELECT session_id,
+          SUM(CASE WHEN json_extract(data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
+          SUM(CASE WHEN json_extract(data, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
+          COUNT(*) AS part_count,
+          SUM(length(data)) AS bytes
+        FROM part GROUP BY session_id
+      ) p ON p.session_id = s.id
+      ORDER BY s.time_updated DESC";
 
-    /// One indexed LIKE query — never the full-store aggregate listing.
-    fn resolve_canonical_id(&self, session_id: &str) -> Option<String> {
-        let conn = self.connect().ok()?;
-        self.resolve_session_id(&conn, session_id)
-    }
+    let mut stmt = match conn.prepare(sql) {
+      Ok(s) => s,
+      Err(e) => {
+        tracing::warn!("opencode session listing query failed: {e}");
+        return Vec::new();
+      }
+    };
+    let rows = stmt.query_map([], |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, Option<String>>(2)?,
+        row.get::<_, Option<String>>(3)?,
+        row.get::<_, i64>(4)?,
+        row.get::<_, i64>(5)?,
+        row.get::<_, i64>(6)?,
+        row.get::<_, i64>(7)?,
+        row.get::<_, i64>(8)?,
+        row.get::<_, i64>(9)?,
+        row.get::<_, i64>(10)?,
+        row.get::<_, i64>(11)?,
+        row.get::<_, i64>(12)?,
+      ))
+    });
+    let rows = match rows {
+      Ok(r) => r,
+      Err(e) => {
+        tracing::warn!("opencode session listing failed: {e}");
+        return Vec::new();
+      }
+    };
 
-    fn shadow_index_root(&self) -> PathBuf {
-        self.db_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join(".tantivy")
-    }
-
-    fn list_sessions(&self) -> Vec<SessionSummary> {
-        let conn = match self.connect() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("{e}");
-                return Vec::new();
-            }
-        };
-
-        if store_layout(&conn) == StoreLayout::V2 {
-            return v2_list_all(&conn).sessions;
-        }
-
-        let mut children: HashMap<String, Vec<String>> = HashMap::new();
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT parent_id, id FROM session WHERE parent_id IS NOT NULL")
-            && let Ok(rows) = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-        {
-            for row in rows.flatten() {
-                children.entry(row.0).or_default().push(row.1);
-            }
-        }
-
-        // Single GROUP BY query: message and part are each aggregated once in
-        // derived tables, joined to session — no correlated subqueries per row.
-        let sql = "
-            SELECT s.id, s.title, s.parent_id, s.directory,
-                s.time_created, s.time_updated,
-                COALESCE(m.user_count, 0),
-                COALESCE(m.assistant_count, 0),
-                COALESCE(m.bytes, 0),
-                COALESCE(p.tool_count, 0),
-                COALESCE(p.compaction_count, 0),
-                COALESCE(p.part_count, 0),
-                COALESCE(p.bytes, 0)
-            FROM session s
-            LEFT JOIN (
-                SELECT session_id,
-                    SUM(CASE WHEN json_extract(data, '$.role') = 'user' THEN 1 ELSE 0 END) AS user_count,
-                    SUM(CASE WHEN json_extract(data, '$.role') = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
-                    SUM(length(data)) AS bytes
-                FROM message GROUP BY session_id
-            ) m ON m.session_id = s.id
-            LEFT JOIN (
-                SELECT session_id,
-                    SUM(CASE WHEN json_extract(data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
-                    SUM(CASE WHEN json_extract(data, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
-                    COUNT(*) AS part_count,
-                    SUM(length(data)) AS bytes
-                FROM part GROUP BY session_id
-            ) p ON p.session_id = s.id
-            ORDER BY s.time_updated DESC";
-
-        let mut stmt = match conn.prepare(sql) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("opencode session listing query failed: {e}");
-                return Vec::new();
-            }
-        };
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, i64>(6)?,
-                row.get::<_, i64>(7)?,
-                row.get::<_, i64>(8)?,
-                row.get::<_, i64>(9)?,
-                row.get::<_, i64>(10)?,
-                row.get::<_, i64>(11)?,
-                row.get::<_, i64>(12)?,
-            ))
-        });
-        let rows = match rows {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!("opencode session listing failed: {e}");
-                return Vec::new();
-            }
-        };
-
-        let mut summaries = Vec::new();
-        for row in rows.flatten() {
-            let (
-                id,
-                title,
-                parent_id,
-                directory,
-                created,
-                updated,
-                user_count,
-                assistant_count,
-                message_bytes,
-                tool_count,
-                compaction_count,
-                part_count,
-                part_bytes,
-            ) = row;
-            summaries.push(SessionSummary {
-                session_id: id.clone(),
-                title,
-                start_time: ms_to_iso8601(created),
-                end_time: ms_to_iso8601(updated),
-                file_size: (message_bytes + part_bytes).max(0) as u64,
-                line_count: part_count.max(0) as u64,
-                user_count: user_count.max(0) as u64,
-                assistant_count: assistant_count.max(0) as u64,
-                tool_count: tool_count.max(0) as u64,
-                has_compaction: compaction_count > 0,
-                directory,
-                parent_session_id: parent_id,
-                child_sessions: children.remove(&id).unwrap_or_default(),
-                has_tantivy_index: false,
+    let mut summaries = Vec::new();
+    for row in rows.flatten() {
+      let (
+        id,
+        title,
+        parent_id,
+        directory,
+        created,
+        updated,
+        user_count,
+        assistant_count,
+        message_bytes,
+        tool_count,
+        compaction_count,
+        part_count,
+        part_bytes,
+      ) = row;
+      summaries.push(SessionSummary {
+        session_id: id.clone(),
+        title,
+        start_time: ms_to_iso8601(created),
+        end_time: ms_to_iso8601(updated),
+        file_size: (message_bytes + part_bytes).max(0) as u64,
+        line_count: part_count.max(0) as u64,
+        user_count: user_count.max(0) as u64,
+        assistant_count: assistant_count.max(0) as u64,
+        tool_count: tool_count.max(0) as u64,
+        has_compaction: compaction_count > 0,
+        directory,
+        parent_session_id: parent_id,
+        child_sessions: children.remove(&id).unwrap_or_default(),
+        has_tantivy_index: false,
 backend_kind: Some(BackendKind::Database),
-                ctime: None,
-                mtime: None,
-                aliases: Vec::new(),
-                read_error: None,
-            });
-        }
-        summaries
+        ctime: None,
+        mtime: None,
+        aliases: Vec::new(),
+        read_error: None,
+      });
     }
+    summaries
+  }
 
-    fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing {
-        let conn = match self.connect() {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("{e}");
-                return SessionListing {
-                    sessions: Vec::new(),
-                    window_count: 0,
-                };
-            }
+  fn list_sessions_scoped(&self, hours_back: u64, directory: Option<&str>) -> SessionListing {
+    let conn = match self.connect() {
+      Ok(c) => c,
+      Err(e) => {
+        tracing::warn!("{e}");
+        return SessionListing {
+          sessions: Vec::new(),
+          window_count: 0,
         };
-        // 2.2 store: the same listing over session_v2; window + directory apply
-        // to the v2 timestamps.
-        if store_layout(&conn) == StoreLayout::V2 {
-            return v2_scoped_listing(&conn, hours_back, directory);
-        }
-        scoped_listing_sqlite(&conn, hours_back, directory)
+      }
+    };
+    // 2.2 store: the same listing over session_v2; window + directory apply
+    // to the v2 timestamps.
+    if store_layout(&conn) == StoreLayout::V2 {
+      return v2_scoped_listing(&conn, hours_back, directory);
+    }
+    scoped_listing_sqlite(&conn, hours_back, directory)
+  }
+
+  fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    let conn = self.connect()?;
+    let full_id = self
+      .resolve_session_id(&conn, session_id)
+      .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+    load_messages(&conn, &full_id)
+  }
+
+  /// mmap applies to file-based rollout formats; SQLite is read through the
+  /// message_session_time_created_id_idx index instead (no N+1, no full scan).
+  fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    self.read_session(session_id)
+  }
+
+  fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
+    let messages = self.read_session_mmap(session_id)?;
+    match self.compaction_markers(&messages).into_iter().next_back() {
+      Some(idx) => Ok(messages[idx..].to_vec()),
+      None => Ok(messages),
+    }
+  }
+
+  /// The typed compaction part is this store's only compaction record, and
+  /// its normalized rendering is exactly the injected marker message below.
+  /// Overriding the default substring match here is what the live dogfood
+  /// bought: prose and tool payloads quote the phrase "context compaction"
+  /// constantly (code the session read, discussion of the boundary itself),
+  /// and one such forgery silently shrank a 430-message session's
+  /// `full = false` read to a 9-message sliver while the substring rule
+  /// was in force.
+  fn compaction_markers(&self, messages: &[RolloutMessage]) -> Vec<usize> {
+    messages
+      .iter()
+      .enumerate()
+      .filter(|(_, m)| m.injected && m.content == "context compaction")
+      .map(|(i, _)| i)
+      .collect()
+  }
+
+  fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
+    let conn = self.connect()?;
+    let full_id = self
+      .resolve_session_id(&conn, session_id)
+      .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+
+    let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), &full_id);
+    if cache
+      && let Some(time_updated) = session_time_updated(&conn, &full_id)
+      && let Some(cached) = crate::profile_cache::read_fresh(&cache_path, time_updated)
+    {
+      return Ok(cached);
     }
 
-    fn read_session(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        let conn = self.connect()?;
-        let full_id = self
-            .resolve_session_id(&conn, session_id)
-            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
-        load_messages(&conn, &full_id)
+    let profile = profile_session_sqlite(&conn, &full_id)?;
+    if cache {
+      crate::profile_cache::write(&cache_path, &profile);
     }
+    Ok(profile)
+  }
 
-    /// mmap applies to file-based rollout formats; SQLite is read through the
-    /// message_session_time_created_id_idx index instead (no N+1, no full scan).
-    fn read_session_mmap(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        self.read_session(session_id)
-    }
+  fn extract_user_messages(&self, session_id: &str) -> ReadResult<Vec<String>> {
+    Ok(self
+      .read_session(session_id)?
+      .into_iter()
+      .filter(|m| m.role == "user" && !m.injected)
+      .map(|m| m.content)
+      .collect())
+  }
 
-    fn read_session_from_compaction(&self, session_id: &str) -> ReadResult<Vec<RolloutMessage>> {
-        let messages = self.read_session_mmap(session_id)?;
-        match self.compaction_markers(&messages).into_iter().next_back() {
-            Some(idx) => Ok(messages[idx..].to_vec()),
-            None => Ok(messages),
-        }
-    }
+  fn read_todo_writes(&self, session_id: &str, full: bool) -> ReadResult<Vec<TodoWrite>> {
+    let conn = self.connect()?;
+    let full_id = self
+      .resolve_session_id(&conn, session_id)
+      .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+    load_todo_writes(&conn, &full_id, full)
+  }
 
-    /// The typed compaction part is this store's only compaction record, and
-    /// its normalized rendering is exactly the injected marker message below.
-    /// Overriding the default substring match here is what the live dogfood
-    /// bought: prose and tool payloads quote the phrase "context compaction"
-    /// constantly (code the session read, discussion of the boundary itself),
-    /// and one such forgery silently shrank a 430-message session's
-    /// `full = false` read to a 9-message sliver while the substring rule
-    /// was in force.
-    fn compaction_markers(&self, messages: &[RolloutMessage]) -> Vec<usize> {
-        messages
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| m.injected && m.content == "context compaction")
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile> {
-        let conn = self.connect()?;
-        let full_id = self
-            .resolve_session_id(&conn, session_id)
-            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
-
-        let cache_path = crate::profile_cache::cache_path(&self.shadow_index_root(), &full_id);
-        if cache
-            && let Some(time_updated) = session_time_updated(&conn, &full_id)
-            && let Some(cached) = crate::profile_cache::read_fresh(&cache_path, time_updated)
-        {
-            return Ok(cached);
-        }
-
-        let profile = profile_session_sqlite(&conn, &full_id)?;
-        if cache {
-            crate::profile_cache::write(&cache_path, &profile);
-        }
-        Ok(profile)
-    }
-
-    fn extract_user_messages(&self, session_id: &str) -> ReadResult<Vec<String>> {
-        Ok(self
-            .read_session(session_id)?
-            .into_iter()
-            .filter(|m| m.role == "user" && !m.injected)
-            .map(|m| m.content)
-            .collect())
-    }
-
-    fn read_todo_writes(&self, session_id: &str, full: bool) -> ReadResult<Vec<TodoWrite>> {
-        let conn = self.connect()?;
-        let full_id = self
-            .resolve_session_id(&conn, session_id)
-            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
-        load_todo_writes(&conn, &full_id, full)
-    }
-
-    fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
-        let conn = self.connect()?;
-        let full_id = self
-            .resolve_session_id(&conn, session_id)
-            .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
-        load_qa_pairs(&conn, &full_id)
-    }
+  fn read_qa_pairs(&self, session_id: &str) -> ReadResult<Vec<QaPair>> {
+    let conn = self.connect()?;
+    let full_id = self
+      .resolve_session_id(&conn, session_id)
+      .ok_or_else(|| no_session_error(&self.db_path, session_id))?;
+    load_qa_pairs(&conn, &full_id)
+  }
 }
 
 /// The scoped listing for the opencode store. The window, the directory
@@ -734,292 +734,292 @@ backend_kind: Some(BackendKind::Database),
 /// aggregates anywhere near it. Child links are resolved for the returned
 /// rows only.
 fn scoped_listing_sqlite(
-    conn: &Connection,
-    hours_back: u64,
-    directory: Option<&str>,
+  conn: &Connection,
+  hours_back: u64,
+  directory: Option<&str>,
 ) -> SessionListing {
-    let now = now_ms();
-    let cutoff = now - (hours_back as i64).saturating_mul(3_600_000);
+  let now = now_ms();
+  let cutoff = now - (hours_back as i64).saturating_mul(3_600_000);
 
-    let window_count: usize = match conn.query_row(
-        "SELECT COUNT(*) FROM session
-         WHERE (?1 = 0 OR time_updated >= ?2)
-           AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')",
-        rusqlite::params![hours_back as i64, cutoff, directory],
-        |r| r.get::<_, i64>(0),
-    ) {
-        Ok(n) => n.max(0) as usize,
-        Err(e) => {
-            tracing::warn!("opencode scoped listing count failed: {e}");
-            return SessionListing {
-                sessions: Vec::new(),
-                window_count: 0,
-            };
-        }
-    };
-
-    // Single GROUP BY query over the bounded set: message and part are each
-    // aggregated once in derived tables that only ever look up sessions in
-    // `window`, joined to it — no correlated subqueries per row.
-    let sql = "
-        WITH window AS (
-            SELECT id, title, parent_id, directory, time_created, time_updated
-            FROM session
-            WHERE (?1 = 0 OR time_updated >= ?2)
-              AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')
-            ORDER BY time_updated DESC
-            LIMIT ?4
-        )
-        SELECT w.id, w.title, w.parent_id, w.directory, w.time_created, w.time_updated,
-            COALESCE(m.user_count, 0),
-            COALESCE(m.assistant_count, 0),
-            COALESCE(m.bytes, 0),
-            COALESCE(p.tool_count, 0),
-            COALESCE(p.compaction_count, 0),
-            COALESCE(p.part_count, 0),
-            COALESCE(p.bytes, 0)
-        FROM window w
-        LEFT JOIN (
-            SELECT session_id,
-                SUM(CASE WHEN json_extract(data, '$.role') = 'user' THEN 1 ELSE 0 END) AS user_count,
-                SUM(CASE WHEN json_extract(data, '$.role') = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
-                SUM(length(data)) AS bytes
-            FROM message
-            WHERE session_id IN (SELECT id FROM window)
-            GROUP BY session_id
-        ) m ON m.session_id = w.id
-        LEFT JOIN (
-            SELECT session_id,
-                SUM(CASE WHEN json_extract(data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
-                SUM(CASE WHEN json_extract(data, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
-                COUNT(*) AS part_count,
-                SUM(length(data)) AS bytes
-            FROM part
-            WHERE session_id IN (SELECT id FROM window)
-            GROUP BY session_id
-        ) p ON p.session_id = w.id
-        ORDER BY w.time_updated DESC";
-
-    let mut stmt = match conn.prepare(sql) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("opencode scoped listing query failed: {e}");
-            return SessionListing {
-                sessions: Vec::new(),
-                window_count,
-            };
-        }
-    };
-    let rows = stmt.query_map(
-        rusqlite::params![hours_back as i64, cutoff, directory, LISTING_ROW_CAP as i64],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, i64>(6)?,
-                row.get::<_, i64>(7)?,
-                row.get::<_, i64>(8)?,
-                row.get::<_, i64>(9)?,
-                row.get::<_, i64>(10)?,
-                row.get::<_, i64>(11)?,
-                row.get::<_, i64>(12)?,
-            ))
-        },
-    );
-    let rows = match rows {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("opencode scoped listing failed: {e}");
-            return SessionListing {
-                sessions: Vec::new(),
-                window_count,
-            };
-        }
-    };
-
-    let mut summaries = Vec::new();
-    for row in rows.flatten() {
-        let (
-            id,
-            title,
-            parent_id,
-            directory,
-            created,
-            updated,
-            user_count,
-            assistant_count,
-            message_bytes,
-            tool_count,
-            compaction_count,
-            part_count,
-            part_bytes,
-        ) = row;
-        summaries.push(SessionSummary {
-            session_id: id.clone(),
-            title,
-            start_time: ms_to_iso8601(created),
-            end_time: ms_to_iso8601(updated),
-            file_size: (message_bytes + part_bytes).max(0) as u64,
-            line_count: part_count.max(0) as u64,
-            user_count: user_count.max(0) as u64,
-            assistant_count: assistant_count.max(0) as u64,
-            tool_count: tool_count.max(0) as u64,
-            has_compaction: compaction_count > 0,
-            directory,
-            parent_session_id: parent_id,
-            child_sessions: Vec::new(),
-            has_tantivy_index: false,
-backend_kind: Some(BackendKind::Database),
-            ctime: None,
-            mtime: None,
-            aliases: Vec::new(),
-            read_error: None,
-        });
+  let window_count: usize = match conn.query_row(
+    "SELECT COUNT(*) FROM session
+     WHERE (?1 = 0 OR time_updated >= ?2)
+      AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')",
+    rusqlite::params![hours_back as i64, cutoff, directory],
+    |r| r.get::<_, i64>(0),
+  ) {
+    Ok(n) => n.max(0) as usize,
+    Err(e) => {
+      tracing::warn!("opencode scoped listing count failed: {e}");
+      return SessionListing {
+        sessions: Vec::new(),
+        window_count: 0,
+      };
     }
+  };
 
-    // Child links for the returned rows only: parents in the bounded set.
-    // A session-table query, cheap next to the aggregates above it.
-    let mut children: HashMap<String, Vec<String>> = HashMap::new();
-    if !summaries.is_empty() {
-        let ids: Vec<&str> = summaries.iter().map(|s| s.session_id.as_str()).collect();
-        let placeholders = std::iter::repeat_n("?", ids.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        // Most-recent-first, so the ids a bounded row keeps are the ones a
-        // caller would have started from: the rendering cap
-        // (`IDS_PER_LISTING_ROW`) cuts the tail, never the head.
-        let sql = format!(
-            "SELECT parent_id, id FROM session WHERE parent_id IN ({placeholders}) \
-             ORDER BY time_updated DESC"
-        );
-        if let Ok(mut stmt) = conn.prepare(&sql)
-            && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-        {
-            for row in rows.flatten() {
-                children.entry(row.0).or_default().push(row.1);
-            }
-        }
-    }
-    for summary in &mut summaries {
-        summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
-    }
+  // Single GROUP BY query over the bounded set: message and part are each
+  // aggregated once in derived tables that only ever look up sessions in
+  // `window`, joined to it — no correlated subqueries per row.
+  let sql = "
+    WITH window AS (
+      SELECT id, title, parent_id, directory, time_created, time_updated
+      FROM session
+      WHERE (?1 = 0 OR time_updated >= ?2)
+       AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')
+      ORDER BY time_updated DESC
+      LIMIT ?4
+    )
+    SELECT w.id, w.title, w.parent_id, w.directory, w.time_created, w.time_updated,
+      COALESCE(m.user_count, 0),
+      COALESCE(m.assistant_count, 0),
+      COALESCE(m.bytes, 0),
+      COALESCE(p.tool_count, 0),
+      COALESCE(p.compaction_count, 0),
+      COALESCE(p.part_count, 0),
+      COALESCE(p.bytes, 0)
+    FROM window w
+    LEFT JOIN (
+      SELECT session_id,
+        SUM(CASE WHEN json_extract(data, '$.role') = 'user' THEN 1 ELSE 0 END) AS user_count,
+        SUM(CASE WHEN json_extract(data, '$.role') = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
+        SUM(length(data)) AS bytes
+      FROM message
+      WHERE session_id IN (SELECT id FROM window)
+      GROUP BY session_id
+    ) m ON m.session_id = w.id
+    LEFT JOIN (
+      SELECT session_id,
+        SUM(CASE WHEN json_extract(data, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
+        SUM(CASE WHEN json_extract(data, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
+        COUNT(*) AS part_count,
+        SUM(length(data)) AS bytes
+      FROM part
+      WHERE session_id IN (SELECT id FROM window)
+      GROUP BY session_id
+    ) p ON p.session_id = w.id
+    ORDER BY w.time_updated DESC";
 
-    SessionListing {
-        sessions: summaries,
+  let mut stmt = match conn.prepare(sql) {
+    Ok(s) => s,
+    Err(e) => {
+      tracing::warn!("opencode scoped listing query failed: {e}");
+      return SessionListing {
+        sessions: Vec::new(),
         window_count,
+      };
     }
+  };
+  let rows = stmt.query_map(
+    rusqlite::params![hours_back as i64, cutoff, directory, LISTING_ROW_CAP as i64],
+    |row| {
+      Ok((
+        row.get::<_, String>(0)?,
+        row.get::<_, String>(1)?,
+        row.get::<_, Option<String>>(2)?,
+        row.get::<_, Option<String>>(3)?,
+        row.get::<_, i64>(4)?,
+        row.get::<_, i64>(5)?,
+        row.get::<_, i64>(6)?,
+        row.get::<_, i64>(7)?,
+        row.get::<_, i64>(8)?,
+        row.get::<_, i64>(9)?,
+        row.get::<_, i64>(10)?,
+        row.get::<_, i64>(11)?,
+        row.get::<_, i64>(12)?,
+      ))
+    },
+  );
+  let rows = match rows {
+    Ok(r) => r,
+    Err(e) => {
+      tracing::warn!("opencode scoped listing failed: {e}");
+      return SessionListing {
+        sessions: Vec::new(),
+        window_count,
+      };
+    }
+  };
+
+  let mut summaries = Vec::new();
+  for row in rows.flatten() {
+    let (
+      id,
+      title,
+      parent_id,
+      directory,
+      created,
+      updated,
+      user_count,
+      assistant_count,
+      message_bytes,
+      tool_count,
+      compaction_count,
+      part_count,
+      part_bytes,
+    ) = row;
+    summaries.push(SessionSummary {
+      session_id: id.clone(),
+      title,
+      start_time: ms_to_iso8601(created),
+      end_time: ms_to_iso8601(updated),
+      file_size: (message_bytes + part_bytes).max(0) as u64,
+      line_count: part_count.max(0) as u64,
+      user_count: user_count.max(0) as u64,
+      assistant_count: assistant_count.max(0) as u64,
+      tool_count: tool_count.max(0) as u64,
+      has_compaction: compaction_count > 0,
+      directory,
+      parent_session_id: parent_id,
+      child_sessions: Vec::new(),
+      has_tantivy_index: false,
+backend_kind: Some(BackendKind::Database),
+      ctime: None,
+      mtime: None,
+      aliases: Vec::new(),
+      read_error: None,
+    });
+  }
+
+  // Child links for the returned rows only: parents in the bounded set.
+  // A session-table query, cheap next to the aggregates above it.
+  let mut children: HashMap<String, Vec<String>> = HashMap::new();
+  if !summaries.is_empty() {
+    let ids: Vec<&str> = summaries.iter().map(|s| s.session_id.as_str()).collect();
+    let placeholders = std::iter::repeat_n("?", ids.len())
+      .collect::<Vec<_>>()
+      .join(", ");
+    // Most-recent-first, so the ids a bounded row keeps are the ones a
+    // caller would have started from: the rendering cap
+    // (`IDS_PER_LISTING_ROW`) cuts the tail, never the head.
+    let sql = format!(
+      "SELECT parent_id, id FROM session WHERE parent_id IN ({placeholders}) \
+       ORDER BY time_updated DESC"
+    );
+    if let Ok(mut stmt) = conn.prepare(&sql)
+      && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+      })
+    {
+      for row in rows.flatten() {
+        children.entry(row.0).or_default().push(row.1);
+      }
+    }
+  }
+  for summary in &mut summaries {
+    summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
+  }
+
+  SessionListing {
+    sessions: summaries,
+    window_count,
+  }
 }
 
 /// The v2 row tuple laid out like the legacy query's 13 columns:
 /// (id, title, parent_id, directory, created, updated,
-///  user_count, assistant_count, message_bytes,
-///  tool_count, compaction_count, part_count, part_bytes).
+/// user_count, assistant_count, message_bytes,
+/// tool_count, compaction_count, part_count, part_bytes).
 type V2Row = (
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    i64,
-    i64,
-    i64,
-    i64,
-    i64,
-    i64,
-    i64,
-    i64,
-    i64,
+  String,
+  String,
+  Option<String>,
+  Option<String>,
+  i64,
+  i64,
+  i64,
+  i64,
+  i64,
+  i64,
+  i64,
+  i64,
+  i64,
 );
 
 /// The v2 row tuple → `SessionSummary`. The two 2.2 listings share it; the
 /// fields mirror the legacy mapping one-for-one.
 fn v2_summary_from_row(row: V2Row) -> SessionSummary {
-    let (
-        id,
-        title,
-        parent_id,
-        directory,
-        created,
-        updated,
-        user_count,
-        assistant_count,
-        message_bytes,
-        tool_count,
-        compaction_count,
-        part_count,
-        part_bytes,
-    ) = row;
-    SessionSummary {
-        session_id: id.clone(),
-        title,
-        start_time: ms_to_iso8601(created),
-        end_time: ms_to_iso8601(updated),
-        file_size: (message_bytes + part_bytes).max(0) as u64,
-        line_count: part_count.max(0) as u64,
-        user_count: user_count.max(0) as u64,
-        assistant_count: assistant_count.max(0) as u64,
-        tool_count: tool_count.max(0) as u64,
-        has_compaction: compaction_count > 0,
-        directory,
-        parent_session_id: parent_id,
-        child_sessions: Vec::new(),
-        has_tantivy_index: false,
+  let (
+    id,
+    title,
+    parent_id,
+    directory,
+    created,
+    updated,
+    user_count,
+    assistant_count,
+    message_bytes,
+    tool_count,
+    compaction_count,
+    part_count,
+    part_bytes,
+  ) = row;
+  SessionSummary {
+    session_id: id.clone(),
+    title,
+    start_time: ms_to_iso8601(created),
+    end_time: ms_to_iso8601(updated),
+    file_size: (message_bytes + part_bytes).max(0) as u64,
+    line_count: part_count.max(0) as u64,
+    user_count: user_count.max(0) as u64,
+    assistant_count: assistant_count.max(0) as u64,
+    tool_count: tool_count.max(0) as u64,
+    has_compaction: compaction_count > 0,
+    directory,
+    parent_session_id: parent_id,
+    child_sessions: Vec::new(),
+    has_tantivy_index: false,
 backend_kind: Some(BackendKind::Database),
-        ctime: None,
-        mtime: None,
-        aliases: Vec::new(),
-        read_error: None,
-    }
+    ctime: None,
+    mtime: None,
+    aliases: Vec::new(),
+    read_error: None,
+  }
 }
 
 /// The full 2.2 listing. The message log aggregates read `session_message`
 /// directly: role/type counts from the row types, tool/part counts from the
 /// inlined content arrays via `json_each`, bytes from the row data sizes.
 fn v2_list_all(conn: &Connection) -> SessionListing {
-    let sql = "
-        SELECT s.id, COALESCE(s.title, s.slug, s.id), s.parent_id, s.directory,
-            s.time_created, s.time_updated,
-            COALESCE(m.user_count, 0),
-            COALESCE(m.assistant_count, 0),
-            COALESCE(m.bytes, 0),
-            COALESCE(p.tool_count, 0),
-            COALESCE(p.compaction_count, 0),
-            COALESCE(p.part_count, 0),
-            COALESCE(p.bytes, 0)
-        FROM session_v2 s
-        LEFT JOIN (
-            SELECT session_id,
-                SUM(CASE WHEN type = 'user' THEN 1 ELSE 0 END) AS user_count,
-                SUM(CASE WHEN type = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
-                SUM(length(data)) AS bytes
-            FROM session_message GROUP BY session_id
-        ) m ON m.session_id = s.id
-        LEFT JOIN (
-            SELECT r.session_id,
-                SUM(CASE WHEN json_extract(j.value, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
-                SUM(CASE WHEN json_extract(j.value, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
-                COUNT(*) AS part_count,
-                0 AS bytes
-            FROM (
-                SELECT session_id, data,
-                    CASE WHEN type = 'assistant' THEN '$.content' ELSE '$.type' END AS path
-                FROM session_message
-            ) r, json_each(r.data, r.path) j
-            GROUP BY r.session_id
-        ) p ON p.session_id = s.id
-        ORDER BY s.time_updated DESC";
+  let sql = "
+    SELECT s.id, COALESCE(s.title, s.slug, s.id), s.parent_id, s.directory,
+      s.time_created, s.time_updated,
+      COALESCE(m.user_count, 0),
+      COALESCE(m.assistant_count, 0),
+      COALESCE(m.bytes, 0),
+      COALESCE(p.tool_count, 0),
+      COALESCE(p.compaction_count, 0),
+      COALESCE(p.part_count, 0),
+      COALESCE(p.bytes, 0)
+    FROM session_v2 s
+    LEFT JOIN (
+      SELECT session_id,
+        SUM(CASE WHEN type = 'user' THEN 1 ELSE 0 END) AS user_count,
+        SUM(CASE WHEN type = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
+        SUM(length(data)) AS bytes
+      FROM session_message GROUP BY session_id
+    ) m ON m.session_id = s.id
+    LEFT JOIN (
+      SELECT r.session_id,
+        SUM(CASE WHEN json_extract(j.value, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
+        SUM(CASE WHEN json_extract(j.value, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
+        COUNT(*) AS part_count,
+        0 AS bytes
+      FROM (
+        SELECT session_id, data,
+          CASE WHEN type = 'assistant' THEN '$.content' ELSE '$.type' END AS path
+        FROM session_message
+      ) r, json_each(r.data, r.path) j
+      GROUP BY r.session_id
+    ) p ON p.session_id = s.id
+    ORDER BY s.time_updated DESC";
 
-    let summaries = v2_listing_rows(conn, sql, rusqlite::params![]);
-    let listing = SessionListing {
-        sessions: summaries,
-        window_count: 0,
-    };
-    v2_attach_children(conn, listing)
+  let summaries = v2_listing_rows(conn, sql, rusqlite::params![]);
+  let listing = SessionListing {
+    sessions: summaries,
+    window_count: 0,
+  };
+  v2_attach_children(conn, listing)
 }
 
 /// The 2.2 scoped listing: the window and directory filters apply to the v2
@@ -1027,201 +1027,201 @@ fn v2_list_all(conn: &Connection) -> SessionListing {
 /// session_v2/session_message, so the legacy tables cannot answer the
 /// `--hours` question at all.
 fn v2_scoped_listing(
-    conn: &Connection,
-    hours_back: u64,
-    directory: Option<&str>,
+  conn: &Connection,
+  hours_back: u64,
+  directory: Option<&str>,
 ) -> SessionListing {
-    let now = now_ms();
-    let cutoff = now - (hours_back as i64).saturating_mul(3_600_000);
+  let now = now_ms();
+  let cutoff = now - (hours_back as i64).saturating_mul(3_600_000);
 
-    let window_count: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM session_v2
-             WHERE (?1 = 0 OR time_updated >= ?2)
-               AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')",
-            rusqlite::params![hours_back as i64, cutoff, directory],
-            |r| r.get::<_, i64>(0),
-        )
-        .map(|n| n.max(0) as usize)
-        .unwrap_or(0);
+  let window_count: usize = conn
+    .query_row(
+      "SELECT COUNT(*) FROM session_v2
+       WHERE (?1 = 0 OR time_updated >= ?2)
+        AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')",
+      rusqlite::params![hours_back as i64, cutoff, directory],
+      |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n.max(0) as usize)
+    .unwrap_or(0);
 
-    let sql = "
-        WITH window AS (
-            SELECT id, title, parent_id, directory, time_created, time_updated
-            FROM session_v2
-            WHERE (?1 = 0 OR time_updated >= ?2)
-              AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')
-            ORDER BY time_updated DESC
-            LIMIT ?4
-        )
-        SELECT w.id, COALESCE(w.title, w.id), w.parent_id, w.directory,
-            w.time_created, w.time_updated,
-            COALESCE(m.user_count, 0),
-            COALESCE(m.assistant_count, 0),
-            COALESCE(m.bytes, 0),
-            COALESCE(p.tool_count, 0),
-            COALESCE(p.compaction_count, 0),
-            COALESCE(p.part_count, 0),
-            COALESCE(p.bytes, 0)
-        FROM window w
-        LEFT JOIN (
-            SELECT session_id,
-                SUM(CASE WHEN type = 'user' THEN 1 ELSE 0 END) AS user_count,
-                SUM(CASE WHEN type = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
-                SUM(length(data)) AS bytes
-            FROM session_message
-            WHERE session_id IN (SELECT id FROM window)
-            GROUP BY session_id
-        ) m ON m.session_id = w.id
-        LEFT JOIN (
-            SELECT r.session_id,
-                SUM(CASE WHEN json_extract(j.value, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
-                SUM(CASE WHEN json_extract(j.value, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
-                COUNT(*) AS part_count,
-                0 AS bytes
-            FROM (
-                SELECT session_id, data,
-                    CASE WHEN type = 'assistant' THEN '$.content' ELSE '$.type' END AS path
-                FROM session_message
-                WHERE session_id IN (SELECT id FROM window)
-            ) r, json_each(r.data, r.path) j
-            GROUP BY r.session_id
-        ) p ON p.session_id = w.id
-        ORDER BY w.time_updated DESC";
+  let sql = "
+    WITH window AS (
+      SELECT id, title, parent_id, directory, time_created, time_updated
+      FROM session_v2
+      WHERE (?1 = 0 OR time_updated >= ?2)
+       AND (?3 IS NULL OR directory LIKE '%' || ?3 || '%')
+      ORDER BY time_updated DESC
+      LIMIT ?4
+    )
+    SELECT w.id, COALESCE(w.title, w.id), w.parent_id, w.directory,
+      w.time_created, w.time_updated,
+      COALESCE(m.user_count, 0),
+      COALESCE(m.assistant_count, 0),
+      COALESCE(m.bytes, 0),
+      COALESCE(p.tool_count, 0),
+      COALESCE(p.compaction_count, 0),
+      COALESCE(p.part_count, 0),
+      COALESCE(p.bytes, 0)
+    FROM window w
+    LEFT JOIN (
+      SELECT session_id,
+        SUM(CASE WHEN type = 'user' THEN 1 ELSE 0 END) AS user_count,
+        SUM(CASE WHEN type = 'assistant' THEN 1 ELSE 0 END) AS assistant_count,
+        SUM(length(data)) AS bytes
+      FROM session_message
+      WHERE session_id IN (SELECT id FROM window)
+      GROUP BY session_id
+    ) m ON m.session_id = w.id
+    LEFT JOIN (
+      SELECT r.session_id,
+        SUM(CASE WHEN json_extract(j.value, '$.type') = 'tool' THEN 1 ELSE 0 END) AS tool_count,
+        SUM(CASE WHEN json_extract(j.value, '$.type') = 'compaction' THEN 1 ELSE 0 END) AS compaction_count,
+        COUNT(*) AS part_count,
+        0 AS bytes
+      FROM (
+        SELECT session_id, data,
+          CASE WHEN type = 'assistant' THEN '$.content' ELSE '$.type' END AS path
+        FROM session_message
+        WHERE session_id IN (SELECT id FROM window)
+      ) r, json_each(r.data, r.path) j
+      GROUP BY r.session_id
+    ) p ON p.session_id = w.id
+    ORDER BY w.time_updated DESC";
 
-    let summaries = v2_listing_rows(
-        conn,
-        sql,
-        rusqlite::params![hours_back as i64, cutoff, directory, LISTING_ROW_CAP as i64],
+  let summaries = v2_listing_rows(
+    conn,
+    sql,
+    rusqlite::params![hours_back as i64, cutoff, directory, LISTING_ROW_CAP as i64],
+  );
+
+  // Child links for the returned rows only (v2 registry), most recent first.
+  let mut children: HashMap<String, Vec<String>> = HashMap::new();
+  if !summaries.is_empty() {
+    let ids: Vec<&str> = summaries.iter().map(|s| s.session_id.as_str()).collect();
+    let placeholders = std::iter::repeat_n("?", ids.len())
+      .collect::<Vec<_>>()
+      .join(", ");
+    let sql = format!(
+      "SELECT parent_id, id FROM session_v2 WHERE parent_id IN ({placeholders}) \
+       ORDER BY time_updated DESC"
     );
+    if let Ok(mut stmt) = conn.prepare(&sql)
+      && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+      })
+    {
+      for row in rows.flatten() {
+        children.entry(row.0).or_default().push(row.1);
+      }
+    }
+  }
+  let mut sessions = summaries;
+  for summary in &mut sessions {
+    summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
+  }
 
-    // Child links for the returned rows only (v2 registry), most recent first.
-    let mut children: HashMap<String, Vec<String>> = HashMap::new();
-    if !summaries.is_empty() {
-        let ids: Vec<&str> = summaries.iter().map(|s| s.session_id.as_str()).collect();
-        let placeholders = std::iter::repeat_n("?", ids.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT parent_id, id FROM session_v2 WHERE parent_id IN ({placeholders}) \
-             ORDER BY time_updated DESC"
-        );
-        if let Ok(mut stmt) = conn.prepare(&sql)
-            && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-        {
-            for row in rows.flatten() {
-                children.entry(row.0).or_default().push(row.1);
-            }
-        }
-    }
-    let mut sessions = summaries;
-    for summary in &mut sessions {
-        summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
-    }
-
-    SessionListing {
-        sessions,
-        window_count,
-    }
+  SessionListing {
+    sessions,
+    window_count,
+  }
 }
 
 fn v2_attach_children(conn: &Connection, mut listing: SessionListing) -> SessionListing {
-    let mut children: HashMap<String, Vec<String>> = HashMap::new();
-    if !listing.sessions.is_empty() {
-        let ids: Vec<&str> = listing
-            .sessions
-            .iter()
-            .map(|s| s.session_id.as_str())
-            .collect();
-        let placeholders = std::iter::repeat_n("?", ids.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT parent_id, id FROM session_v2 WHERE parent_id IN ({placeholders}) \
-             ORDER BY time_updated DESC"
-        );
-        if let Ok(mut stmt) = conn.prepare(&sql)
-            && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-        {
-            for row in rows.flatten() {
-                children.entry(row.0).or_default().push(row.1);
-            }
-        }
+  let mut children: HashMap<String, Vec<String>> = HashMap::new();
+  if !listing.sessions.is_empty() {
+    let ids: Vec<&str> = listing
+      .sessions
+      .iter()
+      .map(|s| s.session_id.as_str())
+      .collect();
+    let placeholders = std::iter::repeat_n("?", ids.len())
+      .collect::<Vec<_>>()
+      .join(", ");
+    let sql = format!(
+      "SELECT parent_id, id FROM session_v2 WHERE parent_id IN ({placeholders}) \
+       ORDER BY time_updated DESC"
+    );
+    if let Ok(mut stmt) = conn.prepare(&sql)
+      && let Ok(rows) = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+      })
+    {
+      for row in rows.flatten() {
+        children.entry(row.0).or_default().push(row.1);
+      }
     }
-    for summary in &mut listing.sessions {
-        summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
-    }
-    if listing.window_count == 0 {
-        // The unscoped listing's window is the whole store.
-        listing.window_count = listing.sessions.len();
-    }
-    listing
+  }
+  for summary in &mut listing.sessions {
+    summary.child_sessions = children.remove(&summary.session_id).unwrap_or_default();
+  }
+  if listing.window_count == 0 {
+    // The unscoped listing's window is the whole store.
+    listing.window_count = listing.sessions.len();
+  }
+  listing
 }
 
 /// Run a v2 listing query and map the rows. A failed prepare or query is
 /// logged with a degraded listing — damage visible, never fatal.
 fn v2_listing_rows(
-    conn: &Connection,
-    sql: &str,
-    params: impl rusqlite::Params,
+  conn: &Connection,
+  sql: &str,
+  params: impl rusqlite::Params,
 ) -> Vec<SessionSummary> {
-    let mut stmt = match conn.prepare(sql) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!("opencode v2 session listing query failed: {e}");
-            return Vec::new();
-        }
-    };
-    let rows = stmt.query_map(params, |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<String>>(2)?,
-            row.get::<_, Option<String>>(3)?,
-            row.get::<_, i64>(4)?,
-            row.get::<_, i64>(5)?,
-            row.get::<_, i64>(6)?,
-            row.get::<_, i64>(7)?,
-            row.get::<_, i64>(8)?,
-            row.get::<_, i64>(9)?,
-            row.get::<_, i64>(10)?,
-            row.get::<_, i64>(11)?,
-            row.get::<_, i64>(12)?,
-        ))
-    });
-    let rows = match rows {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!("opencode v2 session listing failed: {e}");
-            return Vec::new();
-        }
-    };
-    rows.flatten().map(v2_summary_from_row).collect()
+  let mut stmt = match conn.prepare(sql) {
+    Ok(s) => s,
+    Err(e) => {
+      tracing::warn!("opencode v2 session listing query failed: {e}");
+      return Vec::new();
+    }
+  };
+  let rows = stmt.query_map(params, |row| {
+    Ok((
+      row.get::<_, String>(0)?,
+      row.get::<_, String>(1)?,
+      row.get::<_, Option<String>>(2)?,
+      row.get::<_, Option<String>>(3)?,
+      row.get::<_, i64>(4)?,
+      row.get::<_, i64>(5)?,
+      row.get::<_, i64>(6)?,
+      row.get::<_, i64>(7)?,
+      row.get::<_, i64>(8)?,
+      row.get::<_, i64>(9)?,
+      row.get::<_, i64>(10)?,
+      row.get::<_, i64>(11)?,
+      row.get::<_, i64>(12)?,
+    ))
+  });
+  let rows = match rows {
+    Ok(r) => r,
+    Err(e) => {
+      tracing::warn!("opencode v2 session listing failed: {e}");
+      return Vec::new();
+    }
+  };
+  rows.flatten().map(v2_summary_from_row).collect()
 }
 
 /// One cheap single-row query for the staleness check: the session's
 /// `time_updated` only — never the full `list_sessions` aggregates. The v2
 /// registry is checked first: in a 2.2 store it is the one that still moves.
 fn session_time_updated(conn: &Connection, full_id: &str) -> Option<i64> {
-    if store_layout(conn) == StoreLayout::V2 {
-        return conn
-            .query_row(
-                "SELECT time_updated FROM session_v2 WHERE id = ?1",
-                [full_id],
-                |r| r.get(0),
-            )
-            .ok();
-    }
-    conn.query_row(
-        "SELECT time_updated FROM session WHERE id = ?1",
+  if store_layout(conn) == StoreLayout::V2 {
+    return conn
+      .query_row(
+        "SELECT time_updated FROM session_v2 WHERE id = ?1",
         [full_id],
         |r| r.get(0),
-    )
-    .ok()
+      )
+      .ok();
+  }
+  conn.query_row(
+    "SELECT time_updated FROM session WHERE id = ?1",
+    [full_id],
+    |r| r.get(0),
+  )
+  .ok()
 }
 
 /// Load every `todowrite` flush of a session, in part-stream order. The
@@ -1231,42 +1231,42 @@ fn session_time_updated(conn: &Connection, full_id: &str) -> Option<i64> {
 /// the session's last compaction part — rows before the marker are dropped,
 /// mirroring how `read_session_from_compaction` finds the marker.
 fn load_todo_writes(conn: &Connection, full_id: &str, full: bool) -> ReadResult<Vec<TodoWrite>> {
-    let stream = load_part_stream(conn, full_id)?;
+  let stream = load_part_stream(conn, full_id)?;
 
-    // One ordered pass: remember the last compaction part's position, keep
-    // what the window allows. The slice is positional, not by time — 2.2
-    // rows can carry identical timestamps (seq is the log order).
-    let mut last_compaction: Option<usize> = None;
-    let mut parsed: Vec<(Value, Value)> = Vec::new();
-    for (index, (msg, part, _time, _)) in stream.into_iter().enumerate() {
-        if part.get("type").and_then(|t| t.as_str()) == Some("compaction") {
-            last_compaction = Some(index);
-        }
-        parsed.push((msg, part));
+  // One ordered pass: remember the last compaction part's position, keep
+  // what the window allows. The slice is positional, not by time — 2.2
+  // rows can carry identical timestamps (seq is the log order).
+  let mut last_compaction: Option<usize> = None;
+  let mut parsed: Vec<(Value, Value)> = Vec::new();
+  for (index, (msg, part, _time, _)) in stream.into_iter().enumerate() {
+    if part.get("type").and_then(|t| t.as_str()) == Some("compaction") {
+      last_compaction = Some(index);
     }
+    parsed.push((msg, part));
+  }
 
-    let mut writes = Vec::new();
-    for (index, (msg, part)) in parsed.into_iter().enumerate() {
-        if !full && last_compaction.is_some_and(|marker| index < marker) {
-            continue;
-        }
-        if part.get("type").and_then(|t| t.as_str()) != Some("tool") {
-            continue;
-        }
-        if part.get("tool").and_then(|t| t.as_str()) != Some("todowrite") {
-            continue;
-        }
-        let timestamp = msg
-            .get("time")
-            .and_then(|t| t.get("created"))
-            .and_then(|t| t.as_i64())
-            .map(ms_to_iso8601);
-        let Some(todos) = todo_items_from_part(&part, full_id) else {
-            continue;
-        };
-        writes.push(TodoWrite { timestamp, todos });
+  let mut writes = Vec::new();
+  for (index, (msg, part)) in parsed.into_iter().enumerate() {
+    if !full && last_compaction.is_some_and(|marker| index < marker) {
+      continue;
     }
-    Ok(writes)
+    if part.get("type").and_then(|t| t.as_str()) != Some("tool") {
+      continue;
+    }
+    if part.get("tool").and_then(|t| t.as_str()) != Some("todowrite") {
+      continue;
+    }
+    let timestamp = msg
+      .get("time")
+      .and_then(|t| t.get("created"))
+      .and_then(|t| t.as_i64())
+      .map(ms_to_iso8601);
+    let Some(todos) = todo_items_from_part(&part, full_id) else {
+      continue;
+    };
+    writes.push(TodoWrite { timestamp, todos });
+  }
+  Ok(writes)
 }
 
 /// The todo list a todowrite part carried, or `None` when the part is not a
@@ -1277,54 +1277,54 @@ fn load_todo_writes(conn: &Connection, full_id: &str, full: bool) -> ReadResult<
 /// damage is diagnosable. Both `input` and `todos` are accepted as JSON
 /// objects or as JSON-encoded strings (both shapes occur in the live store).
 fn todo_items_from_part(part: &Value, full_id: &str) -> Option<Vec<TodoItemState>> {
-    let input = part.get("state")?.get("input")?;
-    let input = match input {
-        Value::String(s) => match serde_json::from_str::<Value>(s) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!(
-                    "opencode session {full_id}: skipping todowrite part with an unparseable input: {e}"
-                );
-                return None;
-            }
-        },
-        other => other.clone(),
-    };
-    let todos = input.get("todos")?;
-    let todos = match todos {
-        Value::String(s) => match serde_json::from_str::<Value>(s) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!(
-                    "opencode session {full_id}: skipping todowrite part with an unparseable todos list: {e}"
-                );
-                return None;
-            }
-        },
-        other => other.clone(),
-    };
-    let arr = match todos.as_array() {
-        Some(a) => a,
-        None => {
-            tracing::warn!(
-                "opencode session {full_id}: skipping todowrite part whose todos is not an array"
-            );
-            return None;
-        }
-    };
-    let mut items = Vec::with_capacity(arr.len());
-    for item in arr {
-        match serde_json::from_value::<TodoItemState>(item.clone()) {
-            Ok(i) => items.push(i),
-            Err(e) => {
-                tracing::warn!(
-                    "opencode session {full_id}: skipping todowrite part with an unparseable todo item: {e}"
-                );
-                return None;
-            }
-        }
+  let input = part.get("state")?.get("input")?;
+  let input = match input {
+    Value::String(s) => match serde_json::from_str::<Value>(s) {
+      Ok(v) => v,
+      Err(e) => {
+        tracing::warn!(
+          "opencode session {full_id}: skipping todowrite part with an unparseable input: {e}"
+        );
+        return None;
+      }
+    },
+    other => other.clone(),
+  };
+  let todos = input.get("todos")?;
+  let todos = match todos {
+    Value::String(s) => match serde_json::from_str::<Value>(s) {
+      Ok(v) => v,
+      Err(e) => {
+        tracing::warn!(
+          "opencode session {full_id}: skipping todowrite part with an unparseable todos list: {e}"
+        );
+        return None;
+      }
+    },
+    other => other.clone(),
+  };
+  let arr = match todos.as_array() {
+    Some(a) => a,
+    None => {
+      tracing::warn!(
+        "opencode session {full_id}: skipping todowrite part whose todos is not an array"
+      );
+      return None;
     }
-    Some(items)
+  };
+  let mut items = Vec::with_capacity(arr.len());
+  for item in arr {
+    match serde_json::from_value::<TodoItemState>(item.clone()) {
+      Ok(i) => items.push(i),
+      Err(e) => {
+        tracing::warn!(
+          "opencode session {full_id}: skipping todowrite part with an unparseable todo item: {e}"
+        );
+        return None;
+      }
+    }
+  }
+  Some(items)
 }
 
 /// The Q/A pairs of a session, read from the raw question-tool parts of the
@@ -1335,86 +1335,86 @@ fn todo_items_from_part(part: &Value, full_id: &str) -> Option<Vec<TodoItemState
 /// `state.output` text (`"question"="answer"` pairs). Pending or otherwise
 /// unfinished question parts yield no pair.
 fn load_qa_pairs(conn: &Connection, full_id: &str) -> ReadResult<Vec<QaPair>> {
-    let stream = load_part_stream(conn, full_id)?;
+  let stream = load_part_stream(conn, full_id)?;
 
-    let mut pairs = Vec::new();
-    for (msg, part, _time, _) in stream {
-        if part.get("type").and_then(|t| t.as_str()) != Some("tool")
-            || part.get("tool").and_then(|t| t.as_str()) != Some("question")
-        {
-            continue;
-        }
-        let Some(state) = part.get("state") else {
-            continue;
-        };
-        if state.get("status").and_then(|s| s.as_str()) != Some("completed") {
-            continue;
-        }
-        let timestamp = msg
-            .get("time")
-            .and_then(|t| t.get("created"))
-            .and_then(|t| t.as_i64())
-            .map(ms_to_iso8601);
-        let questions = state
-            .get("input")
-            .map(|i| i.to_string())
-            .map(|i| parse_questions_payload(&i))
-            .unwrap_or_default();
-        if questions.is_empty() {
-            continue;
-        }
-
-        // One pick list per question from metadata, when present.
-        let metadata_answers: Vec<Vec<String>> = state
-            .get("metadata")
-            .and_then(|m| m.get("answers"))
-            .and_then(|a| a.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .map(|picks| {
-                        picks
-                            .as_array()
-                            .map(|ps| {
-                                ps.iter()
-                                    .filter_map(|p| p.as_str().map(String::from))
-                                    .collect()
-                            })
-                            .unwrap_or_default()
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        for (i, q) in questions.iter().enumerate() {
-            let mut answers: Vec<String> = metadata_answers
-                .get(i)
-                .filter(|picks| !picks.is_empty())
-                .map(|picks| vec![picks.join("; ")])
-                .unwrap_or_default();
-            if answers.is_empty() {
-                // Fallback: the `"question"="answer"` pairs of the
-                // output text, matched by question text first.
-                let output = state.get("output").and_then(|o| o.as_str()).unwrap_or("");
-                let from_output = answers_from_output(output);
-                match from_output
-                    .iter()
-                    .find(|(question, _)| question == &q.question)
-                    .or_else(|| from_output.get(i))
-                {
-                    Some((_, answer)) => answers = vec![answer.clone()],
-                    None => continue,
-                }
-            }
-            pairs.push(QaPair {
-                question: q.question.clone(),
-                header: q.header.clone(),
-                options: q.options.clone(),
-                answers,
-                timestamp: timestamp.clone(),
-            });
-        }
+  let mut pairs = Vec::new();
+  for (msg, part, _time, _) in stream {
+    if part.get("type").and_then(|t| t.as_str()) != Some("tool")
+      || part.get("tool").and_then(|t| t.as_str()) != Some("question")
+    {
+      continue;
     }
-    Ok(pairs)
+    let Some(state) = part.get("state") else {
+      continue;
+    };
+    if state.get("status").and_then(|s| s.as_str()) != Some("completed") {
+      continue;
+    }
+    let timestamp = msg
+      .get("time")
+      .and_then(|t| t.get("created"))
+      .and_then(|t| t.as_i64())
+      .map(ms_to_iso8601);
+    let questions = state
+      .get("input")
+      .map(|i| i.to_string())
+      .map(|i| parse_questions_payload(&i))
+      .unwrap_or_default();
+    if questions.is_empty() {
+      continue;
+    }
+
+    // One pick list per question from metadata, when present.
+    let metadata_answers: Vec<Vec<String>> = state
+      .get("metadata")
+      .and_then(|m| m.get("answers"))
+      .and_then(|a| a.as_array())
+      .map(|arr| {
+        arr.iter()
+          .map(|picks| {
+            picks
+              .as_array()
+              .map(|ps| {
+                ps.iter()
+                  .filter_map(|p| p.as_str().map(String::from))
+                  .collect()
+              })
+              .unwrap_or_default()
+          })
+          .collect()
+      })
+      .unwrap_or_default();
+
+    for (i, q) in questions.iter().enumerate() {
+      let mut answers: Vec<String> = metadata_answers
+        .get(i)
+        .filter(|picks| !picks.is_empty())
+        .map(|picks| vec![picks.join("; ")])
+        .unwrap_or_default();
+      if answers.is_empty() {
+        // Fallback: the `"question"="answer"` pairs of the
+        // output text, matched by question text first.
+        let output = state.get("output").and_then(|o| o.as_str()).unwrap_or("");
+        let from_output = answers_from_output(output);
+        match from_output
+          .iter()
+          .find(|(question, _)| question == &q.question)
+          .or_else(|| from_output.get(i))
+        {
+          Some((_, answer)) => answers = vec![answer.clone()],
+          None => continue,
+        }
+      }
+      pairs.push(QaPair {
+        question: q.question.clone(),
+        header: q.header.clone(),
+        options: q.options.clone(),
+        answers,
+        timestamp: timestamp.clone(),
+      });
+    }
+  }
+  Ok(pairs)
 }
 
 /// The answers stated in a question part's `output` text
@@ -1422,131 +1422,131 @@ fn load_qa_pairs(conn: &Connection, full_id: &str) -> ReadResult<Vec<QaPair>> {
 /// (question, answer) pairs. `"…"` inside an answer is handled
 /// escape-aware; text that does not parse yields whatever pairs it carries.
 fn answers_from_output(output: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let bytes = output.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] != b'"' {
-            i += 1;
-            continue;
-        }
-        let Some((key, rest)) = parse_quoted_string(&output[i..]) else {
-            i += 1;
-            continue;
-        };
-        i = output.len() - rest.len();
-        let rest = output[i..].trim_start();
-        let Some(after_eq) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let after_eq = after_eq.trim_start();
-        if !after_eq.starts_with('"') {
-            continue;
-        }
-        let Some((value, tail)) = parse_quoted_string(after_eq) else {
-            continue;
-        };
-        i = output.len() - tail.len();
-        out.push((key, value));
+  let mut out = Vec::new();
+  let bytes = output.as_bytes();
+  let mut i = 0;
+  while i < bytes.len() {
+    if bytes[i] != b'"' {
+      i += 1;
+      continue;
     }
-    out
+    let Some((key, rest)) = parse_quoted_string(&output[i..]) else {
+      i += 1;
+      continue;
+    };
+    i = output.len() - rest.len();
+    let rest = output[i..].trim_start();
+    let Some(after_eq) = rest.strip_prefix('=') else {
+      continue;
+    };
+    let after_eq = after_eq.trim_start();
+    if !after_eq.starts_with('"') {
+      continue;
+    }
+    let Some((value, tail)) = parse_quoted_string(after_eq) else {
+      continue;
+    };
+    i = output.len() - tail.len();
+    out.push((key, value));
+  }
+  out
 }
 
 /// Compute the profile from SQLite for an already-resolved session id.
 fn profile_session_sqlite(conn: &Connection, full_id: &str) -> ReadResult<SessionProfile> {
-    // Payload size and line count come from the layout that owns this
-    // session: in a 2.2 store the legacy message/part tables are the frozen
-    // migration copy and answer 0 for a session 2.2 wrote after the bump.
-    let (file_size, line_count): (i64, i64) = if store_layout(conn) == StoreLayout::V2 {
-        conn.query_row(
-            "SELECT COALESCE(SUM(length(data)), 0),
-                COALESCE(SUM(CASE WHEN type = 'assistant'
-                    THEN json_array_length(data, '$.content') ELSE 1 END), 0)
-             FROM session_message WHERE session_id = ?1",
-            [full_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap_or((0, 0))
-    } else {
-        let size: i64 = conn
-            .query_row(
-                "SELECT (SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?1)
-                    + (SELECT COALESCE(SUM(length(data)), 0) FROM part WHERE session_id = ?1)",
-                [full_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        let lines: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM part WHERE session_id = ?1",
-                [full_id],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        (size, lines)
-    };
+  // Payload size and line count come from the layout that owns this
+  // session: in a 2.2 store the legacy message/part tables are the frozen
+  // migration copy and answer 0 for a session 2.2 wrote after the bump.
+  let (file_size, line_count): (i64, i64) = if store_layout(conn) == StoreLayout::V2 {
+    conn.query_row(
+      "SELECT COALESCE(SUM(length(data)), 0),
+        COALESCE(SUM(CASE WHEN type = 'assistant'
+          THEN json_array_length(data, '$.content') ELSE 1 END), 0)
+       FROM session_message WHERE session_id = ?1",
+      [full_id],
+      |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .unwrap_or((0, 0))
+  } else {
+    let size: i64 = conn
+      .query_row(
+        "SELECT (SELECT COALESCE(SUM(length(data)), 0) FROM message WHERE session_id = ?1)
+          + (SELECT COALESCE(SUM(length(data)), 0) FROM part WHERE session_id = ?1)",
+        [full_id],
+        |r| r.get(0),
+      )
+      .unwrap_or(0);
+    let lines: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM part WHERE session_id = ?1",
+        [full_id],
+        |r| r.get(0),
+      )
+      .unwrap_or(0);
+    (size, lines)
+  };
 
-    let messages = load_messages(conn, full_id)?;
+  let messages = load_messages(conn, full_id)?;
 
-    let mut role_counts: HashMap<String, u64> = HashMap::new();
-    let mut interesting_events = Vec::new();
-    let mut last_event_line = 0u64;
-    let mut first_ts: Option<String> = None;
-    let mut last_ts: Option<String> = None;
+  let mut role_counts: HashMap<String, u64> = HashMap::new();
+  let mut interesting_events = Vec::new();
+  let mut last_event_line = 0u64;
+  let mut first_ts: Option<String> = None;
+  let mut last_ts: Option<String> = None;
 
-    for (i, msg) in messages.iter().enumerate() {
-        let line_num = (i + 1) as u64;
-        *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
+  for (i, msg) in messages.iter().enumerate() {
+    let line_num = (i + 1) as u64;
+    *role_counts.entry(msg.role.clone()).or_insert(0) += 1;
 
-        if msg.content.contains("context compaction") && msg.injected {
-            interesting_events.push(InterestingEvent {
-                line_number: line_num,
-                event_type: EventType::Compaction,
-                summary: "Compaction marker".to_string(),
-                gap_lines: line_num - last_event_line,
-            });
-            last_event_line = line_num;
-        }
-
-        if msg.role == "user" && !msg.injected && !msg.content.is_empty() {
-            interesting_events.push(InterestingEvent {
-                line_number: line_num,
-                event_type: EventType::UserMessage,
-                summary: msg.content.chars().take(80).collect(),
-                gap_lines: line_num - last_event_line,
-            });
-            last_event_line = line_num;
-        }
-
-        if let Some(ts) = &msg.timestamp {
-            if first_ts.is_none() {
-                first_ts = Some(ts.clone());
-            }
-            last_ts = Some(ts.clone());
-        }
+    if msg.content.contains("context compaction") && msg.injected {
+      interesting_events.push(InterestingEvent {
+        line_number: line_num,
+        event_type: EventType::Compaction,
+        summary: "Compaction marker".to_string(),
+        gap_lines: line_num - last_event_line,
+      });
+      last_event_line = line_num;
     }
 
-    Ok(SessionProfile {
-        session_id: full_id.to_string(),
-        file_size: file_size.max(0) as u64,
-        line_count: line_count.max(0) as u64,
-        first_ts,
-        last_ts,
-        role_counts,
-        has_tantivy_index: false,
-        interesting_events,
-    })
+    if msg.role == "user" && !msg.injected && !msg.content.is_empty() {
+      interesting_events.push(InterestingEvent {
+        line_number: line_num,
+        event_type: EventType::UserMessage,
+        summary: msg.content.chars().take(80).collect(),
+        gap_lines: line_num - last_event_line,
+      });
+      last_event_line = line_num;
+    }
+
+    if let Some(ts) = &msg.timestamp {
+      if first_ts.is_none() {
+        first_ts = Some(ts.clone());
+      }
+      last_ts = Some(ts.clone());
+    }
+  }
+
+  Ok(SessionProfile {
+    session_id: full_id.to_string(),
+    file_size: file_size.max(0) as u64,
+    line_count: line_count.max(0) as u64,
+    first_ts,
+    last_ts,
+    role_counts,
+    has_tantivy_index: false,
+    interesting_events,
+  })
 }
 
 pub(crate) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
+  std::time::SystemTime::now()
+    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+    .unwrap_or_default()
+    .as_millis() as i64
 }
 
 /// ISO8601 cutoff string for `hours_back` hours ago (used for string
 /// comparisons against SessionSummary::end_time).
 pub(crate) fn iso_cutoff(hours_back: u64) -> String {
-    ms_to_iso8601(now_ms() - (hours_back as i64) * 3_600_000)
+  ms_to_iso8601(now_ms() - (hours_back as i64) * 3_600_000)
 }

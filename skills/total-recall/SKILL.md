@@ -20,15 +20,15 @@ Harnesses: `opencode` (SQLite at `~/.local/share/opencode/opencode.db`),
 The tool ships two ways:
 
 - **CLI on PATH** (`~/.local/bin/total-recall`) — always the latest release,
-  used ad hoc. It takes `--harness <name>` (or `HARNESS`), so it can read any
-  harness's store on demand, including a harness you are not sitting in. This
-  is the escape hatch for a harness whose own MCP is pinned.
+ used ad hoc. It takes `--harness <name>` (or `HARNESS`), so it can read any
+ harness's store on demand, including a harness you are not sitting in. This
+ is the escape hatch for a harness whose own MCP is pinned.
 - **MCP per harness** — pinned. Copy the binary the harness's MCP currently
-  runs into the harness's own config location, named with its version
-  (`total-recall-<version>` beside `config.toml`, say), and point the MCP
-  registration at the copy. A global refresh then moves every other harness,
-  not this one: the pin only changes when you consciously bump it — recopy the
-  new version, repoint, test that harness.
+ runs into the harness's own config location, named with its version
+ (`total-recall-<version>` beside `config.toml`, say), and point the MCP
+ registration at the copy. A global refresh then moves every other harness,
+ not this one: the pin only changes when you consciously bump it — recopy the
+ new version, repoint, test that harness.
 
 If you run across several harnesses (OpenCode, Vibe/Mistral, Pi, Codex), do
 not let them all share one central binary: a release that breaks one harness
@@ -62,13 +62,13 @@ is behind, run the latest CLI from inside that harness and compare `--version`.
 ## Choosing the pass (usage rule)
 
 - A verbatim question ("what did the user say about X", "which question was
-  asked") gets `extract-by-type` — the exact record, not a ranked search.
-  `do_android_dream_of_electric_sheep` is for finding *where* something was
-  said when you don't know; once you do, extract, don't search.
+ asked") gets `extract-by-type` — the exact record, not a ranked search.
+ `do_android_dream_of_electric_sheep` is for finding *where* something was
+ said when you don't know; once you do, extract, don't search.
 - Summaries (`prior_period_summary`, `summarise_from`) are only for when the
-  user asks to familiarise or orient. Reading passes
-  (`he_said_she_said_they_did`, `extract-by-type`) don't spend LLM calls;
-  reach for them first, summarise only on request.
+ user asks to familiarise or orient. Reading passes
+ (`he_said_she_said_they_did`, `extract-by-type`) don't spend LLM calls;
+ reach for them first, summarise only on request.
 
 ## The dream pass (tantivy search)
 
@@ -88,9 +88,9 @@ Indexes are per session, in a shadow folder adjacent to the store:
 ### Workflow
 
 1. `list_sessions` reports `has_tantivy_index` per session — true means
-   searchable, false means run the index first. Rows also carry a
-   `summary_cache` marker (`{through_id, through_ts}`) when the session has
-   cached summary blocks.
+  searchable, false means run the index first. Rows also carry a
+  `summary_cache` marker (`{through_id, through_ts}`) when the session has
+  cached summary blocks.
 2. Build or refresh indexes:
 
 ```bash
@@ -106,7 +106,7 @@ ids.
 
 ```bash
 total-recall --harness opencode do-android-dream-of-electric-sheep \
-  --query "tantivy index" --hours 48
+ --query "tantivy index" --hours 48
 ```
 
 MCP: `do_android_dream_of_electric_sheep` with `query` (tantivy query
@@ -142,8 +142,8 @@ rg 'pattern' "$TMPDIR"/total-recall/list_sessions_*.jsonl
 
 # extract fields (every record carries type; meta is record 0):
 jq -c 'select(.type=="row") | {session_id, title}' file.jsonl
-jq -c 'select(.type=="hit")  | {session_id, score, fragment}' file.jsonl
-jq -c 'select(.type=="meta")' file.jsonl   # the meta record alone
+jq -c 'select(.type=="hit") | {session_id, score, fragment}' file.jsonl
+jq -c 'select(.type=="meta")' file.jsonl  # the meta record alone
 
 # profile before prompting: the chonky record is visible without reading it:
 total-recall line-histogram file.jsonl
@@ -153,7 +153,7 @@ Sweep the recent overflow files (the fdfind one-liner):
 
 ```bash
 fdfind -H -t f -e jsonl --changed-within 1d . "$TMPDIR/total-recall" \
-  | while read -r f; do echo "=== $f ==="; total-recall line-histogram "$f"; done
+ | while read -r f; do echo "=== $f ==="; total-recall line-histogram "$f"; done
 ```
 
 ## The key-check recipe

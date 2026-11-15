@@ -1,4 +1,4 @@
-//! #39: the summary cache as an explicit, inspectable data structure.
+//! the summary cache as an explicit, inspectable data structure.
 //!
 //! The ledger is 11-column v2: `from_id,from_ts,to_id,to_ts,user,assistant,
 //! tool,thinking,chars,tokens_est,part_file`, ids are 1-based message
@@ -10,7 +10,7 @@
 //! provider — a default build loads the developer's `.env` via dotenvy the
 //! moment a provider is built, so no test may reach that path. The real
 //! summarise path (provider constructed) has NO test for the same reason the
-//! #36 suite stated: it would call the LIVE Mercury API.
+//!  suite stated: it would call the LIVE Mercury API.
 
 mod common;
 
@@ -21,399 +21,399 @@ use total_recall::summary_cache;
 use common::scratch::{ScratchRoot, child_cwd, scratch};
 
 fn msg(role: &str, content: &str, timestamp: &str) -> String {
-    serde_json::json!({
-        "role": role,
-        "content": content,
-        "thinking": Option::<&str>::None,
-        "tool_calls_summary": [],
-        "injected": false,
-        "timestamp": timestamp,
-    })
-    .to_string()
+  serde_json::json!({
+    "role": role,
+    "content": content,
+    "thinking": Option::<&str>::None,
+    "tool_calls_summary": [],
+    "injected": false,
+    "timestamp": timestamp,
+  })
+  .to_string()
 }
 
 fn fixture(name: &str, lines: &[String]) -> (ScratchRoot, MockAdapter) {
-    let dir = scratch(&format!("summary_cache_{name}"));
-    let data_path = dir.join("data.jsonl");
-    std::fs::write(&data_path, lines.join("\n") + "\n").unwrap();
-    (dir, MockAdapter::new(&data_path))
+  let dir = scratch(&format!("summary_cache_{name}"));
+  let data_path = dir.join("data.jsonl");
+  std::fs::write(&data_path, lines.join("\n") + "\n").unwrap();
+  (dir, MockAdapter::new(&data_path))
 }
 
 /// The four-message fixture: ids 1..=4, timestamps in order.
 fn four_messages() -> Vec<String> {
-    vec![
-        msg("user", "start the work", "2026-10-18T10:00:00Z"),
-        msg("assistant", "working", "2026-10-18T11:00:00Z"),
-        msg("user", "more work", "2026-10-18T12:00:00Z"),
-        msg("assistant", "done", "2026-10-18T13:00:00Z"),
-    ]
+  vec![
+    msg("user", "start the work", "2026-10-18T10:00:00Z"),
+    msg("assistant", "working", "2026-10-18T11:00:00Z"),
+    msg("user", "more work", "2026-10-18T12:00:00Z"),
+    msg("assistant", "done", "2026-10-18T13:00:00Z"),
+  ]
 }
 
 #[test]
 fn the_ledger_lives_in_the_shadow_root_next_to_the_profile_cache() {
-    let (_dir, adapter) = fixture("layout", &[msg("user", "hello", "2026-10-18T10:00:00Z")]);
-    let root = adapter.shadow_index_root();
-    assert_eq!(
-        summary_cache::ledger_path(&root, "mock"),
-        root.join("tr_mock_summary.csv"),
-        "one ledger per session, in the shadow root"
-    );
+  let (_dir, adapter) = fixture("layout", &[msg("user", "hello", "2026-10-18T10:00:00Z")]);
+  let root = adapter.shadow_index_root();
+  assert_eq!(
+    summary_cache::ledger_path(&root, "mock"),
+    root.join("tr_mock_summary.csv"),
+    "one ledger per session, in the shadow root"
+  );
 }
 
 #[test]
 fn append_block_writes_the_eleven_column_row_with_ids_and_counts() {
-    let (_dir, adapter) = fixture("append", &four_messages());
-    let root = adapter.shadow_index_root();
-    let messages = adapter.read_session_mmap("mock").unwrap();
+  let (_dir, adapter) = fixture("append", &four_messages());
+  let root = adapter.shadow_index_root();
+  let messages = adapter.read_session_mmap("mock").unwrap();
 
-    let first =
-        summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
-    assert_eq!(first.from_id, 1, "the block starts at the id it was given");
-    assert_eq!(first.to_id, 2, "the block ends at its last message's id");
-    assert_eq!(first.from_ts, "2026-10-18T10:00:00Z");
-    assert_eq!(first.to_ts, "2026-10-18T11:00:00Z");
-    assert_eq!(first.user, 1, "the type counts describe the slice");
-    assert_eq!(first.assistant, 1);
-    assert_eq!(
-        first.chars,
-        "start the work".len() as u64 + "working".len() as u64
-    );
-    assert!(
-        first.tokens_est > 0 && first.tokens_est <= first.chars,
-        "the token estimate is the ~4 chars/token guard, not a guess of zero: {first:?}"
-    );
+  let first =
+    summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
+  assert_eq!(first.from_id, 1, "the block starts at the id it was given");
+  assert_eq!(first.to_id, 2, "the block ends at its last message's id");
+  assert_eq!(first.from_ts, "2026-10-18T10:00:00Z");
+  assert_eq!(first.to_ts, "2026-10-18T11:00:00Z");
+  assert_eq!(first.user, 1, "the type counts describe the slice");
+  assert_eq!(first.assistant, 1);
+  assert_eq!(
+    first.chars,
+    "start the work".len() as u64 + "working".len() as u64
+  );
+  assert!(
+    first.tokens_est > 0 && first.tokens_est <= first.chars,
+    "the token estimate is the ~4 chars/token guard, not a guess of zero: {first:?}"
+  );
 
-    let second =
-        summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
-    assert_eq!(second.from_id, 3);
-    assert_eq!(second.to_id, 4);
+  let second =
+    summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
+  assert_eq!(second.from_id, 3);
+  assert_eq!(second.to_id, 4);
 
-    let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
-    assert_eq!(blocks.len(), 2, "two blocks in the ledger");
-    assert_eq!(blocks[0].part_file, first.part_file);
-    assert_eq!(blocks[1].part_file.file_name().unwrap(), "part_003_004.md");
-    assert!(first.part_file.is_file(), "the part file holds the text");
-    let composed = summary_cache::compose(&blocks);
-    assert!(
-        composed.contains("### part 1: 2026-10-18T10:00:00Z → 2026-10-18T11:00:00Z (ids 1..2)"),
-        "each part names its id range: {composed}"
-    );
-    assert!(composed.contains("first summary") && composed.contains("delta summary"));
+  let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
+  assert_eq!(blocks.len(), 2, "two blocks in the ledger");
+  assert_eq!(blocks[0].part_file, first.part_file);
+  assert_eq!(blocks[1].part_file.file_name().unwrap(), "part_003_004.md");
+  assert!(first.part_file.is_file(), "the part file holds the text");
+  let composed = summary_cache::compose(&blocks);
+  assert!(
+    composed.contains("### part 1: 2026-10-18T10:00:00Z → 2026-10-18T11:00:00Z (ids 1..2)"),
+    "each part names its id range: {composed}"
+  );
+  assert!(composed.contains("first summary") && composed.contains("delta summary"));
 }
 
 #[test]
 fn a_malformed_or_short_row_invalidates_the_ledger_and_drops_the_file() {
-    let (_dir, adapter) = fixture("invalid", &four_messages());
-    let root = adapter.shadow_index_root();
-    let path = summary_cache::ledger_path(&root, "mock");
+  let (_dir, adapter) = fixture("invalid", &four_messages());
+  let root = adapter.shadow_index_root();
+  let path = summary_cache::ledger_path(&root, "mock");
 
-    // The v0.15.0-era 3-column row: no backward compatibility, the ledger it
-    // appears in is treated as empty and dropped.
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(
-        &path,
-        "2026-10-18T10:00:00Z,2026-10-18T11:00:00Z,parts/old.md\n",
-    )
-    .unwrap();
+  // The v0.15.0-era 3-column row: no backward compatibility, the ledger it
+  // appears in is treated as empty and dropped.
+  std::fs::create_dir_all(&root).unwrap();
+  std::fs::write(
+    &path,
+    "2026-10-18T10:00:00Z,2026-10-18T11:00:00Z,parts/old.md\n",
+  )
+  .unwrap();
+  assert!(
+    summary_cache::read_ledger(&path).is_empty(),
+    "a short row invalidates the ledger"
+  );
+  assert!(!path.exists(), "the invalid ledger file is dropped");
+
+  // Garbage in any column is the same verdict.
+  for body in [
+    "not,a,ledger,row,at,all,not,even,close,no,really\n",
+    "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,x,y,z,w,v,u,p\n",
+    "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,1,1,0,0,10,2\n", // short
+    "1,ts,2,ts,1,1,0,0,10,2,parts/x.md,extra\n",          // long
+    "two,ts,4,ts,1,1,0,0,10,2,parts/x.md\n",            // unparseable id
+  ] {
+    std::fs::write(&path, body).unwrap();
     assert!(
-        summary_cache::read_ledger(&path).is_empty(),
-        "a short row invalidates the ledger"
+      summary_cache::read_ledger(&path).is_empty(),
+      "{body:?} must invalidate the ledger"
     );
-    assert!(!path.exists(), "the invalid ledger file is dropped");
+    assert!(!path.exists(), "{body:?} must drop the ledger file");
+  }
 
-    // Garbage in any column is the same verdict.
-    for body in [
-        "not,a,ledger,row,at,all,not,even,close,no,really\n",
-        "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,x,y,z,w,v,u,p\n",
-        "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,1,1,0,0,10,2\n", // short
-        "1,ts,2,ts,1,1,0,0,10,2,parts/x.md,extra\n",                    // long
-        "two,ts,4,ts,1,1,0,0,10,2,parts/x.md\n",                        // unparseable id
-    ] {
-        std::fs::write(&path, body).unwrap();
-        assert!(
-            summary_cache::read_ledger(&path).is_empty(),
-            "{body:?} must invalidate the ledger"
-        );
-        assert!(!path.exists(), "{body:?} must drop the ledger file");
-    }
-
-    // A valid 11-column row still parses.
-    std::fs::write(
-        &path,
-        "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,1,1,0,0,22,5,parts/p.md\n",
-    )
-    .unwrap();
-    let blocks = summary_cache::read_ledger(&path);
-    assert_eq!(blocks.len(), 1, "a valid row survives the parser");
-    assert_eq!(blocks[0].from_id, 1);
-    assert_eq!(blocks[0].to_id, 2);
+  // A valid 11-column row still parses.
+  std::fs::write(
+    &path,
+    "1,2026-10-18T10:00:00Z,2,2026-10-18T11:00:00Z,1,1,0,0,22,5,parts/p.md\n",
+  )
+  .unwrap();
+  let blocks = summary_cache::read_ledger(&path);
+  assert_eq!(blocks.len(), 1, "a valid row survives the parser");
+  assert_eq!(blocks[0].from_id, 1);
+  assert_eq!(blocks[0].to_id, 2);
 }
 
 #[test]
 fn summary_cache_status_shows_the_blocks_and_the_unsummarised_tail() {
-    let (_dir, adapter) = fixture("status", &four_messages());
-    let root = adapter.shadow_index_root();
-    let messages = adapter.read_session_mmap("mock").unwrap();
+  let (_dir, adapter) = fixture("status", &four_messages());
+  let root = adapter.shadow_index_root();
+  let messages = adapter.read_session_mmap("mock").unwrap();
 
-    // Nothing cached: the tail starts at id 1 and covers everything.
-    let status = summary_cache::status(&root, "mock", &messages);
-    assert_eq!(status.session_id, "mock");
-    assert!(status.blocks.is_empty(), "nothing cached yet");
-    let tail = status.tail.expect("an uncovered session has a tail");
-    assert_eq!(tail.from_id, 1);
-    assert_eq!(tail.count, 4);
-    assert_eq!(tail.user, 2);
-    assert_eq!(tail.assistant, 2);
-    assert_eq!(tail.from_ts.as_deref(), Some("2026-10-18T10:00:00Z"));
+  // Nothing cached: the tail starts at id 1 and covers everything.
+  let status = summary_cache::status(&root, "mock", &messages);
+  assert_eq!(status.session_id, "mock");
+  assert!(status.blocks.is_empty(), "nothing cached yet");
+  let tail = status.tail.expect("an uncovered session has a tail");
+  assert_eq!(tail.from_id, 1);
+  assert_eq!(tail.count, 4);
+  assert_eq!(tail.user, 2);
+  assert_eq!(tail.assistant, 2);
+  assert_eq!(tail.from_ts.as_deref(), Some("2026-10-18T10:00:00Z"));
 
-    // Cover ids 1..=2: the tail moves to id 3 and shrinks.
-    summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
-    let status = summary_cache::status(&root, "mock", &messages);
-    assert_eq!(status.blocks.len(), 1);
-    assert_eq!(status.blocks[0].to_id, 2);
-    let tail = status.tail.expect("ids 3..=4 are uncovered");
-    assert_eq!(tail.from_id, 3);
-    assert_eq!(tail.count, 2);
-    assert_eq!(tail.from_ts.as_deref(), Some("2026-10-18T12:00:00Z"));
+  // Cover ids 1..=2: the tail moves to id 3 and shrinks.
+  summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
+  let status = summary_cache::status(&root, "mock", &messages);
+  assert_eq!(status.blocks.len(), 1);
+  assert_eq!(status.blocks[0].to_id, 2);
+  let tail = status.tail.expect("ids 3..=4 are uncovered");
+  assert_eq!(tail.from_id, 3);
+  assert_eq!(tail.count, 2);
+  assert_eq!(tail.from_ts.as_deref(), Some("2026-10-18T12:00:00Z"));
 
-    // Everything covered: the tail is null.
-    summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
-    let status = summary_cache::status(&root, "mock", &messages);
-    assert_eq!(status.blocks.len(), 2);
-    assert!(status.tail.is_none(), "a fully covered session has no tail");
+  // Everything covered: the tail is null.
+  summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
+  let status = summary_cache::status(&root, "mock", &messages);
+  assert_eq!(status.blocks.len(), 2);
+  assert!(status.tail.is_none(), "a fully covered session has no tail");
 
-    // The status JSON shape: blocks carry all eleven fields.
-    let json = serde_json::to_value(&status).unwrap();
-    let block = &json["blocks"][0];
-    for field in [
-        "from_id",
-        "from_ts",
-        "to_id",
-        "to_ts",
-        "user",
-        "assistant",
-        "tool",
-        "thinking",
-        "chars",
-        "tokens_est",
-        "part_file",
-    ] {
-        assert!(
-            block.get(field).is_some(),
-            "the block JSON carries `{field}`: {json}"
-        );
-    }
-    assert_eq!(json["tail"], serde_json::Value::Null);
+  // The status JSON shape: blocks carry all eleven fields.
+  let json = serde_json::to_value(&status).unwrap();
+  let block = &json["blocks"][0];
+  for field in [
+    "from_id",
+    "from_ts",
+    "to_id",
+    "to_ts",
+    "user",
+    "assistant",
+    "tool",
+    "thinking",
+    "chars",
+    "tokens_est",
+    "part_file",
+  ] {
+    assert!(
+      block.get(field).is_some(),
+      "the block JSON carries `{field}`: {json}"
+    );
+  }
+  assert_eq!(json["tail"], serde_json::Value::Null);
 }
 
 #[tokio::test]
 async fn summarise_from_with_the_wrong_id_is_an_error_naming_the_expected_id() {
-    let (_dir, adapter) = fixture("guard", &four_messages());
-    let messages = adapter.read_session_mmap("mock").unwrap();
-    let root = adapter.shadow_index_root();
+  let (_dir, adapter) = fixture("guard", &four_messages());
+  let messages = adapter.read_session_mmap("mock").unwrap();
+  let root = adapter.shadow_index_root();
 
-    // No blocks: the only legal from_id is 1.
-    let err = summary_cache::summarise_from_id(&adapter, "mock", 3, None)
-        .await
-        .expect_err("from_id 3 with no blocks must be refused");
+  // No blocks: the only legal from_id is 1.
+  let err = summary_cache::summarise_from_id(&adapter, "mock", 3, None)
+    .await
+    .expect_err("from_id 3 with no blocks must be refused");
+  assert!(
+    err.contains("1") && err.contains("from_id"),
+    "the error must name the expected id in the house form: {err}"
+  );
+
+  // After a block covering ids 1..=2: the only legal from_id is 3.
+  summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
+  for wrong in [1, 2, 4, 9] {
+    let err = summary_cache::summarise_from_id(&adapter, "mock", wrong, None)
+      .await
+      .expect_err(&format!(
+        "from_id {wrong} is behind or ahead of the block edge"
+      ));
     assert!(
-        err.contains("1") && err.contains("from_id"),
-        "the error must name the expected id in the house form: {err}"
+      err.contains("3"),
+      "the error must name the expected id 3: {err}"
     );
-
-    // After a block covering ids 1..=2: the only legal from_id is 3.
-    summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
-    for wrong in [1, 2, 4, 9] {
-        let err = summary_cache::summarise_from_id(&adapter, "mock", wrong, None)
-            .await
-            .expect_err(&format!(
-                "from_id {wrong} is behind or ahead of the block edge"
-            ));
-        assert!(
-            err.contains("3"),
-            "the error must name the expected id 3: {err}"
-        );
-    }
-    // The failed calls stored nothing.
-    let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
-    assert_eq!(blocks.len(), 1, "a refused call writes no block");
+  }
+  // The failed calls stored nothing.
+  let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
+  assert_eq!(blocks.len(), 1, "a refused call writes no block");
 }
 
 #[tokio::test]
 async fn summarise_from_on_an_already_covered_tail_serves_the_cache_without_an_llm_call() {
-    let (_dir, adapter) = fixture(
-        "covered",
-        &[
-            msg("user", "early work", "2026-10-18T10:00:00Z"),
-            msg("assistant", "done", "2026-10-18T12:00:00Z"),
-        ],
-    );
-    let messages = adapter.read_session_mmap("mock").unwrap();
-    let root = adapter.shadow_index_root();
-    summary_cache::append_block(
-        &root,
-        "mock",
-        1,
-        &messages,
-        "CACHED-TEXT everything, summarised",
-    )
-    .unwrap();
+  let (_dir, adapter) = fixture(
+    "covered",
+    &[
+      msg("user", "early work", "2026-10-18T10:00:00Z"),
+      msg("assistant", "done", "2026-10-18T12:00:00Z"),
+    ],
+  );
+  let messages = adapter.read_session_mmap("mock").unwrap();
+  let root = adapter.shadow_index_root();
+  summary_cache::append_block(
+    &root,
+    "mock",
+    1,
+    &messages,
+    "CACHED-TEXT everything, summarised",
+  )
+  .unwrap();
 
-    // expected = 3, the session ends at id 2: nothing to summarise, the
-    // composition is served, no provider is ever constructed.
-    let out = summary_cache::summarise_from_id(&adapter, "mock", 3, None)
-        .await
-        .expect("a covered tail is served from cache");
-    assert!(
-        out.contains("CACHED-TEXT everything, summarised"),
-        "the cached composition is served: {out}"
-    );
+  // expected = 3, the session ends at id 2: nothing to summarise, the
+  // composition is served, no provider is ever constructed.
+  let out = summary_cache::summarise_from_id(&adapter, "mock", 3, None)
+    .await
+    .expect("a covered tail is served from cache");
+  assert!(
+    out.contains("CACHED-TEXT everything, summarised"),
+    "the cached composition is served: {out}"
+  );
 }
 
 #[test]
 fn cache_delete_latest_rolls_the_newest_block_back() {
-    let (_dir, adapter) = fixture("rollback", &four_messages());
-    let root = adapter.shadow_index_root();
-    let messages = adapter.read_session_mmap("mock").unwrap();
-    let first =
-        summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
-    let second =
-        summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
-    assert!(second.part_file.is_file());
+  let (_dir, adapter) = fixture("rollback", &four_messages());
+  let root = adapter.shadow_index_root();
+  let messages = adapter.read_session_mmap("mock").unwrap();
+  let first =
+    summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
+  let second =
+    summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
+  assert!(second.part_file.is_file());
 
-    // Roll back one block: the newest ledger row and its part file are gone,
-    // the older block survives.
-    summary_cache::delete_latest(&root, "mock").unwrap();
-    let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
-    assert_eq!(blocks.len(), 1, "the newest row is removed from the ledger");
-    assert_eq!(blocks[0].to_id, 2, "the older row survives");
-    assert!(
-        !second.part_file.exists(),
-        "the newest part file is deleted"
-    );
-    assert!(first.part_file.is_file(), "the older part file survives");
+  // Roll back one block: the newest ledger row and its part file are gone,
+  // the older block survives.
+  summary_cache::delete_latest(&root, "mock").unwrap();
+  let blocks = summary_cache::read_ledger(&summary_cache::ledger_path(&root, "mock"));
+  assert_eq!(blocks.len(), 1, "the newest row is removed from the ledger");
+  assert_eq!(blocks[0].to_id, 2, "the older row survives");
+  assert!(
+    !second.part_file.exists(),
+    "the newest part file is deleted"
+  );
+  assert!(first.part_file.is_file(), "the older part file survives");
 
-    // Roll back the last block: the ledger file goes with it.
-    summary_cache::delete_latest(&root, "mock").unwrap();
-    let path = summary_cache::ledger_path(&root, "mock");
-    assert!(
-        summary_cache::read_ledger(&path).is_empty(),
-        "no blocks remain"
-    );
-    assert!(
-        !path.exists(),
-        "an emptied ledger is dropped, not left empty"
-    );
+  // Roll back the last block: the ledger file goes with it.
+  summary_cache::delete_latest(&root, "mock").unwrap();
+  let path = summary_cache::ledger_path(&root, "mock");
+  assert!(
+    summary_cache::read_ledger(&path).is_empty(),
+    "no blocks remain"
+  );
+  assert!(
+    !path.exists(),
+    "an emptied ledger is dropped, not left empty"
+  );
 
-    // And the rolled-back period is summarisable again from id 1.
-    let status = summary_cache::status(&root, "mock", &messages);
-    let tail = status
-        .tail
-        .expect("everything is uncovered after both rollbacks");
-    assert_eq!(tail.from_id, 1);
-    assert_eq!(tail.count, 4);
+  // And the rolled-back period is summarisable again from id 1.
+  let status = summary_cache::status(&root, "mock", &messages);
+  let tail = status
+    .tail
+    .expect("everything is uncovered after both rollbacks");
+  assert_eq!(tail.from_id, 1);
+  assert_eq!(tail.count, 4);
 }
 
 #[test]
 fn the_list_marker_reports_what_the_cache_covers_through() {
-    let (_dir, adapter) = fixture("marker", &four_messages());
-    let root = adapter.shadow_index_root();
+  let (_dir, adapter) = fixture("marker", &four_messages());
+  let root = adapter.shadow_index_root();
 
-    assert_eq!(
-        summary_cache::through_marker(&root, "mock"),
-        None,
-        "no blocks, no marker"
-    );
+  assert_eq!(
+    summary_cache::through_marker(&root, "mock"),
+    None,
+    "no blocks, no marker"
+  );
 
-    let messages = adapter.read_session_mmap("mock").unwrap();
-    summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
-    let marker =
-        summary_cache::through_marker(&root, "mock").expect("a cached session has a marker");
-    assert_eq!(marker.through_id, 2);
-    assert_eq!(marker.through_ts, "2026-10-18T11:00:00Z");
+  let messages = adapter.read_session_mmap("mock").unwrap();
+  summary_cache::append_block(&root, "mock", 1, &messages[..2], "first summary").unwrap();
+  let marker =
+    summary_cache::through_marker(&root, "mock").expect("a cached session has a marker");
+  assert_eq!(marker.through_id, 2);
+  assert_eq!(marker.through_ts, "2026-10-18T11:00:00Z");
 
-    summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
-    let marker = summary_cache::through_marker(&root, "mock").unwrap();
-    assert_eq!(marker.through_id, 4);
-    assert_eq!(marker.through_ts, "2026-10-18T13:00:00Z");
-    let marker_json = serde_json::to_value(&marker).unwrap();
-    assert_eq!(marker_json["through_id"], 4);
-    assert_eq!(marker_json["through_ts"], "2026-10-18T13:00:00Z");
+  summary_cache::append_block(&root, "mock", 3, &messages[2..], "delta summary").unwrap();
+  let marker = summary_cache::through_marker(&root, "mock").unwrap();
+  assert_eq!(marker.through_id, 4);
+  assert_eq!(marker.through_ts, "2026-10-18T13:00:00Z");
+  let marker_json = serde_json::to_value(&marker).unwrap();
+  assert_eq!(marker_json["through_id"], 4);
+  assert_eq!(marker_json["through_ts"], "2026-10-18T13:00:00Z");
 }
 
-/// #39 follow-up: canonical resolution is a cheap store-side match, never the
+///  follow-up: canonical resolution is a cheap store-side match, never the
 /// full-store aggregate listing (a 45-second scan on the live opencode store
 /// timed the MCP calls out). Partial id in, canonical id out, and the cache
 /// keyed under the canonical id is served for the partial.
 #[test]
 fn an_opencode_partial_id_resolves_canonically_and_serves_the_cache() {
-    use rusqlite::Connection;
-    use total_recall::harness;
-    use total_recall::rollout::opencode::OpenCodeAdapter;
+  use rusqlite::Connection;
+  use total_recall::harness;
+  use total_recall::rollout::opencode::OpenCodeAdapter;
 
-    let dir = scratch("summary_cache_canonical");
-    let db = dir.join("fixture.db");
-    let conn = Connection::open(&db).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE session (
-            id text PRIMARY KEY, parent_id text, directory text, title text,
-            time_created integer NOT NULL, time_updated integer NOT NULL);
-        CREATE TABLE message (
-            id text PRIMARY KEY, session_id text NOT NULL,
-            time_created integer NOT NULL, time_updated integer NOT NULL,
-            data text NOT NULL);
-        CREATE TABLE part (
-            id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
-            time_created integer NOT NULL, time_updated integer NOT NULL,
-            data text NOT NULL);",
-    )
-    .unwrap();
-    let full = "ses_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  let dir = scratch("summary_cache_canonical");
+  let db = dir.join("fixture.db");
+  let conn = Connection::open(&db).unwrap();
+  conn.execute_batch(
+    "CREATE TABLE session (
+      id text PRIMARY KEY, parent_id text, directory text, title text,
+      time_created integer NOT NULL, time_updated integer NOT NULL);
+    CREATE TABLE message (
+      id text PRIMARY KEY, session_id text NOT NULL,
+      time_created integer NOT NULL, time_updated integer NOT NULL,
+      data text NOT NULL);
+    CREATE TABLE part (
+      id text PRIMARY KEY, message_id text NOT NULL, session_id text NOT NULL,
+      time_created integer NOT NULL, time_updated integer NOT NULL,
+      data text NOT NULL);",
+  )
+  .unwrap();
+  let full = "ses_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  conn.execute(
+    "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+     VALUES (?1, NULL, '/tmp/x', 'fixture', 1, 1)",
+    [full],
+  )
+  .unwrap();
+  for (i, (mid, pid, text)) in [("m1", "p1", "one"), ("m2", "p2", "two")]
+    .into_iter()
+    .enumerate()
+  {
     conn.execute(
-        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
-         VALUES (?1, NULL, '/tmp/x', 'fixture', 1, 1)",
-        [full],
+      "INSERT INTO message (id, session_id, time_created, time_updated, data)
+       VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
+      rusqlite::params![mid, full, i as i64],
     )
     .unwrap();
-    for (i, (mid, pid, text)) in [("m1", "p1", "one"), ("m2", "p2", "two")]
-        .into_iter()
-        .enumerate()
-    {
-        conn.execute(
-            "INSERT INTO message (id, session_id, time_created, time_updated, data)
-             VALUES (?1, ?2, ?3, ?3, '{\"role\":\"user\",\"time\":{\"created\":1}}')",
-            rusqlite::params![mid, full, i as i64],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
-             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
-            rusqlite::params![
-                pid,
-                mid,
-                full,
-                i as i64,
-                serde_json::json!({"type": "text", "text": text}).to_string()
-            ],
-        )
-        .unwrap();
-    }
-    drop(conn);
+    conn.execute(
+      "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+      rusqlite::params![
+        pid,
+        mid,
+        full,
+        i as i64,
+        serde_json::json!({"type": "text", "text": text}).to_string()
+      ],
+    )
+    .unwrap();
+  }
+  drop(conn);
 
-    let adapter = OpenCodeAdapter::with_root(&db);
-    let canonical = harness::canonical_session_id(&adapter, "ses_bbbb");
-    assert_eq!(canonical, full, "the partial resolves to the canonical id");
+  let adapter = OpenCodeAdapter::with_root(&db);
+  let canonical = harness::canonical_session_id(&adapter, "ses_bbbb");
+  assert_eq!(canonical, full, "the partial resolves to the canonical id");
 
-    // Seed the ledger under the CANONICAL id (as the list marker keys it),
-    // then serve the cache through the PARTIAL id.
-    let messages = adapter.read_session_mmap(&canonical).unwrap();
-    assert_eq!(messages.len(), 2);
-    let root = adapter.shadow_index_root();
-    summary_cache::append_block(&root, &canonical, 1, &messages, "CACHED-TEXT seeded").unwrap();
+  // Seed the ledger under the CANONICAL id (as the list marker keys it),
+  // then serve the cache through the PARTIAL id.
+  let messages = adapter.read_session_mmap(&canonical).unwrap();
+  assert_eq!(messages.len(), 2);
+  let root = adapter.shadow_index_root();
+  summary_cache::append_block(&root, &canonical, 1, &messages, "CACHED-TEXT seeded").unwrap();
 
-    let status = summary_cache::status(&root, &canonical, &messages);
-    assert!(status.tail.is_none(), "fully covered: {status:?}");
-    assert_eq!(status.blocks.len(), 1);
+  let status = summary_cache::status(&root, &canonical, &messages);
+  assert!(status.tail.is_none(), "fully covered: {status:?}");
+  assert_eq!(status.blocks.len(), 1);
 }
 
 // --- MCP stdio server: the record-stream contract ---------------------------
@@ -431,238 +431,238 @@ use total_recall::rollout::opencode::OpenCodeAdapter;
 const SID: &str = "ses_summ0000000000000000000001aa";
 
 fn build_db_fixture(root: &Path) {
-    let conn = Connection::open(root.join("fixture.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE session (
-            id text PRIMARY KEY, parent_id text, directory text, title text,
-            time_created integer NOT NULL, time_updated integer NOT NULL);
-        CREATE TABLE message (
-            id text PRIMARY KEY, session_id text NOT NULL,
-            time_created integer NOT NULL, time_updated integer NOT NULL,
-            data text NOT NULL);
-        CREATE TABLE part (
-            id text PRIMARY KEY, message_id text, session_id text NOT NULL,
-            time_created integer NOT NULL, time_updated integer NOT NULL,
-            data text NOT NULL);",
+  let conn = Connection::open(root.join("fixture.db")).unwrap();
+  conn.execute_batch(
+    "CREATE TABLE session (
+      id text PRIMARY KEY, parent_id text, directory text, title text,
+      time_created integer NOT NULL, time_updated integer NOT NULL);
+    CREATE TABLE message (
+      id text PRIMARY KEY, session_id text NOT NULL,
+      time_created integer NOT NULL, time_updated integer NOT NULL,
+      data text NOT NULL);
+    CREATE TABLE part (
+      id text PRIMARY KEY, message_id text, session_id text NOT NULL,
+      time_created integer NOT NULL, time_updated integer NOT NULL,
+      data text NOT NULL);",
+  )
+  .unwrap();
+  conn.execute(
+    "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
+     VALUES (?1, NULL, '/Users/dev/summ', 'summary fixture', 1000, 4000)",
+    [SID],
+  )
+  .unwrap();
+  for (i, (role, text)) in [
+    ("user", "start the work"),
+    ("assistant", "working"),
+    ("user", "more work"),
+    ("assistant", "done"),
+  ]
+  .into_iter()
+  .enumerate()
+  {
+    let mid = format!("msg{}", i + 1);
+    let t = 1000 * (i as i64 + 1);
+    conn.execute(
+      "INSERT INTO message (id, session_id, time_created, time_updated, data)
+       VALUES (?1, ?2, ?3, ?3, ?4)",
+      rusqlite::params![
+        mid,
+        SID,
+        t,
+        serde_json::json!({"role": role, "time": {"created": t}}).to_string()
+      ],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated)
-         VALUES (?1, NULL, '/Users/dev/summ', 'summary fixture', 1000, 4000)",
-        [SID],
+      "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+       VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+      rusqlite::params![
+        format!("part{}", i + 1),
+        mid,
+        SID,
+        t,
+        serde_json::json!({"type": "text", "text": text}).to_string()
+      ],
     )
     .unwrap();
-    for (i, (role, text)) in [
-        ("user", "start the work"),
-        ("assistant", "working"),
-        ("user", "more work"),
-        ("assistant", "done"),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let mid = format!("msg{}", i + 1);
-        let t = 1000 * (i as i64 + 1);
-        conn.execute(
-            "INSERT INTO message (id, session_id, time_created, time_updated, data)
-             VALUES (?1, ?2, ?3, ?3, ?4)",
-            rusqlite::params![
-                mid,
-                SID,
-                t,
-                serde_json::json!({"role": role, "time": {"created": t}}).to_string()
-            ],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
-             VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
-            rusqlite::params![
-                format!("part{}", i + 1),
-                mid,
-                SID,
-                t,
-                serde_json::json!({"type": "text", "text": text}).to_string()
-            ],
-        )
-        .unwrap();
-    }
+  }
 }
 
 struct Mcp {
-    child: std::process::Child,
-    reader: std::io::BufReader<std::process::ChildStdout>,
-    stdin: std::process::ChildStdin,
-    cwd: std::path::PathBuf,
-    next: u64,
+  child: std::process::Child,
+  reader: std::io::BufReader<std::process::ChildStdout>,
+  stdin: std::process::ChildStdin,
+  cwd: std::path::PathBuf,
+  next: u64,
 }
 
 impl Mcp {
-    fn send(&mut self, v: &serde_json::Value) {
-        use std::io::Write;
-        writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
-        self.stdin.flush().unwrap();
-    }
+  fn send(&mut self, v: &serde_json::Value) {
+    use std::io::Write;
+    writeln!(self.stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
+    self.stdin.flush().unwrap();
+  }
 
-    fn read_until_id(&mut self, id: u64) -> serde_json::Value {
-        use std::io::BufRead;
-        loop {
-            let mut line = String::new();
-            self.reader
-                .read_line(&mut line)
-                .expect("server stdout open");
-            if line.trim().is_empty() {
-                panic!("server closed stdout waiting for response {id}");
-            }
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
-                && v.get("id").and_then(|i| i.as_u64()) == Some(id)
-            {
-                return v;
-            }
-        }
+  fn read_until_id(&mut self, id: u64) -> serde_json::Value {
+    use std::io::BufRead;
+    loop {
+      let mut line = String::new();
+      self.reader
+        .read_line(&mut line)
+        .expect("server stdout open");
+      if line.trim().is_empty() {
+        panic!("server closed stdout waiting for response {id}");
+      }
+      if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+        && v.get("id").and_then(|i| i.as_u64()) == Some(id)
+      {
+        return v;
+      }
     }
+  }
 
-    /// The call as a client sees it: `(is_error, text)`.
-    fn call(&mut self, name: &str, args: serde_json::Value) -> (bool, String) {
-        let id = self.next;
-        self.next += 1;
-        self.send(&serde_json::json!({
-            "jsonrpc": "2.0", "id": id, "method": "tools/call",
-            "params": {"name": name, "arguments": args}
-        }));
-        let result = self.read_until_id(id)["result"].clone();
-        let is_error = result["isError"].as_bool().unwrap_or(false);
-        (
-            is_error,
-            result["content"][0]["text"]
-                .as_str()
-                .unwrap_or("")
-                .to_string(),
-        )
-    }
+  /// The call as a client sees it: `(is_error, text)`.
+  fn call(&mut self, name: &str, args: serde_json::Value) -> (bool, String) {
+    let id = self.next;
+    self.next += 1;
+    self.send(&serde_json::json!({
+      "jsonrpc": "2.0", "id": id, "method": "tools/call",
+      "params": {"name": name, "arguments": args}
+    }));
+    let result = self.read_until_id(id)["result"].clone();
+    let is_error = result["isError"].as_bool().unwrap_or(false);
+    (
+      is_error,
+      result["content"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_string(),
+    )
+  }
 }
 
 /// A server over a fixture store whose ledger carries `blocks` seeded blocks
 /// (0 = nothing cached, the tail starts at id 1).
 fn spawn_mcp_with_blocks(blocks: usize) -> (Mcp, common::scratch::ScratchRoot) {
-    let dir = scratch(&format!("summary_cache_mcp_{blocks}"));
-    build_db_fixture(&dir);
-    let adapter = OpenCodeAdapter::with_root(dir.join("fixture.db"));
-    let messages = adapter.read_session_mmap(SID).unwrap();
-    assert_eq!(messages.len(), 4, "fixture: four messages");
-    let shadow = adapter.shadow_index_root();
-    if blocks >= 1 {
-        summary_cache::append_block(&shadow, SID, 1, &messages[..2], "first summary").unwrap();
-    }
-    if blocks >= 2 {
-        summary_cache::append_block(&shadow, SID, 3, &messages[2..], "delta summary").unwrap();
-    }
-    let cwd = child_cwd("summary_cache_mcp");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
-        .args(["--harness", "opencode", "mcp"])
-        .current_dir(&cwd)
-        .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
-        .env_remove("INCEPTION_API_KEY")
-        .env_remove("MISTRAL_API_KEY")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn mcp");
-    let reader = std::io::BufReader::new(child.stdout.take().unwrap());
-    let stdin = child.stdin.take().unwrap();
-    let mut mcp = Mcp {
-        child,
-        reader,
-        stdin,
-        cwd,
-        next: 1,
-    };
-    mcp.send(&serde_json::json!({
-        "jsonrpc": "2.0", "id": 0, "method": "initialize",
-        "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                   "clientInfo": {"name": "summary-cache-test", "version": "0"}}
-    }));
-    let _ = mcp.read_until_id(0);
-    mcp.send(&serde_json::json!({
-        "jsonrpc": "2.0", "method": "notifications/initialized"
-    }));
-    (mcp, dir)
+  let dir = scratch(&format!("summary_cache_mcp_{blocks}"));
+  build_db_fixture(&dir);
+  let adapter = OpenCodeAdapter::with_root(dir.join("fixture.db"));
+  let messages = adapter.read_session_mmap(SID).unwrap();
+  assert_eq!(messages.len(), 4, "fixture: four messages");
+  let shadow = adapter.shadow_index_root();
+  if blocks >= 1 {
+    summary_cache::append_block(&shadow, SID, 1, &messages[..2], "first summary").unwrap();
+  }
+  if blocks >= 2 {
+    summary_cache::append_block(&shadow, SID, 3, &messages[2..], "delta summary").unwrap();
+  }
+  let cwd = child_cwd("summary_cache_mcp");
+  let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+    .args(["--harness", "opencode", "mcp"])
+    .current_dir(&cwd)
+    .env("TOTAL_RECALL_OPENCODE_ROOT", dir.join("fixture.db"))
+    .env_remove("INCEPTION_API_KEY")
+    .env_remove("MISTRAL_API_KEY")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .spawn()
+    .expect("spawn mcp");
+  let reader = std::io::BufReader::new(child.stdout.take().unwrap());
+  let stdin = child.stdin.take().unwrap();
+  let mut mcp = Mcp {
+    child,
+    reader,
+    stdin,
+    cwd,
+    next: 1,
+  };
+  mcp.send(&serde_json::json!({
+    "jsonrpc": "2.0", "id": 0, "method": "initialize",
+    "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+          "clientInfo": {"name": "summary-cache-test", "version": "0"}}
+  }));
+  let _ = mcp.read_until_id(0);
+  mcp.send(&serde_json::json!({
+    "jsonrpc": "2.0", "method": "notifications/initialized"
+  }));
+  (mcp, dir)
 }
 
 fn reap(mcp: &mut Mcp) {
-    mcp.child.kill().ok();
-    mcp.child.wait().ok();
-    let _ = std::fs::remove_dir_all(&mcp.cwd);
+  mcp.child.kill().ok();
+  mcp.child.wait().ok();
+  let _ = std::fs::remove_dir_all(&mcp.cwd);
 }
 
 /// The record stream, parsed: the response is a bare compact JSON array —
 /// never torn — whose element 0 is the `type=meta` record. Returns
 /// (meta, data records).
 fn parsed_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
-    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
-        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
-    });
-    let array = value.as_array().unwrap_or_else(|| {
-        panic!(
-            "the response must be a bare JSON array — the old pretty-object shape is dead: {text:?}"
-        )
-    });
-    let meta = array.first().expect("record 0 is the meta record").clone();
-    assert_eq!(
-        meta.get("type").and_then(|t| t.as_str()),
-        Some("meta"),
-        "record 0 is the meta record: {meta}"
-    );
-    (meta, array[1..].to_vec())
+  let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+    panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+  });
+  let array = value.as_array().unwrap_or_else(|| {
+    panic!(
+      "the response must be a bare JSON array — the old pretty-object shape is dead: {text:?}"
+    )
+  });
+  let meta = array.first().expect("record 0 is the meta record").clone();
+  assert_eq!(
+    meta.get("type").and_then(|t| t.as_str()),
+    Some("meta"),
+    "record 0 is the meta record: {meta}"
+  );
+  (meta, array[1..].to_vec())
 }
 
 #[test]
 fn summary_cache_streams_the_bare_array_with_meta_tail_and_block_records() {
-    let (mut mcp, _dir) = spawn_mcp_with_blocks(1);
-    let (is_error, text) = mcp.call(
-        "summary_cache",
-        serde_json::json!({"session_id": "ses_summ"}),
-    );
-    assert!(!is_error, "introspection must not error: {text}");
-    let (meta, records) = parsed_stream(&text);
-    assert_eq!(meta["tool"].as_str(), Some("summary_cache"), "{meta}");
-    assert_eq!(
-        meta["session_id"].as_str(),
-        Some(SID),
-        "the meta names the canonical session: {meta}"
-    );
-    let tail = &meta["tail"];
-    assert!(tail.is_object(), "ids 3..=4 are uncovered: {meta}");
-    assert_eq!(tail["from_id"], 3, "{meta}");
-    assert_eq!(tail["count"], 2, "{meta}");
-    assert_eq!(records.len(), 1, "one block record: {records:?}");
-    let block = &records[0];
-    assert_eq!(block["type"].as_str(), Some("block"), "{block}");
-    assert_eq!(block["from_id"], 1, "{block}");
-    assert_eq!(block["to_id"], 2, "{block}");
-    assert!(block.get("part_file").is_some(), "{block}");
-    assert!(block.get("tokens_est").is_some(), "{block}");
-    reap(&mut mcp);
+  let (mut mcp, _dir) = spawn_mcp_with_blocks(1);
+  let (is_error, text) = mcp.call(
+    "summary_cache",
+    serde_json::json!({"session_id": "ses_summ"}),
+  );
+  assert!(!is_error, "introspection must not error: {text}");
+  let (meta, records) = parsed_stream(&text);
+  assert_eq!(meta["tool"].as_str(), Some("summary_cache"), "{meta}");
+  assert_eq!(
+    meta["session_id"].as_str(),
+    Some(SID),
+    "the meta names the canonical session: {meta}"
+  );
+  let tail = &meta["tail"];
+  assert!(tail.is_object(), "ids 3..=4 are uncovered: {meta}");
+  assert_eq!(tail["from_id"], 3, "{meta}");
+  assert_eq!(tail["count"], 2, "{meta}");
+  assert_eq!(records.len(), 1, "one block record: {records:?}");
+  let block = &records[0];
+  assert_eq!(block["type"].as_str(), Some("block"), "{block}");
+  assert_eq!(block["from_id"], 1, "{block}");
+  assert_eq!(block["to_id"], 2, "{block}");
+  assert!(block.get("part_file").is_some(), "{block}");
+  assert!(block.get("tokens_est").is_some(), "{block}");
+  reap(&mut mcp);
 }
 
 #[test]
 fn summary_cache_fully_covered_session_has_a_null_tail() {
-    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
-    let (is_error, text) = mcp.call(
-        "summary_cache",
-        serde_json::json!({"session_id": "ses_summ"}),
-    );
-    assert!(!is_error, "{text}");
-    let (meta, records) = parsed_stream(&text);
-    assert!(
-        meta["tail"].is_null(),
-        "a fully covered session has no tail: {meta}"
-    );
-    assert_eq!(records.len(), 2, "two block records: {records:?}");
-    assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
-    assert_eq!(records[1]["to_id"], 4, "{records:?}");
-    reap(&mut mcp);
+  let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+  let (is_error, text) = mcp.call(
+    "summary_cache",
+    serde_json::json!({"session_id": "ses_summ"}),
+  );
+  assert!(!is_error, "{text}");
+  let (meta, records) = parsed_stream(&text);
+  assert!(
+    meta["tail"].is_null(),
+    "a fully covered session has no tail: {meta}"
+  );
+  assert_eq!(records.len(), 2, "two block records: {records:?}");
+  assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
+  assert_eq!(records[1]["to_id"], 4, "{records:?}");
+  reap(&mut mcp);
 }
 
 /// The rollback returns the same record stream as summary_cache, with the
@@ -671,53 +671,53 @@ fn summary_cache_fully_covered_session_has_a_null_tail() {
 /// still the house-form error, never an empty array.
 #[test]
 fn cache_delete_latest_rolls_back_through_the_record_stream() {
-    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+  let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
 
-    // First rollback: two blocks in, one block record out.
-    let (is_error, text) = mcp.call(
-        "cache_delete_latest",
-        serde_json::json!({"session_id": "ses_summ"}),
-    );
-    assert!(!is_error, "a seeded rollback must not error: {text}");
-    let (meta, records) = parsed_stream(&text);
-    assert_eq!(meta["tool"].as_str(), Some("cache_delete_latest"), "{meta}");
-    assert_eq!(meta["session_id"].as_str(), Some(SID), "{meta}");
-    assert_eq!(
-        records.len(),
-        1,
-        "the newest block was rolled back: {records:?}"
-    );
-    assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
-    assert_eq!(
-        records[0]["to_id"], 2,
-        "the older block survives: {records:?}"
-    );
+  // First rollback: two blocks in, one block record out.
+  let (is_error, text) = mcp.call(
+    "cache_delete_latest",
+    serde_json::json!({"session_id": "ses_summ"}),
+  );
+  assert!(!is_error, "a seeded rollback must not error: {text}");
+  let (meta, records) = parsed_stream(&text);
+  assert_eq!(meta["tool"].as_str(), Some("cache_delete_latest"), "{meta}");
+  assert_eq!(meta["session_id"].as_str(), Some(SID), "{meta}");
+  assert_eq!(
+    records.len(),
+    1,
+    "the newest block was rolled back: {records:?}"
+  );
+  assert_eq!(records[0]["type"].as_str(), Some("block"), "{records:?}");
+  assert_eq!(
+    records[0]["to_id"], 2,
+    "the older block survives: {records:?}"
+  );
 
-    // Second rollback: the ledger empties, the meta carries a null tail and
-    // zero block records — never an empty unexplained array.
-    let (is_error, text) = mcp.call(
-        "cache_delete_latest",
-        serde_json::json!({"session_id": "ses_summ"}),
-    );
-    assert!(!is_error, "{text}");
-    let (meta, records) = parsed_stream(&text);
-    assert!(
-        meta["tail"].is_null() || meta["tail"]["from_id"] == 1,
-        "{meta}"
-    );
-    assert_eq!(records.len(), 0, "no blocks remain: {records:?}");
+  // Second rollback: the ledger empties, the meta carries a null tail and
+  // zero block records — never an empty unexplained array.
+  let (is_error, text) = mcp.call(
+    "cache_delete_latest",
+    serde_json::json!({"session_id": "ses_summ"}),
+  );
+  assert!(!is_error, "{text}");
+  let (meta, records) = parsed_stream(&text);
+  assert!(
+    meta["tail"].is_null() || meta["tail"]["from_id"] == 1,
+    "{meta}"
+  );
+  assert_eq!(records.len(), 0, "no blocks remain: {records:?}");
 
-    // Third call: the house-form error — the sink is never entered.
-    let (is_error, text) = mcp.call(
-        "cache_delete_latest",
-        serde_json::json!({"session_id": "ses_summ"}),
-    );
-    assert!(is_error, "no blocks must be a tool error: {text}");
-    assert!(
-        text.contains("no cached blocks"),
-        "the house-form error names the empty cache: {text}"
-    );
-    reap(&mut mcp);
+  // Third call: the house-form error — the sink is never entered.
+  let (is_error, text) = mcp.call(
+    "cache_delete_latest",
+    serde_json::json!({"session_id": "ses_summ"}),
+  );
+  assert!(is_error, "no blocks must be a tool error: {text}");
+  assert!(
+    text.contains("no cached blocks"),
+    "the house-form error names the empty cache: {text}"
+  );
+  reap(&mut mcp);
 }
 
 /// summarise_from's record-stream contract on the covered-tail path (no LLM
@@ -726,59 +726,59 @@ fn cache_delete_latest_rolls_back_through_the_record_stream() {
 /// section. The guard error path is unchanged (a separate pin).
 #[test]
 fn summarise_from_streams_section_records_on_the_covered_tail() {
-    let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
-    // Two blocks cover ids 1..=4 of the 4-message fixture: from_id 5 is
-    // past the end — the covered tail serves the cache without an LLM.
-    let (is_error, text) = mcp.call(
-        "summarise_from",
-        serde_json::json!({"session_id": "ses_summ", "from_id": 5}),
-    );
-    assert!(!is_error, "the covered tail serves the cache: {text}");
-    let value: serde_json::Value = serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("the response parses as BARE JSON ({e}): {text:?}"));
-    let array = value
-        .as_array()
-        .expect("the response is a bare record array");
-    let meta = &array[0];
-    assert_eq!(meta["type"], "meta", "{meta}");
-    assert_eq!(meta["tool"], "summarise_from", "{meta}");
-    assert_eq!(meta["session_id"], SID, "{meta}");
-    assert_eq!(meta["from_id"], 5, "{meta}");
-    let sections = &array[1..];
-    assert_eq!(
-        sections.len(),
-        3,
-        "two composed parts plus the cache footer: {sections:?}"
-    );
-    for section in sections {
-        assert_eq!(section["type"], "section", "{section}");
-        assert!(section.get("name").is_some(), "{section}");
-        assert!(section.get("text").is_some(), "{section}");
-    }
-    assert!(
-        sections[0]["name"]
-            .as_str()
-            .unwrap_or("")
-            .starts_with("part 1:"),
-        "the part names carry the id range: {sections:?}"
-    );
-    assert_eq!(
-        sections[2]["name"].as_str(),
-        Some("summary_cache"),
-        "the cache footer is a named section: {sections:?}"
-    );
-    assert!(
-        sections[2]["text"]
-            .as_str()
-            .unwrap_or("")
-            .contains("2 part(s)"),
-        "the footer counts the blocks: {sections:?}"
-    );
-    assert!(
-        serde_json::to_string(&array)
-            .unwrap()
-            .contains("first summary"),
-        "the part texts are the composed parts: {array:?}"
-    );
-    reap(&mut mcp);
+  let (mut mcp, _dir) = spawn_mcp_with_blocks(2);
+  // Two blocks cover ids 1..=4 of the 4-message fixture: from_id 5 is
+  // past the end — the covered tail serves the cache without an LLM.
+  let (is_error, text) = mcp.call(
+    "summarise_from",
+    serde_json::json!({"session_id": "ses_summ", "from_id": 5}),
+  );
+  assert!(!is_error, "the covered tail serves the cache: {text}");
+  let value: serde_json::Value = serde_json::from_str(&text)
+    .unwrap_or_else(|e| panic!("the response parses as BARE JSON ({e}): {text:?}"));
+  let array = value
+    .as_array()
+    .expect("the response is a bare record array");
+  let meta = &array[0];
+  assert_eq!(meta["type"], "meta", "{meta}");
+  assert_eq!(meta["tool"], "summarise_from", "{meta}");
+  assert_eq!(meta["session_id"], SID, "{meta}");
+  assert_eq!(meta["from_id"], 5, "{meta}");
+  let sections = &array[1..];
+  assert_eq!(
+    sections.len(),
+    3,
+    "two composed parts plus the cache footer: {sections:?}"
+  );
+  for section in sections {
+    assert_eq!(section["type"], "section", "{section}");
+    assert!(section.get("name").is_some(), "{section}");
+    assert!(section.get("text").is_some(), "{section}");
+  }
+  assert!(
+    sections[0]["name"]
+      .as_str()
+      .unwrap_or("")
+      .starts_with("part 1:"),
+    "the part names carry the id range: {sections:?}"
+  );
+  assert_eq!(
+    sections[2]["name"].as_str(),
+    Some("summary_cache"),
+    "the cache footer is a named section: {sections:?}"
+  );
+  assert!(
+    sections[2]["text"]
+      .as_str()
+      .unwrap_or("")
+      .contains("2 part(s)"),
+    "the footer counts the blocks: {sections:?}"
+  );
+  assert!(
+    serde_json::to_string(&array)
+      .unwrap()
+      .contains("first summary"),
+    "the part texts are the composed parts: {array:?}"
+  );
+  reap(&mut mcp);
 }

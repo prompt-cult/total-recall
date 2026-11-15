@@ -27,16 +27,16 @@ asset layout below is what such an entry targets:
 
 ```yaml
 packages:
-  - type: github_release
-    repo_owner: prompt-cult
-    repo_name: total-recall
-    asset: 'total-recall_{{trimV .Version}}_{{.Arch}}-{{.OS}}.tar.gz'
-    format: tar.gz
-    replacements:
-      amd64: x86_64
-      arm64: aarch64
-      darwin: apple-darwin
-      linux: unknown-linux-gnu
+ - type: github_release
+  repo_owner: prompt-cult
+  repo_name: total-recall
+  asset: 'total-recall_{{trimV .Version}}_{{.Arch}}-{{.OS}}.tar.gz'
+  format: tar.gz
+  replacements:
+   amd64: x86_64
+   arm64: aarch64
+   darwin: apple-darwin
+   linux: unknown-linux-gnu
 ```
 
 `aqua g -i prompt-cult/total-recall` works once that entry is in a registry
@@ -100,9 +100,9 @@ The key is only needed by the LLM-backed tools (`prior_period_summary` /
 either:
 
 - copy `.env.template` to `.env` and fill it in — the build-from-source CLI
-  path, since the CLI reads `.env` relative to its working directory; or
+ path, since the CLI reads `.env` relative to its working directory; or
 - put the key in the MCP registration snippet's environment block, which is
-  what an MCP server actually reads: see [MCP setup](mcp-setup.md).
+ what an MCP server actually reads: see [MCP setup](mcp-setup.md).
 
 A `.env` file is only loaded by a default build, and only relative to the
 process's working directory. A spawned MCP server's working directory is

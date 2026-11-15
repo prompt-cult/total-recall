@@ -51,9 +51,9 @@ The registration snippet's environment block carries two entries:
 
 - `HARNESS` — which store this server is bound to.
 - `INCEPTION_API_KEY` — the Mercury key, for the LLM-backed tools. A spawned
-  server only finds a `.env` file relative to its working directory, which the
-  MCP client controls, not you. Alternatively export `INCEPTION_API_KEY` in the
-  shell that launches the client; the server inherits it.
+ server only finds a `.env` file relative to its working directory, which the
+ MCP client controls, not you. Alternatively export `INCEPTION_API_KEY` in the
+ shell that launches the client; the server inherits it.
 
 The log-mining tools (`list_sessions`, `profile_session`, the three extraction
 tools, `index_sessions`,
@@ -94,11 +94,11 @@ INCEPTION_API_KEY = "sk_..."
 
 ```json
 "mcp": {
-  "total-recall": {
-    "type": "local",
-    "command": ["/Users/consensussolutions/.config/opencode/bin/total-recall-<version>", "mcp"],
-    "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
-  }
+ "total-recall": {
+  "type": "local",
+  "command": ["/Users/consensussolutions/.config/opencode/bin/total-recall-<version>", "mcp"],
+  "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
+ }
 }
 ```
 

@@ -9,11 +9,11 @@ surfaces are not duplicated here: the generated schemas are the authority —
 Two generic contracts cover every tool, including ones added later:
 
 - the scope contract — see [The scope contract](#the-scope-contract): the
-  natural call is the cheap call; breadth is explicit, never a default, and
-  every request outside the cheap forms is rejected with those forms named,
-  never clamped, never silently run
+ natural call is the cheap call; breadth is explicit, never a default, and
+ every request outside the cheap forms is rejected with those forms named,
+ never clamped, never silently run
 - every response that can overflow the caller's context is flood-capped —
-  see [Flood control](#flood-control)
+ see [Flood control](#flood-control)
 
 ## The scope contract
 
@@ -24,21 +24,21 @@ what it asks for, not what the store holds.
 Two regimes, one parameter:
 
 - **session tools** — `profile_session`, `extract_messages`,
-  `extract_user_messages`, `extract_by_type`,
-  `prior_period_summary`, `todo_history`, `summary_cache`,
-  `summarise_from`, `cache_delete_latest`, `he_said_she_said_they_did`:
-  `session_id` (partial match; empty = the
-  most recent session). One session is the smallest useful scope, so it is
-  the default.
+ `extract_user_messages`, `extract_by_type`,
+ `prior_period_summary`, `todo_history`, `summary_cache`,
+ `summarise_from`, `cache_delete_latest`, `he_said_she_said_they_did`:
+ `session_id` (partial match; empty = the
+ most recent session). One session is the smallest useful scope, so it is
+ the default.
 - **window tools** — `list_sessions`,
-  `extract_qa_pairs`, `index_sessions`,
-  `do_android_dream_of_electric_sheep`: `session_id`
-  (partial match) selects sessions explicitly; when empty, the tool works
-  its window — `hours_back` (a window in hours, `1` or more; each tool
-  carries its own default) and optionally `directory` (substring).
-  `hours_back` is never "no bound": `0` means "omitted" and takes the
-  tool's default window, so a client that serialises an unset window as
-  zero gets the default window and never the whole store.
+ `extract_qa_pairs`, `index_sessions`,
+ `do_android_dream_of_electric_sheep`: `session_id`
+ (partial match) selects sessions explicitly; when empty, the tool works
+ its window — `hours_back` (a window in hours, `1` or more; each tool
+ carries its own default) and optionally `directory` (substring).
+ `hours_back` is never "no bound": `0` means "omitted" and takes the
+ tool's default window, so a client that serialises an unset window as
+ zero gets the default window and never the whole store.
 
 Breadth beyond a window is explicit: the window tools take `all: true` for
 the whole store — every session of every project the store holds — as a
@@ -216,10 +216,10 @@ record per interesting event:
 
 ```json
 [{"type":"meta","tool":"profile_session","session_id":"ses_…","harness":"…",
-  "file_size":613026,"line_count":47,"first_ts":"…","last_ts":"…",
-  "role_counts":{"user":1,"assistant":13},"has_tantivy_index":false},
+ "file_size":613026,"line_count":47,"first_ts":"…","last_ts":"…",
+ "role_counts":{"user":1,"assistant":13},"has_tantivy_index":false},
  {"type":"event","line_number":4,"event_type":"UserMessage",
-  "summary":"…","gap_lines":4}]
+ "summary":"…","gap_lines":4}]
 ```
 
 An interesting event carries `line_number`, `gap_lines`, `event_type` and
@@ -264,9 +264,9 @@ record that cannot fit the response returns via the file, never as an error.
 
 ```json
 [{"type":"meta","tool":"extract_messages","session_id":"…","harness":"vibe",
-  "full":false,
-  "bounds":{"total_records":7525,"offset":7425,"limit":100,
-            "max_bytes":8388608,"clamped_record_indices":[]}},
+ "full":false,
+ "bounds":{"total_records":7525,"offset":7425,"limit":100,
+      "max_bytes":8388608,"clamped_record_indices":[]}},
  {"type":"message","role":"user","content":"…","injected":false, …}]
 ```
 
@@ -307,11 +307,11 @@ the meta record
 
 ```json
 [{"type":"meta","tool":"extract_by_type","session_id":"…","harness":"vibe",
-  "full":true,"types":["user","tool"],
-  "bounds":{"total_records":2,"offset":0,"limit":100,"max_bytes":8388608,
-            "clamped_record_indices":[]}},
+ "full":true,"types":["user","tool"],
+ "bounds":{"total_records":2,"offset":0,"limit":100,"max_bytes":8388608,
+      "clamped_record_indices":[]}},
  {"type":"entry","entry_type":"user","ts":"2026-09-15T09:59:55Z",
-  "record":{"role":"user","content":"…","injected":false}}]
+ "record":{"role":"user","content":"…","injected":false}}]
 ```
 
 `ts` is ISO8601, a unix epoch, or `0` when neither; `record` is the source
@@ -325,9 +325,9 @@ followed by the EOF marker; the overflow file carries every entry in the
 window, one per line — `rg`/`jq` work it directly:
 
 ```bash
-jq -c 'select(.entry_type=="user")' <file>.jsonl   # filter by type
-jq -c '.record' <file>.jsonl                        # the raw records
-sort -t'"' -k4 <file>.jsonl                         # order by timestamp
+jq -c 'select(.entry_type=="user")' <file>.jsonl  # filter by type
+jq -c '.record' <file>.jsonl            # the raw records
+sort -t'"' -k4 <file>.jsonl             # order by timestamp
 ```
 
 CLI: `total-recall --harness <h> --session <id> extract-by-type --type user
@@ -344,12 +344,12 @@ record per pair, chronologically:
 
 ```json
 [{"type":"meta","tool":"extract_qa_pairs","scope":"ses_ee8e8f72",
-  "sessions_scanned":1,"sessions_with_pairs":1,"per_session_cap":100},
+ "sessions_scanned":1,"sessions_with_pairs":1,"per_session_cap":100},
  {"type":"qa","session_id":"ses_ee8e8f72","harness":"opencode","qa":1,
-  "ts":"2026-10-12T08:15:04Z","header":"Branch",
-  "question":"Which branch?",
-  "options":[{"label":"main","description":"the trunk, release when green"}],
-  "answers":["main"]}]
+ "ts":"2026-10-12T08:15:04Z","header":"Branch",
+ "question":"Which branch?",
+ "options":[{"label":"main","description":"the trunk, release when green"}],
+ "answers":["main"]}]
 ```
 
 For opencode the pairs are read store-side from the `question` tool parts
@@ -417,26 +417,26 @@ The report is a record stream — the meta record carries the context, the
 data records are the three spoken sections in order:
 
 - meta: `period_first`/`period_last` (first to last message timestamp),
-  `messages`, `compaction_points` (1-based message ids), `cache_blocks`
-  (the summary-cache id ranges) and `watermark` (the first message id a
-  `summarise_from` can start at).
+ `messages`, `compaction_points` (1-based message ids), `cache_blocks`
+ (the summary-cache id ranges) and `watermark` (the first message id a
+ `summarise_from` can start at).
 - **`he_said`** — the user's messages, verbatim (`ts` + `text`). Injected
-  (synthetic) user parts are skipped, as they are in
-  `extract_user_messages`.
+ (synthetic) user parts are skipped, as they are in
+ `extract_user_messages`.
 - **`she_said`** — the assistant's text parts only. Explicitly NOT model
-  thinking/reasoning and explicitly NOT tool results.
+ thinking/reasoning and explicitly NOT tool results.
 - **`they_did`** — every action: built-in tool calls, MCP tool calls,
-  plugin actions, todo actions — anything that arrived as a tool-like call.
-  Each record is `ts` + `call` (call name + arguments); tool results are
-  excluded. `compaction_boundary` records appear inline in the stream at
-  the point they occurred (`message` = the 1-based id), so the reader knows
-  the dialogue was itself cut down.
+ plugin actions, todo actions — anything that arrived as a tool-like call.
+ Each record is `ts` + `call` (call name + arguments); tool results are
+ excluded. `compaction_boundary` records appear inline in the stream at
+ the point they occurred (`message` = the 1-based id), so the reader knows
+ the dialogue was itself cut down.
 
 ```json
 [{"type":"meta","tool":"he_said_she_said_they_did","session_id":"ses_alpha0001",
-  "harness":"opencode","period_first":"2026-10-26T09:04:00Z",
-  "period_last":"2026-10-26T09:17:00Z","messages":14,"compaction_points":[5],
-  "cache_blocks":[],"watermark":1},
+ "harness":"opencode","period_first":"2026-10-26T09:04:00Z",
+ "period_last":"2026-10-26T09:17:00Z","messages":14,"compaction_points":[5],
+ "cache_blocks":[],"watermark":1},
  {"type":"he_said","ts":"2026-10-26T09:04:00Z","text":"Please run git status for me"},
  {"type":"she_said","ts":"2026-10-26T09:05:00Z","text":"Here is the current branch state…"},
  {"type":"they_did","ts":"2026-10-26T09:05:30Z","call":"bash: git status"},
@@ -498,11 +498,11 @@ whose element 0 is the meta record
 
 ```json
 [{"type":"meta","tool":"do_android_dream_of_electric_sheep","query":"alpha",
-  "scope":"window","sessions_searched":1,"sessions_with_hits":1,
-  "not_indexed":[],"unmatched":[],"corrupt":[]},
+ "scope":"window","sessions_searched":1,"sessions_with_hits":1,
+ "not_indexed":[],"unmatched":[],"corrupt":[]},
  {"type":"hit","session_id":"ses_f5a4ea5e","score":0.5395,
-  "ts":"2026-09-19T10:02:00Z","role":"assistant","thinking":true,
-  "fragment":"contemplating the electric sheep dream"}]
+ "ts":"2026-09-19T10:02:00Z","role":"assistant","thinking":true,
+ "fragment":"contemplating the electric sheep dream"}]
 ```
 
 The session_id resolves to the most recent match; an unmatched id is
@@ -544,11 +544,11 @@ element one cached block:
 
 ```json
 [{"type":"meta","tool":"summary_cache","session_id":"ses_…",
-  "tail":{"from_id":5,"from_ts":"…","count":2,"user":1,"assistant":1,
-          "tool":0,"thinking":0,"chars":400,"tokens_est":100}},
+ "tail":{"from_id":5,"from_ts":"…","count":2,"user":1,"assistant":1,
+     "tool":0,"thinking":0,"chars":400,"tokens_est":100}},
  {"type":"block","from_id":1,"from_ts":"…","to_id":4,"to_ts":"…","user":2,
-  "assistant":2,"tool":0,"thinking":0,"chars":1200,"tokens_est":300,
-  "part_file":"…/part_001_004.md"}]
+ "assistant":2,"tool":0,"thinking":0,"chars":1200,"tokens_est":300,
+ "part_file":"…/part_001_004.md"}]
 ```
 
 `tail` is the first unsummarised id (the last block's `to_id + 1`, or 1 with
@@ -622,7 +622,7 @@ with the house error naming the three setup places, and no request is ever
 attempted:
 
 1. the MCP config's `mcp.total-recall.environment` block
-   (see `docs/src/mcp-setup.md`) — for the MCP tools;
+  (see `docs/src/mcp-setup.md`) — for the MCP tools;
 2. `export INCEPTION_API_KEY=…` in the shell (zshenv) — for the CLI;
 3. a `.env` at or above the working directory.
 
@@ -653,25 +653,25 @@ deliberate ordering for autoregressive LLMs (metadata first, ground truth
 next, LLM summaries middle, action last):
 
 1. `recent_rollouts` — recent rollouts within `hours_back`, with the current
-   session marked SUMMARISED
+  session marked SUMMARISED
 2. `plan_files` — plan/todo files from `.tmp/delegation/` and
-   `~/.vibe/plans/`
+  `~/.vibe/plans/`
 3. `todo_log` — the **todo log** of the period (opencode): items opened and
-   closed with timings, the state-change history, and a **churn note** when
-   items open faster than they close — with the human's recent steers read
-   into it. On a harness without readable todowrite flushes the section says
-   so instead of failing or silently reading as "no todos".
+  closed with timings, the state-change history, and a **churn note** when
+  items open faster than they close — with the human's recent steers read
+  into it. On a harness without readable todowrite flushes the section says
+  so instead of failing or silently reading as "no todos".
 4. `commits` — the **commits made in the period**: the git commit tool calls
-   with their timestamps.
+  with their timestamps.
 5. `state_summary` and `goals_summary` — the current-state summary and the
-   user's goals / tasks / steers (two parallel Mercury 3 calls).
+  user's goals / tasks / steers (two parallel Mercury 3 calls).
 6. `compaction_footer` — the **compaction-points FYI footer**: the
-   timestamps of the last few compaction points with the message and line
-   counts since each — FYI only; mine the logs for anything deeper.
+  timestamps of the last few compaction points with the message and line
+  counts since each — FYI only; mine the logs for anything deeper.
 7. `instructions`, then a fixed `orientation_warning` appended to every
-   output: summarising in-flight work in more detail is a fool's errand and
-   a moral hazard — the model would trust the summary and not double-check —
-   so the warning makes re-orientation the model's job.
+  output: summarising in-flight work in more detail is a fool's errand and
+  a moral hazard — the model would trust the summary and not double-check —
+  so the warning makes re-orientation the model's job.
 
 Over `max_bytes` the fitting-prefix array is followed by the EOF marker; the
 overflow file carries every section, one per line.
@@ -689,22 +689,22 @@ of the response. The response and the disk are one record stream in two
 shapes:
 
 - the SAME records stream, as they are produced, to a private **pure JSONL**
-  file under the user's temp directory,
-  `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600 — one
-  compact record per line, `\n`-terminated, no commas, the meta record
-  first; the file carries ALL records even when the response is capped
+ file under the user's temp directory,
+ `$TMPDIR/total-recall/<tool>_<scope>_<unix-time>.jsonl`, mode 600 — one
+ compact record per line, `\n`-terminated, no commas, the meta record
+ first; the file carries ALL records even when the response is capped
 - the fitting-prefix array is followed by a line-oriented EOF marker naming
-  the tool, the returned and total byte counts, the record counts
-  (`records_returned` / `records_total`), the full file's path, and the
-  prune policy — `held_back`-style counts are
-  `window_count - records_returned`, one subtraction for the caller
+ the tool, the returned and total byte counts, the record counts
+ (`records_returned` / `records_total`), the full file's path, and the
+ prune policy — `held_back`-style counts are
+ `window_count - records_returned`, one subtraction for the caller
 - the marker carries the file's line histogram (the vendored
-  `line_histogram.awk`), so the shape of what overflowed is visible without
-  reading it
+ `line_histogram.awk`), so the shape of what overflowed is visible without
+ reading it
 - under the cap the response is the bare array alone and the streamed file
-  is deleted — overflow files are kept on overflow only
+ is deleted — overflow files are kept on overflow only
 - every capped call first removes overflow files older than 24 hours from
-  that directory, so the temp file needs no manual cleanup
+ that directory, so the temp file needs no manual cleanup
 
 The overflow file is the point: `rg` finds, `jq` extracts
 (`select(.type=="row")` — every record carries `type`, the meta is record
@@ -748,27 +748,27 @@ requests/min, 1M input tokens/min, 100k output tokens/min — and exceeding any 
 them returns HTTP 429.
 
 - **The binding limit is ~1M input tokens/minute.** Requests/min (1,000) and
-  output tokens/min (100,000) never bind for compaction workloads.
+ output tokens/min (100,000) never bind for compaction workloads.
 - **Per-call input cap: 450,000 tokens — 90% of Mercury 3's 500K context
-  window** (half of the model's 1M window, deliberately, so summarisation
-  keeps headroom and sends more of the session intact rather than pruning
-  harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
-  rollout is never slung in one call; an over-cap prompt is rejected with an
-  error, never truncated. Practical calls stay far below the cap — tool
-  results are snipped to 500 chars in prompt assembly, and a prompt built
-  from a whole session is held to the byte budget above, so a session too
-  large to ingest in one call costs a bounded prompt rather than a rejected
-  request.
+ window** (half of the model's 1M window, deliberately, so summarisation
+ keeps headroom and sends more of the session intact rather than pruning
+ harder; ~4 chars/token), leaving the rest for the completion. A 100MiB
+ rollout is never slung in one call; an over-cap prompt is rejected with an
+ error, never truncated. Practical calls stay far below the cap — tool
+ results are snipped to 500 chars in prompt assembly, and a prompt built
+ from a whole session is held to the byte budget above, so a session too
+ large to ingest in one call costs a bounded prompt rather than a rejected
+ request.
 - **Concurrency: 4 in-flight requests** with ~10k-token prompts. Measured
-  sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s. Beyond
-  concurrency 8 the 429 wall arrives with no throughput gain.
+ sweet spot: ~22k input tok/s with zero rejections, p50 latency 1.9s. Beyond
+ concurrency 8 the 429 wall arrives with no throughput gain.
 - **429 handling**: at most 5 retries, then a descriptive error naming the
-  status and the exhausted budget — never a silent drop. `Retry-After` (seconds
-  form) is honoured in full and capped at 10s per attempt, so `Retry-After: 0`
-  comes back immediately; with no parseable header the wait doubles from 1s
-  (1s, 2s, 4s, 8s, capped at 10s). Every 429 is logged via `tracing`.
+ status and the exhausted budget — never a silent drop. `Retry-After` (seconds
+ form) is honoured in full and capped at 10s per attempt, so `Retry-After: 0`
+ comes back immediately; with no parseable header the wait doubles from 1s
+ (1s, 2s, 4s, 8s, capped at 10s). Every 429 is logged via `tracing`.
 - **5xx handling**: 3 retries at ~1s spacing, then an error naming the status.
-  The two budgets are independent: 429s never consume 5xx retries or vice versa.
+ The two budgets are independent: 429s never consume 5xx retries or vice versa.
 
 ## Compaction prompt design
 

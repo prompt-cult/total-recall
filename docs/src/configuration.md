@@ -49,13 +49,13 @@ cannot read the live store by any route.
 A key reaches the binary one of two ways:
 
 - **Environment / MCP environment block.** An MCP server finds a key only in
-  its own environment, so the key belongs in the registration snippet's
-  environment map (or `[mcp_servers.env]`). Exporting it in the shell that
-  launches the client works too — the server inherits it. This is the
-  recommended path: a spawned server's working directory is chosen by the MCP
-  client, not by you, so a `.env` file may simply not be found.
+ its own environment, so the key belongs in the registration snippet's
+ environment map (or `[mcp_servers.env]`). Exporting it in the shell that
+ launches the client works too — the server inherits it. This is the
+ recommended path: a spawned server's working directory is chosen by the MCP
+ client, not by you, so a `.env` file may simply not be found.
 - **`.env` in the working directory**, for the build-from-source CLI path: copy
-  `.env.template` to `.env` and fill in the key. Only a default build reads it.
+ `.env.template` to `.env` and fill in the key. Only a default build reads it.
 
 ## Build features
 
@@ -67,13 +67,13 @@ build is a first-class artifact.
 ```toml
 [features]
 default = ["mercury", "mistral"]
-mercury = ["dep:dotenvy"]   # Inception Mercury 3 (the default provider)
-mistral = ["dep:dotenvy"]   # Mistral, selected with --provider mistral
+mercury = ["dep:dotenvy"]  # Inception Mercury 3 (the default provider)
+mistral = ["dep:dotenvy"]  # Mistral, selected with --provider mistral
 ```
 
 ```bash
-cargo build --release                        # both vendors (default)
-cargo build --release --no-default-features   # vendor-free
+cargo build --release            # both vendors (default)
+cargo build --release --no-default-features  # vendor-free
 ```
 
 A **vendor-free build makes no LLM calls and needs no API key** — it never

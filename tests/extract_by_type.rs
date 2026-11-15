@@ -8,14 +8,14 @@ use std::io::{BufRead, Write};
 use common::scratch::{child_cwd, scratch};
 
 fn make_session(root: &std::path::Path, name: &str, lines: &[String]) {
-    let dir = root.join(name);
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("messages.jsonl"), lines.join("\n") + "\n").unwrap();
-    std::fs::write(
-        dir.join("meta.json"),
-        format!("{{\"session_id\":\"uuid-{name}\",\"start_time\":\"2026-09-15T09:59:55+00:00\",\"end_time\":\"2026-09-15T10:00:00+00:00\",\"title\":\"t\",\"total_messages\":{}}}", lines.len()),
-    )
-    .unwrap();
+  let dir = root.join(name);
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("messages.jsonl"), lines.join("\n") + "\n").unwrap();
+  std::fs::write(
+    dir.join("meta.json"),
+    format!("{{\"session_id\":\"uuid-{name}\",\"start_time\":\"2026-09-15T09:59:55+00:00\",\"end_time\":\"2026-09-15T10:00:00+00:00\",\"title\":\"t\",\"total_messages\":{}}}", lines.len()),
+  )
+  .unwrap();
 }
 
 /// An MCP child, plus the scratch working directory outside the repo tree it
@@ -24,342 +24,342 @@ fn make_session(root: &std::path::Path, name: &str, lines: &[String]) {
 /// `dotenvy` walks up parent directories, so the CWD must sit where no `.env`
 /// is above it, and the vendor keys are removed as well.
 fn spawn_mcp(
-    root: &std::path::Path,
+  root: &std::path::Path,
 ) -> (
-    std::process::Child,
-    std::io::BufReader<std::process::ChildStdout>,
-    std::process::ChildStdin,
-    std::path::PathBuf,
+  std::process::Child,
+  std::io::BufReader<std::process::ChildStdout>,
+  std::process::ChildStdin,
+  std::path::PathBuf,
 ) {
-    let cwd = child_cwd("mcp");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
-        .args(["--harness", "vibe", "mcp"])
-        .current_dir(&cwd)
-        .env("TOTAL_RECALL_VIBE_ROOT", root)
-        .env_remove("INCEPTION_API_KEY")
-        .env_remove("MISTRAL_API_KEY")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("spawn mcp");
-    let stdout = child.stdout.take().unwrap();
-    let stdin = child.stdin.take().unwrap();
-    (child, std::io::BufReader::new(stdout), stdin, cwd)
+  let cwd = child_cwd("mcp");
+  let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_total-recall"))
+    .args(["--harness", "vibe", "mcp"])
+    .current_dir(&cwd)
+    .env("TOTAL_RECALL_VIBE_ROOT", root)
+    .env_remove("INCEPTION_API_KEY")
+    .env_remove("MISTRAL_API_KEY")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .spawn()
+    .expect("spawn mcp");
+  let stdout = child.stdout.take().unwrap();
+  let stdin = child.stdin.take().unwrap();
+  (child, std::io::BufReader::new(stdout), stdin, cwd)
 }
 
 /// Clear a child's scratch working directory, once that child has been killed.
 fn reap_mcp(child: &mut std::process::Child, cwd: &std::path::Path) {
-    child.kill().ok();
-    child.wait().ok();
-    let _ = std::fs::remove_dir_all(cwd);
+  child.kill().ok();
+  child.wait().ok();
+  let _ = std::fs::remove_dir_all(cwd);
 }
 
 fn send(stdin: &mut std::process::ChildStdin, v: &serde_json::Value) {
-    writeln!(stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
-    stdin.flush().unwrap();
+  writeln!(stdin, "{}", serde_json::to_string(v).unwrap()).unwrap();
+  stdin.flush().unwrap();
 }
 
 fn read_id(
-    reader: &mut std::io::BufReader<std::process::ChildStdout>,
-    id: i64,
+  reader: &mut std::io::BufReader<std::process::ChildStdout>,
+  id: i64,
 ) -> serde_json::Value {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line).unwrap() == 0 {
-            panic!("server closed stdout");
-        }
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim())
-            && v.get("id").and_then(|i| i.as_i64()) == Some(id)
-        {
-            return v;
-        }
+  let mut line = String::new();
+  loop {
+    line.clear();
+    if reader.read_line(&mut line).unwrap() == 0 {
+      panic!("server closed stdout");
     }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim())
+      && v.get("id").and_then(|i| i.as_i64()) == Some(id)
+    {
+      return v;
+    }
+  }
 }
 
 fn init(
-    reader: &mut std::io::BufReader<std::process::ChildStdout>,
-    stdin: &mut std::process::ChildStdin,
+  reader: &mut std::io::BufReader<std::process::ChildStdout>,
+  stdin: &mut std::process::ChildStdin,
 ) {
-    send(
-        stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}),
-    );
-    read_id(reader, 1);
-    send(
-        stdin,
-        &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-    );
+  send(
+    stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}),
+  );
+  read_id(reader, 1);
+  send(
+    stdin,
+    &serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+  );
 }
 
 fn text_of(resp: &serde_json::Value) -> String {
-    resp.pointer("/result/content")
-        .and_then(|c| c.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                .collect()
-        })
-        .unwrap_or_default()
+  resp.pointer("/result/content")
+    .and_then(|c| c.as_array())
+    .map(|a| {
+      a.iter()
+        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+        .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn sample_lines() -> Vec<String> {
-    vec![
-        "{\"role\":\"user\",\"content\":\"first user\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}".to_string(),
-        "{\"role\":\"assistant\",\"content\":\"line one\\nline two\",\"timestamp\":\"2026-09-15T09:59:56Z\"}".to_string(),
-        "{\"role\":\"tool\",\"content\":\"tool output\",\"timestamp\":\"2026-09-15T09:59:57Z\"}".to_string(),
-        "{\"role\":\"user\",\"content\":\"injected marker\",\"timestamp\":\"2026-09-15T09:59:58Z\",\"injected\":true}".to_string(),
-    ]
+  vec![
+    "{\"role\":\"user\",\"content\":\"first user\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}".to_string(),
+    "{\"role\":\"assistant\",\"content\":\"line one\\nline two\",\"timestamp\":\"2026-09-15T09:59:56Z\"}".to_string(),
+    "{\"role\":\"tool\",\"content\":\"tool output\",\"timestamp\":\"2026-09-15T09:59:57Z\"}".to_string(),
+    "{\"role\":\"user\",\"content\":\"injected marker\",\"timestamp\":\"2026-09-15T09:59:58Z\",\"injected\":true}".to_string(),
+  ]
 }
 
 /// The record stream, parsed: the response is a bare compact JSON array —
 /// never torn — whose element 0 is the `type=meta` record.
 fn parsed_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
-    let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
-        panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
-    });
-    let array = value.as_array().unwrap_or_else(|| {
-        panic!(
-            "the response must be a bare JSON array — the # header + type,ts,json lines are dead: {text:?}"
-        )
-    });
-    let meta = array.first().expect("record 0 is the meta record").clone();
-    assert_eq!(
-        meta.get("type").and_then(|t| t.as_str()),
-        Some("meta"),
-        "record 0 is the meta record: {meta}"
-    );
-    (meta, array[1..].to_vec())
+  let value: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+    panic!("the response must parse as BARE JSON, no prefix ({e}): {text:?}")
+  });
+  let array = value.as_array().unwrap_or_else(|| {
+    panic!(
+      "the response must be a bare JSON array — the # header + type,ts,json lines are dead: {text:?}"
+    )
+  });
+  let meta = array.first().expect("record 0 is the meta record").clone();
+  assert_eq!(
+    meta.get("type").and_then(|t| t.as_str()),
+    Some("meta"),
+    "record 0 is the meta record: {meta}"
+  );
+  (meta, array[1..].to_vec())
 }
 
 #[test]
 fn extract_by_type_all_selects_every_type_and_format_is_parseable() {
-    let root = scratch("all");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["all"]}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    let text = text_of(&resp);
+  let root = scratch("all");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["all"]}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  let text = text_of(&resp);
 
-    let (meta, records) = parsed_stream(&text);
-    assert_eq!(meta["tool"], "extract_by_type", "{meta}");
-    assert_eq!(meta["harness"], "vibe", "{meta}");
-    assert_eq!(
-        meta["bounds"]["total_records"], 3,
-        "the meta carries the paging inputs (the injected record never counts): {meta}"
-    );
+  let (meta, records) = parsed_stream(&text);
+  assert_eq!(meta["tool"], "extract_by_type", "{meta}");
+  assert_eq!(meta["harness"], "vibe", "{meta}");
+  assert_eq!(
+    meta["bounds"]["total_records"], 3,
+    "the meta carries the paging inputs (the injected record never counts): {meta}"
+  );
 
-    // injected user message excluded -> 3 entry records (user, assistant, tool)
-    assert_eq!(records.len(), 3, "injected excluded: {records:?}");
-    for r in &records {
-        assert_eq!(r["type"], "entry", "{r}");
-        assert!(
-            ["user", "assistant", "tool", "thinking"]
-                .contains(&r["entry_type"].as_str().unwrap_or("")),
-            "{r}"
-        );
-        assert!(r.get("ts").is_some(), "{r}");
-        assert!(
-            r.get("record").is_some_and(|v| v.is_object()),
-            "the raw record rides the entry: {r}"
-        );
-    }
-    // Multiline content survived as data (JSON-escaped inside the record).
-    let assistant = records
-        .iter()
-        .find(|r| r["entry_type"] == "assistant")
-        .unwrap();
+  // injected user message excluded -> 3 entry records (user, assistant, tool)
+  assert_eq!(records.len(), 3, "injected excluded: {records:?}");
+  for r in &records {
+    assert_eq!(r["type"], "entry", "{r}");
     assert!(
-        assistant["record"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .contains('\n'),
-        "embedded newline is content, not a line break: {assistant}"
+      ["user", "assistant", "tool", "thinking"]
+        .contains(&r["entry_type"].as_str().unwrap_or("")),
+      "{r}"
     );
-    reap_mcp(&mut child, &cwd);
+    assert!(r.get("ts").is_some(), "{r}");
+    assert!(
+      r.get("record").is_some_and(|v| v.is_object()),
+      "the raw record rides the entry: {r}"
+    );
+  }
+  // Multiline content survived as data (JSON-escaped inside the record).
+  let assistant = records
+    .iter()
+    .find(|r| r["entry_type"] == "assistant")
+    .unwrap();
+  assert!(
+    assistant["record"]["content"]
+      .as_str()
+      .unwrap_or("")
+      .contains('\n'),
+    "embedded newline is content, not a line break: {assistant}"
+  );
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_single_type_filter() {
-    let root = scratch("filter");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"]}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    let text = text_of(&resp);
-    let (_meta, records) = parsed_stream(&text);
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0]["entry_type"], "user");
-    reap_mcp(&mut child, &cwd);
+  let root = scratch("filter");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"]}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  let text = text_of(&resp);
+  let (_meta, records) = parsed_stream(&text);
+  assert_eq!(records.len(), 1);
+  assert_eq!(records[0]["entry_type"], "user");
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_unknown_type_errors() {
-    let root = scratch("unknown");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["bogus"]}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    assert_eq!(
-        resp.pointer("/result/isError").and_then(|v| v.as_bool()),
-        Some(true)
-    );
-    assert!(text_of(&resp).contains("bogus"));
-    reap_mcp(&mut child, &cwd);
+  let root = scratch("unknown");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["bogus"]}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  assert_eq!(
+    resp.pointer("/result/isError").and_then(|v| v.as_bool()),
+    Some(true)
+  );
+  assert!(text_of(&resp).contains("bogus"));
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_is_bounded_with_notice() {
-    let root = scratch("bounded");
-    let big = "y".repeat(2000);
-    let lines: Vec<String> = (0..500).map(|i| format!("{{\"role\":\"user\",\"content\":\"m{i} {big}\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}}")).collect();
-    make_session(&root, "session_20260915_095955_51a9645a", &lines);
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"]}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    let text = text_of(&resp);
-    assert!(text.len() <= 8 * 1024 * 1024);
-    let (meta, records) = parsed_stream(&text);
-    assert_eq!(
-        meta["bounds"]["total_records"].as_u64(),
-        Some(500),
-        "the meta states the session's record count: {meta}"
-    );
-    assert_eq!(
-        records.len(),
-        100,
-        "the default limit-100 window is 100 entry records"
-    );
-    assert!(
-        !text.contains("EOF-TRUNCATED"),
-        "the window fits the 8 MiB ceiling: {text}"
-    );
-    reap_mcp(&mut child, &cwd);
+  let root = scratch("bounded");
+  let big = "y".repeat(2000);
+  let lines: Vec<String> = (0..500).map(|i| format!("{{\"role\":\"user\",\"content\":\"m{i} {big}\",\"timestamp\":\"2026-09-15T09:59:55Z\",\"injected\":false}}")).collect();
+  make_session(&root, "session_20260915_095955_51a9645a", &lines);
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"]}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  let text = text_of(&resp);
+  assert!(text.len() <= 8 * 1024 * 1024);
+  let (meta, records) = parsed_stream(&text);
+  assert_eq!(
+    meta["bounds"]["total_records"].as_u64(),
+    Some(500),
+    "the meta states the session's record count: {meta}"
+  );
+  assert_eq!(
+    records.len(),
+    100,
+    "the default limit-100 window is 100 entry records"
+  );
+  assert!(
+    !text.contains("EOF-TRUNCATED"),
+    "the window fits the 8 MiB ceiling: {text}"
+  );
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_omitted_types_defaults_to_all() {
-    let root = scratch("omitted");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    let text = text_of(&resp);
-    let (meta, records) = parsed_stream(&text);
-    assert_eq!(
-        records.len(),
-        3,
-        "all types, injected excluded: {records:?}"
-    );
-    assert_eq!(
-        meta["types"].as_array().unwrap().len(),
-        7,
-        "the meta echoes all seven folded types: {meta}"
-    );
-    // A vibe session has no todowrite access: the todo kind degrades to a
-    // skip notice, never a tool error (#65).
-    assert!(
-        meta["notes"]
-            .as_array()
-            .map(|n| n.iter().any(|s| s.as_str().unwrap_or("").contains("'todo' unavailable")))
-            .unwrap_or(false),
-        "the todo skip is noticed, not silent: {meta}"
-    );
-    reap_mcp(&mut child, &cwd);
+  let root = scratch("omitted");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  let text = text_of(&resp);
+  let (meta, records) = parsed_stream(&text);
+  assert_eq!(
+    records.len(),
+    3,
+    "all types, injected excluded: {records:?}"
+  );
+  assert_eq!(
+    meta["types"].as_array().unwrap().len(),
+    7,
+    "the meta echoes all seven folded types: {meta}"
+  );
+  // A vibe session has no todowrite access: the todo kind degrades to a
+  // skip notice, never a tool error.
+  assert!(
+    meta["notes"]
+      .as_array()
+      .map(|n| n.iter().any(|s| s.as_str().unwrap_or("").contains("'todo' unavailable")))
+      .unwrap_or(false),
+    "the todo skip is noticed, not silent: {meta}"
+  );
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_include_toggle_at_mcp_level() {
-    let root = scratch("toggle");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    // Default: injected skipped (3 records). With the toggle: 4.
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"],"include_injected":true}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    let text = text_of(&resp);
-    let (_meta, records) = parsed_stream(&text);
-    assert_eq!(
-        records.len(),
-        2,
-        "injected user record included: {records:?}"
-    );
-    let injected = records
-        .iter()
-        .find(|r| r["record"]["content"] == "injected marker")
-        .expect("injected record present");
-    assert!(
-        injected["record"]["injected"] == true,
-        "record carries the injected flag: {injected}"
-    );
-    reap_mcp(&mut child, &cwd);
+  let root = scratch("toggle");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  // Default: injected skipped (3 records). With the toggle: 4.
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["user"],"include_injected":true}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  let text = text_of(&resp);
+  let (_meta, records) = parsed_stream(&text);
+  assert_eq!(
+    records.len(),
+    2,
+    "injected user record included: {records:?}"
+  );
+  let injected = records
+    .iter()
+    .find(|r| r["record"]["content"] == "injected marker")
+    .expect("injected record present");
+  assert!(
+    injected["record"]["injected"] == true,
+    "record carries the injected flag: {injected}"
+  );
+  reap_mcp(&mut child, &cwd);
 }
 
 #[test]
 fn extract_by_type_tiny_max_bytes_overflows_to_the_file() {
-    // The "even one record exceeds max_bytes" hard error is DEAD: the meta
-    // plus the marker return, and the file carries every entry.
-    let root = scratch("tinycap");
-    make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
-    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
-    init(&mut reader, &mut stdin);
-    send(
-        &mut stdin,
-        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"max_bytes":50}}}),
-    );
-    let resp = read_id(&mut reader, 2);
-    assert_eq!(
-        resp.pointer("/result/isError").and_then(|v| v.as_bool()),
-        Some(false),
-        "an overflowing extraction is NOT a tool error anymore: {resp}"
-    );
-    let text = text_of(&resp);
-    assert!(
-        text.contains("EOF-TRUNCATED") && text.contains("full_report"),
-        "the marker names the overflow file: {text}"
-    );
-    let path = text
-        .lines()
-        .find(|l| l.starts_with("full_report: "))
-        .unwrap()
-        .trim_start_matches("full_report: ")
-        .trim()
-        .to_string();
-    let written = std::fs::read_to_string(&path).unwrap();
-    let lines: Vec<&str> = written.lines().collect();
-    assert_eq!(
-        lines.len(),
-        4,
-        "the file carries the meta plus all 3 entries the response could not"
-    );
-    for line in &lines {
-        serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
-            panic!("every overflow-file line is one JSON object ({e}): {line}")
-        });
-    }
-    reap_mcp(&mut child, &cwd);
+  // The "even one record exceeds max_bytes" hard error is DEAD: the meta
+  // plus the marker return, and the file carries every entry.
+  let root = scratch("tinycap");
+  make_session(&root, "session_20260915_095955_51a9645a", &sample_lines());
+  let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+  init(&mut reader, &mut stdin);
+  send(
+    &mut stdin,
+    &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"max_bytes":50}}}),
+  );
+  let resp = read_id(&mut reader, 2);
+  assert_eq!(
+    resp.pointer("/result/isError").and_then(|v| v.as_bool()),
+    Some(false),
+    "an overflowing extraction is NOT a tool error anymore: {resp}"
+  );
+  let text = text_of(&resp);
+  assert!(
+    text.contains("EOF-TRUNCATED") && text.contains("full_report"),
+    "the marker names the overflow file: {text}"
+  );
+  let path = text
+    .lines()
+    .find(|l| l.starts_with("full_report: "))
+    .unwrap()
+    .trim_start_matches("full_report: ")
+    .trim()
+    .to_string();
+  let written = std::fs::read_to_string(&path).unwrap();
+  let lines: Vec<&str> = written.lines().collect();
+  assert_eq!(
+    lines.len(),
+    4,
+    "the file carries the meta plus all 3 entries the response could not"
+  );
+  for line in &lines {
+    serde_json::from_str::<serde_json::Value>(line).unwrap_or_else(|e| {
+      panic!("every overflow-file line is one JSON object ({e}): {line}")
+    });
+  }
+  reap_mcp(&mut child, &cwd);
 }
