@@ -5,9 +5,8 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 use super::{
-    BackendKind,
-    EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair, ReadResult,
-    RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
+    BackendKind, EventType, InterestingEvent, LISTING_ROW_CAP, OPENCODE_ROOT_ENV_VAR, QaPair,
+    ReadResult, RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
     no_session_error, parse_questions_payload, parse_quoted_string, resolve_root,
     summarize_tool_call,
 };
@@ -607,7 +606,7 @@ impl RolloutAdapter for OpenCodeAdapter {
                 parent_session_id: parent_id,
                 child_sessions: children.remove(&id).unwrap_or_default(),
                 has_tantivy_index: false,
-backend_kind: Some(BackendKind::Database),
+                backend_kind: Some(BackendKind::Database),
                 ctime: None,
                 mtime: None,
                 aliases: Vec::new(),
@@ -873,7 +872,7 @@ fn scoped_listing_sqlite(
             parent_session_id: parent_id,
             child_sessions: Vec::new(),
             has_tantivy_index: false,
-backend_kind: Some(BackendKind::Database),
+            backend_kind: Some(BackendKind::Database),
             ctime: None,
             mtime: None,
             aliases: Vec::new(),
@@ -969,7 +968,7 @@ fn v2_summary_from_row(row: V2Row) -> SessionSummary {
         parent_session_id: parent_id,
         child_sessions: Vec::new(),
         has_tantivy_index: false,
-backend_kind: Some(BackendKind::Database),
+        backend_kind: Some(BackendKind::Database),
         ctime: None,
         mtime: None,
         aliases: Vec::new(),

@@ -32,16 +32,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
-    BackendKind,
-    CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
-    SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window,
-    no_session_error, read_error, resolve_root, slice_from_compaction, summarize_tool_call,
+    BackendKind, CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter,
+    RolloutMessage, SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error,
+    mtime_in_window, no_session_error, read_error, resolve_root, slice_from_compaction,
+    summarize_tool_call,
 };
 
 /// The UUID in a rollout filename: `rollout-<ts>-<uuid>.jsonl`, or for a
 /// resumed conversation `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`. A
 /// segment file yields the composite `<conv-uuid>_<segment-uuid>` id so both
-/// segments of one conversation stay addressable (issue #60).
+/// segments of one conversation stay addressable.
 fn uuid_from_filename(name: &str) -> Option<String> {
     let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
     // A resumed segment splits at the last '_': conversation part and
@@ -382,11 +382,7 @@ impl CodexAdapter {
         files
             .iter()
             .find(|(_, uuid)| uuid == session_id)
-            .or_else(|| {
-                files
-                    .iter()
-                    .find(|(_, uuid)| uuid.starts_with(session_id))
-            })
+            .or_else(|| files.iter().find(|(_, uuid)| uuid.starts_with(session_id)))
             .map(|(path, _)| path.clone())
     }
 
@@ -411,7 +407,7 @@ impl CodexAdapter {
                     parent_session_id: None,
                     child_sessions: Vec::new(),
                     has_tantivy_index: false,
-backend_kind: Some(BackendKind::File),
+                    backend_kind: Some(BackendKind::File),
                     ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
                     mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
                     aliases: Vec::new(),
@@ -442,7 +438,7 @@ backend_kind: Some(BackendKind::File),
             parent_session_id: None,
             child_sessions: Vec::new(),
             has_tantivy_index: false,
-backend_kind: Some(BackendKind::File),
+            backend_kind: Some(BackendKind::File),
             ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
             mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
             aliases: Vec::new(),

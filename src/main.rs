@@ -640,9 +640,13 @@ async fn main() -> Result<()> {
                 };
             // The folded derived kinds (todo|compaction|questions) come from
             // the adapter's accessors, appended after the message-derived
-            // entries (issues #64, #65, #66).
+            // entries.
             let kinds: Vec<&str> = if want_all {
-                VALID.iter().filter(|t| !["user", "assistant", "tool", "thinking"].contains(t)).copied().collect()
+                VALID
+                    .iter()
+                    .filter(|t| !["user", "assistant", "tool", "thinking"].contains(t))
+                    .copied()
+                    .collect()
             } else {
                 types.iter().map(|t| t.as_str()).collect()
             };

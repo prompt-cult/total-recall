@@ -525,14 +525,10 @@ fn parsed_qa_stream(text: &str) -> (serde_json::Value, Vec<serde_json::Value>) {
 #[test]
 fn extract_by_type_questions_serves_the_pairs() {
     // extract_qa_pairs retired: its surface is folded into
-    // extract-by-type --type questions (issue #66).
+    // extract-by-type --type questions.
     let (_root, adapter) = qa_fixture_adapter();
-    let entries = total_recall::rollout::derived_entries(
-        &adapter,
-        "ses_qafixture",
-        true,
-        &["questions"],
-    );
+    let entries =
+        total_recall::rollout::derived_entries(&adapter, "ses_qafixture", true, &["questions"]);
     assert!(
         entries.notices.is_empty(),
         "opencode serves questions: {:?}",
@@ -544,10 +540,20 @@ fn extract_by_type_questions_serves_the_pairs() {
         .map(|e| serde_json::to_value(&e.record).unwrap())
         .collect();
     assert_eq!(records.len(), 3, "three answered pairs: {records:?}");
-    assert_eq!(records[0]["question"].as_str().map(|q| q.is_empty()), Some(false));
-    assert_eq!(records[0]["header"].as_str(), Some("First Question"), "{records:?}");
+    assert_eq!(
+        records[0]["question"].as_str().map(|q| q.is_empty()),
+        Some(false)
+    );
+    assert_eq!(
+        records[0]["header"].as_str(),
+        Some("First Question"),
+        "{records:?}"
+    );
     assert!(
-        records[0]["answers"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        records[0]["answers"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
         "{records:?}"
     );
 }

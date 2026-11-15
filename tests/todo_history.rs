@@ -1,4 +1,4 @@
-//! #686: `todo_history` — a rollout's todowrite flushes replayed as a JSONL
+//! `todo_history` — a rollout's todowrite flushes replayed as a JSONL
 //! stream of edit events, one compact JSON object per line
 //! (`{"ts":…,"action":…,"todo":…[,"status":…]}`), in ts order. The MCP tool
 //! serves them as a bare JSON array — element 0 a `type=meta` record, every
@@ -609,7 +609,7 @@ fn parsed_stream(text: &str) -> (Value, Vec<Value>) {
 }
 
 /// todo_history MCP tool + CLI subcommand are retired into
-/// `extract-by-type --type todo` (issue #64): the edits ride as entry_type
+/// `extract-by-type --type todo`: the edits ride as entry_type
 /// `todo` records under the extract_by_type meta.
 #[test]
 fn extract_by_type_todo_serves_the_edits() {
@@ -621,7 +621,13 @@ fn extract_by_type_todo_serves_the_edits() {
     assert!(!is_error, "no error on the folded type: {text}");
     let (meta, records) = parsed_stream(&text);
     assert_eq!(meta["tool"].as_str(), Some("extract_by_type"), "{meta}");
-    assert!(meta["notes"].as_array().map(|a| a.is_empty()).unwrap_or(false), "opencode serves todos: {meta}");
+    assert!(
+        meta["notes"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false),
+        "opencode serves todos: {meta}"
+    );
     assert!(!records.is_empty(), "todo entries present: {records:?}");
     for record in &records {
         assert_eq!(record["type"].as_str(), Some("entry"), "{record}");

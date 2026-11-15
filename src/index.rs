@@ -34,7 +34,7 @@ pub enum ReindexDecision {
     Stale,
 }
 
-/// Mtime gate for file-backed harnesses (issue #62): the meta records the
+/// Mtime gate for file-backed harnesses: the meta records the
 /// payload mtime it indexed (`source_mtime`); a build is fresh only while
 /// that matches the payload's mtime now. A harness that cannot report a
 /// payload mtime (database-backed) is always stale — the gate refuses to
@@ -164,11 +164,16 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
         .map(|d| d.as_secs());
     let dir = session_index_dir(adapter, &resolved);
     // Build to a side path; the previous index survives any failure and is
-    // swapped away only after the new one committed (issue #69).
+    // swapped away only after the new one committed.
     let building = dir.with_extension("building");
     if building.exists() {
-        std::fs::remove_dir_all(&building)
-            .map_err(|e| format!("cannot clear stale building dir {}: {}", building.display(), e))?;
+        std::fs::remove_dir_all(&building).map_err(|e| {
+            format!(
+                "cannot clear stale building dir {}: {}",
+                building.display(),
+                e
+            )
+        })?;
     }
     std::fs::create_dir_all(&building)
         .map_err(|e| format!("cannot create index dir {}: {}", building.display(), e))?;
@@ -344,7 +349,7 @@ pub fn search(
     let mut sessions_with_hits = 0usize;
 
     for summary in &selected {
-        // File-backed auto-reindex (issue #69): a stale index is rebuilt in
+        // File-backed auto-reindex: a stale index is rebuilt in
         // the search pass so a hit is never silently served from old
         // content; database-backed payloads cannot verify staleness and
         // keep the explicit pass (reported not_indexed).

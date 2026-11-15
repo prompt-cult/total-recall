@@ -1,4 +1,4 @@
-//! #508: `chat_with_mercury` + CLI `chat` — THE one-call key check. The key
+//! `chat_with_mercury` + CLI `chat` — THE one-call key check. The key
 //! guard runs FIRST: `INCEPTION_API_KEY` missing or EMPTY and the call is
 //! refused with the house error naming the three setup places, and the
 //! request is never attempted (there is no network in the test env; the

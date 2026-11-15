@@ -1,6 +1,6 @@
 //! The rollouts table the recall tools share, and the assembly ordering of
 //! `prior_period_summary`. The deleted `total_recall` tool's own output
-//! builder is gone with it (#31): `build_prior_period_output` is the one
+//! builder is gone with it: `build_prior_period_output` is the one
 //! assembly now, so the ordering contract is asserted against it.
 
 use total_recall::{

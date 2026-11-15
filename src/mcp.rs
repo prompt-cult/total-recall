@@ -185,7 +185,6 @@ pub struct ExtractByTypeParams {
     pub max_record_bytes: i64,
 }
 
-
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SummaryCacheParams {
@@ -285,7 +284,6 @@ fn default_true() -> bool {
 
 /// The natural question/answer call indexes the last two days, like the
 /// other window tools; the whole store is `all: true`, explicit.
-
 
 /// The natural call indexes the last day, not the whole store; whole-store
 /// indexing is `all: true`, explicit.
@@ -1095,19 +1093,15 @@ impl TotalRecallServer {
         };
         // The folded derived kinds (todo|compaction|questions) come from the
         // adapter's accessors, appended after the message-derived entries
-        // (issues #64, #65, #66).
+        //.
         let kinds: Vec<&str> = if want_all {
             crate::rollout::DERIVED_KINDS.to_vec()
         } else {
             params.types.iter().map(|t| t.as_str()).collect()
         };
         if !kinds.is_empty() {
-            let derived = crate::rollout::derived_entries(
-                adapter.as_ref(),
-                &session_id,
-                params.full,
-                &kinds,
-            );
+            let derived =
+                crate::rollout::derived_entries(adapter.as_ref(), &session_id, params.full, &kinds);
             entries.extend(derived.entries);
             if !derived.notices.is_empty() {
                 notes = derived.notices;
@@ -2132,7 +2126,7 @@ struct EntryRecord<'a> {
 }
 
 /// Assemble the `he_said_she_said_they_did` report. Public: the CLI
-/// subcommand of the same name serves the identical stream (issue #68).
+/// subcommand of the same name serves the identical stream.
 /// Three spoken sections in
 /// chronological order — HE SAID (verbatim user text, synthetic parts
 /// skipped), SHE SAID (assistant text parts only; never thinking, never tool

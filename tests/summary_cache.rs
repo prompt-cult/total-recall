@@ -1,4 +1,4 @@
-//! #39: the summary cache as an explicit, inspectable data structure.
+//! the summary cache as an explicit, inspectable data structure.
 //!
 //! The ledger is 11-column v2: `from_id,from_ts,to_id,to_ts,user,assistant,
 //! tool,thinking,chars,tokens_est,part_file`, ids are 1-based message
@@ -10,7 +10,7 @@
 //! provider — a default build loads the developer's `.env` via dotenvy the
 //! moment a provider is built, so no test may reach that path. The real
 //! summarise path (provider constructed) has NO test for the same reason the
-//! #36 suite stated: it would call the LIVE Mercury API.
+//! it would call the LIVE Mercury API.
 
 mod common;
 
@@ -341,7 +341,7 @@ fn the_list_marker_reports_what_the_cache_covers_through() {
     assert_eq!(marker_json["through_ts"], "2026-10-18T13:00:00Z");
 }
 
-/// #39 follow-up: canonical resolution is a cheap store-side match, never the
+/// canonical resolution is a cheap store-side match, never the
 /// full-store aggregate listing (a 45-second scan on the live opencode store
 /// timed the MCP calls out). Partial id in, canonical id out, and the cache
 /// keyed under the canonical id is served for the partial.

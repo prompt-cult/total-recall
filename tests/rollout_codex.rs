@@ -122,7 +122,11 @@ fn test_read_codex_session_mmap() {
 fn test_codex_list_sessions() {
     pin_mtimes();
     let sessions = adapter().list_sessions();
-    assert_eq!(sessions.len(), 3, "both fixture sessions plus the resumed segment");
+    assert_eq!(
+        sessions.len(),
+        3,
+        "both fixture sessions plus the resumed segment"
+    );
 
     // Sorted by start_time descending: the segment (newest mtime), then
     // session A (Nov 12) then B (Nov 11).
@@ -160,7 +164,10 @@ fn test_codex_list_sessions() {
 fn test_codex_list_sessions_scoped_directory_filter() {
     let listing = adapter().list_sessions_scoped(0, Some("codex-fixture-project"));
     assert_eq!(listing.sessions.len(), 2);
-    assert_eq!(listing.sessions[0].session_id, format!("{SESSION_A}_aaaa2222-3333-4444-5555-666677778888"));
+    assert_eq!(
+        listing.sessions[0].session_id,
+        format!("{SESSION_A}_aaaa2222-3333-4444-5555-666677778888")
+    );
     assert_eq!(listing.sessions[1].session_id, SESSION_A);
     assert_eq!(listing.window_count, 2);
 
@@ -182,15 +189,17 @@ fn test_codex_most_recent_session_id() {
 #[test]
 fn test_codex_resolve_canonical_id_partial() {
     let adapter = adapter();
-    let composite =
-        "01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888";
+    let composite = "01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888";
     // A shared prefix resolves to the most recent match — the segment.
     assert_eq!(
         adapter.resolve_canonical_id("01aa1111").as_deref(),
         Some(composite)
     );
     // The full composite id exact-matches itself.
-    assert_eq!(adapter.resolve_canonical_id(composite).as_deref(), Some(composite));
+    assert_eq!(
+        adapter.resolve_canonical_id(composite).as_deref(),
+        Some(composite)
+    );
     // The original rollout's full id exact-matches through the segment.
     assert_eq!(
         adapter.resolve_canonical_id(SESSION_A).as_deref(),
@@ -201,10 +210,7 @@ fn test_codex_resolve_canonical_id_partial() {
         Some(SESSION_B)
     );
     assert_eq!(adapter.resolve_canonical_id("zzzz"), None);
-    assert_eq!(
-        adapter.resolve_canonical_id("").as_deref(),
-        Some(composite)
-    );
+    assert_eq!(adapter.resolve_canonical_id("").as_deref(), Some(composite));
 }
 
 #[test]
@@ -331,7 +337,7 @@ fn test_codex_root_env_override() {
 /// Resumed-segment rollouts (`rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`)
 /// carry the conversation uuid and a segment uuid; the composite
 /// `<conv-uuid>_<segment-uuid>` id must list, resolve by prefix and read —
-/// never silently dropped (issue #60).
+/// never silently dropped.
 #[test]
 fn test_codex_resumed_segment_is_listed() {
     pin_mtimes();
@@ -353,11 +359,14 @@ fn test_codex_resumed_segment_reads_and_resolves() {
     pin_mtimes();
     let ad = adapter();
     let composite = "01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888";
-    let stamp = ad.resolve_canonical_id(composite).expect("resolve composite");
-    assert_eq!(stamp, composite, "canonical resolution returns the full composite id");
-    let messages = ad
-        .read_session(composite)
-        .expect("resumed segment read");
+    let stamp = ad
+        .resolve_canonical_id(composite)
+        .expect("resolve composite");
+    assert_eq!(
+        stamp, composite,
+        "canonical resolution returns the full composite id"
+    );
+    let messages = ad.read_session(composite).expect("resumed segment read");
     let roles: Vec<&str> = messages.iter().map(|m| m.role.as_str()).collect();
     assert_eq!(roles, vec!["user", "assistant"]);
     assert_eq!(messages[1].content, "Resumed and done.");
@@ -367,7 +376,7 @@ fn test_codex_resumed_segment_reads_and_resolves() {
 }
 
 /// File-backed harnesses carry backend_kind=file and the payload file's
-/// ctime/mtime on every summary row (issue #61).
+/// ctime/mtime on every summary row.
 #[test]
 fn test_codex_summary_backend_kind_and_file_times() {
     pin_mtimes();
@@ -376,11 +385,20 @@ fn test_codex_summary_backend_kind_and_file_times() {
         .iter()
         .find(|s| s.backend_kind.is_some())
         .expect("file-backed rows carry backend_kind");
-    assert_eq!(seg.backend_kind, Some(total_recall::rollout::BackendKind::File));
-    assert_eq!(seg.mtime, Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_100)));
+    assert_eq!(
+        seg.backend_kind,
+        Some(total_recall::rollout::BackendKind::File)
+    );
+    assert_eq!(
+        seg.mtime,
+        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_100))
+    );
     assert!(seg.ctime.is_some(), "ctime present on a real file");
     // Serialized JSON: fields omitted for None-carrying rows.
     let json = serde_json::to_string(&seg).unwrap();
-    assert!(json.contains("\"backend_kind\""), "backend_kind serialized: {json}");
+    assert!(
+        json.contains("\"backend_kind\""),
+        "backend_kind serialized: {json}"
+    );
     assert!(json.contains("\"mtime\""));
 }

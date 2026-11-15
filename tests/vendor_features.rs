@@ -451,7 +451,7 @@ fn llm_tool_names_are_registered_in_every_build() {
 
     // Clients bind by name: the LLM-backed tools must stay in tools/list
     // whatever the features are, so a vendor-free build degrades on call
-    // rather than breaking the client's tool inventory. #39: the summary
+    // rather than breaking the client's tool inventory. the summary
     // cache's introspection and rollback tools ride along — they never call
     // the LLM, but they are part of the same block surface.
     for expected in [

@@ -1043,9 +1043,15 @@ pub fn resolve_root(var: &str, home_segments: &[&str]) -> (PathBuf, bool) {
 
 /// The full extract-by-type kind list: the four raw message-derived kinds
 /// and the three derived kinds folded in from their retired standalone
-/// commands/todo-history and extract-qa-pairs (issues #64, #65, #66).
+/// commands/todo-history and extract-qa-pairs.
 pub const EXTRACT_TYPES: [&str; 7] = [
-    "user", "assistant", "tool", "thinking", "todo", "compaction", "questions",
+    "user",
+    "assistant",
+    "tool",
+    "thinking",
+    "todo",
+    "compaction",
+    "questions",
 ];
 
 /// The derived entry kinds an `extract-by-type` call materializes from the
@@ -1152,7 +1158,10 @@ pub fn derived_entries(
     for (n, e) in out.iter_mut().enumerate() {
         e.index = n;
     }
-    DerivedEntries { entries: out, notices }
+    DerivedEntries {
+        entries: out,
+        notices,
+    }
 }
 
 /// The derived entries plus the per-kind skip notices: a kind the harness

@@ -544,7 +544,7 @@ fn max_bytes_out_of_range_is_a_bound_error() {
 }
 
 /// The CLI exposes the same report the MCP tool serves: the same JSONL
-/// record stream on stdout, one record per line (issue #68). Proven against
+/// record stream on stdout, one record per line. Proven against
 /// the sanitised codex fixture store shipped with the repo.
 #[test]
 fn cli_action_mirrors_the_mcp_report() {
@@ -556,7 +556,13 @@ fn cli_action_mirrors_the_mcp_report() {
         .to_string();
     let session = "01aa1111-2222-3333-4444-555566667777";
     let out = Command::new(env!("CARGO_BIN_EXE_total-recall"))
-        .args(["--harness", "codex", "--session", session, "he-said-she-said-they-did"])
+        .args([
+            "--harness",
+            "codex",
+            "--session",
+            session,
+            "he-said-she-said-they-did",
+        ])
         .current_dir(child_cwd("he-said-cli"))
         .env("TOTAL_RECALL_CODEX_ROOT", &root)
         .env_remove("INCEPTION_API_KEY")

@@ -1,4 +1,4 @@
-//! #36, re-carried by #39: the summary range ledger — a per-session record of
+//! the summary range ledger — a per-session record of
 //! what has already been summarised, and the cached parts themselves.
 //!
 //! A summary is just a summary of the slice it names. The ledger names that

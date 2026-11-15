@@ -1,4 +1,4 @@
-//! #25: the input-validation contract, proven through the real MCP stdio
+//! the input-validation contract, proven through the real MCP stdio
 //! server against an opencode fixture store and read from the SERVED
 //! `tools/list` schemas, so the schema and the handler cannot drift apart
 //! again:
@@ -236,7 +236,7 @@ fn tools() -> [(&'static str, Value); 12] {
         ("summary_cache", json!({})),
         ("summarise_from", json!({"from_id": 1})),
         ("cache_delete_latest", json!({})),
-        ("prior_period_summary", json!({})), // #31: the deleted total_recall tool is gone
+        ("prior_period_summary", json!({})), // the deleted total_recall tool is gone
         ("index_sessions", json!({})),
         (
             "do_android_dream_of_electric_sheep",
@@ -597,7 +597,7 @@ fn line_histogram_validates_mode_and_the_line_selectors_as_a_set() {
     reap(&mut mcp);
 }
 
-/// #39: the listing row's `summary_cache` marker. One session has a seeded
+/// the listing row's `summary_cache` marker. One session has a seeded
 /// summary-cache ledger in the shadow root; the other has none. The rows are
 /// rendered by the server — the adapters never touch the marker.
 #[test]

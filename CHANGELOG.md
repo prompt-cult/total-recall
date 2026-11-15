@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **he-said-she-said-they-did on the CLI** (#68). The per-session report was
+- **he-said-she-said-they-did on the CLI**. The per-session report was
   MCP-only; the same JSONL record stream (meta, he_said, she_said, they_did,
   inline compaction_boundary) is now the `he-said-she-said-they-did`
   subcommand, served from the same report assembler (the default
@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Codex resumed-segment rollouts are no longer silently dropped** (#60).
+- **Codex resumed-segment rollouts are no longer silently dropped**.
   Modern codex writes resumed conversations as
   `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`; the adapter now lists
   each segment under its composite `<conv-uuid>_<segment-uuid>` id, reads
@@ -48,17 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `SessionSummary` rows carry `backend_kind` (`file` | `database`) and the
-  payload's `ctime`/`mtime` on file-backed harnesses (#61).
+  payload's `ctime`/`mtime` on file-backed harnesses.
 - The retired CLI `extract` subcommand: `extract-by-type --type all` covers
-  the raw dump (#67).
+  the raw dump.
 - Usage guidance in the skill: verbatim questions get extract-by-type, not
-  search; summaries only when asked to familiarise (#63).
+  search; summaries only when asked to familiarise.
 
 ## [0.26.0] - 2026-11-13
 
 ### Added
 
-- **Pi harness support** (prompt-cult/total-recall#55). Pi writes one JSONL
+- **Pi harness support** Pi writes one JSONL
   session file per project slug at
   `~/.pi/agent/sessions/<project-slug>/<ISOts>_<uuid>.jsonl`, with typed
   records (`session`, `model_change`, `thinking_level_change`,
@@ -74,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Modern Codex harness support** (prompt-cult/total-recall#56). The old
+- **Modern Codex harness support** The old
   codex adapter was dropped after v0.19.0 because it read only the flat
   `~/.codex/sessions/*.jsonl` layout. Current Codex desktop writes a typed
   JSONL record stream under
@@ -93,8 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The vibe store reads the Mistral Vibe v3.1.2 unified layout**
-  (prompt-cult/total-recall#53). Mistral Vibe v3.1.2 writes a session's
+- **The vibe store reads the Mistral Vibe v3.1.2 unified layout** Mistral Vibe v3.1.2 writes a session's
   records into the unified store's content-addressed chunk files
   (`unified/<uuid>/chunks/<sha256>.json`); the `journal/*.jsonl` beside them
   is the store's *recovery* log and holds the tail of the session, not its
@@ -215,7 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   responses, the `#`-header streams, the `type,timestamp,json` lines, the
   marker-alone-for-JSON rule and the "even one record exceeds max_bytes"
   error are gone.
-- `list_sessions` (#457): row records through the sink; the O(n²)
+- `list_sessions`: row records through the sink; the O(n²)
   measured-fit loop is dead — and the sink's per-record admission ends
   head-of-line blocking: one oversized row drops to the file while the
   lean rows behind it still return. The meta carries `window_count` +
@@ -224,28 +223,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#461, #462): the single-line JSON envelope is dead — records + sidecar,
   the paging inputs in the meta's `bounds`, overflow to the file instead
   of the hard error.
-- `he_said_she_said_they_did` (#460): the `## HE SAID` prose report is
+- `he_said_she_said_they_did`: the `## HE SAID` prose report is
   `he_said`/`she_said`/`they_did`/`compaction_boundary` records; the
   CONTEXT section is the meta record.
-- `do_android_dream_of_electric_sheep` (#459): `index::search` returns a
+- `do_android_dream_of_electric_sheep`: `index::search` returns a
   structured `SearchOutcome`; hits stream as `type=hit` records
   (`ts`/`thinking` fields); the CLI renders its own table.
-- `summarise_from` (#463) and `prior_period_summary` (#464): composed
+- `summarise_from` and `prior_period_summary`: composed
   parts stream as `type=section` records; the prior-period timing map is
   the meta record (the `<!-- timing -->` comment is dead).
 - `harness`, `index_sessions`, `todo_history`, `summary_cache`,
   `cache_delete_latest`, `profile_session`, `extract_qa_pairs`
   (#451-#456, #458): the same record-stream contract.
-- Text-path survival (#465): `help` and `line_histogram` keep the text
+- Text-path survival: `help` and `line_histogram` keep the text
   cap (cut at a line boundary, `.md` overflow); `cap_report`'s
   JSON-never-torn branch is deleted.
-- The skill carries the JSONL profiling recipes (#466): the sed marker
+- The skill carries the JSONL profiling recipes: the sed marker
   strip, `rg` find, `jq` extract, `line_histogram` profile and the
   `fdfind` sweep — with the line-histogram article and gist linked.
 
 ### Added
 
-- `jsonl_sink`: the dual-stream flood-control primitive (#450) — one
+- `jsonl_sink`: the dual-stream flood-control primitive — one
   record stream, two sinks (the MCP array + the JSONL file).
 - `mise.toml`: binds the release binary as a mise tool
   (`github:prompt-cult/total-recall = latest`).
@@ -254,7 +253,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- The codex and claude harnesses (#49): untested by the author, and an
+- The codex and claude harnesses: untested by the author, and an
   untested surface ships lying docs and unverified code paths. The adapters,
   their tests, their fixtures and every doc mention are gone. `opencode` and
   `vibe` are the supported set; the rejection error names them
@@ -266,7 +265,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- New `he_said_she_said_they_did` MCP tool (#47): one full, per-session
+- New `he_said_she_said_they_did` MCP tool: one full, per-session
   report answering "what did we say and do" — HE SAID (the user's messages
   verbatim, synthetic/injected parts skipped), SHE SAID (the assistant's
   text parts only — explicitly not its thinking, explicitly not tool
@@ -279,7 +278,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the high watermark. Session-scoped (`session_id` partial match, empty =
   the most recent session), flood-capped at `max_bytes` like every other
   report. Read-only.
-- New `help` MCP tool (#48): returns the release's
+- New `help` MCP tool: returns the release's
   `skills/total-recall/SKILL.md` through the standard capped-text path.
   Resolution, in order: the `TOTAL_RECALL_SKILL_PATH` env var if set and
   non-empty (the escape hatch); the skills directory
@@ -292,12 +291,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   release.
 - The release archives carry the release's `SKILL.md` at the archive root
   beside the executable; the documented install step copies it into the
-  skills directory, so a binary release and its skill land together (#48).
+  skills directory, so a binary release and its skill land together.
 
 ### Removed
 
 - The `she_said_he_said_action` MCP tool and the `he-said-she-said` CLI
-  subcommand (#47): term-matched fragments only — not fit for purpose as an
+  subcommand: term-matched fragments only — not fit for purpose as an
   account of a session. Replaced by `he_said_she_said_they_did`; no
   term-matching behaviour remains.
 
@@ -305,7 +304,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Read vibe 3.x unified-session stores beside the legacy layout (#46): the
+- Read vibe 3.x unified-session stores beside the legacy layout: the
   vibe adapter reads the 3.x unified store's sessions and message bodies
   while the legacy layout remains readable, so rollouts mined from either
   layout surface identically.
@@ -314,7 +313,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Read opencode 2.2 stores (#44): the new `session_v2`/`session_message`
+- Read opencode 2.2 stores: the new `session_v2`/`session_message`
   layout is read beside the legacy `session`/`message` tables — the store
   layout is detected per database, and both layouts serve the same tool
   surface.
@@ -342,7 +341,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Summary cache blocks (#39): `summary_cache` introspection (the cached
+- Summary cache blocks: `summary_cache` introspection (the cached
   blocks' id ranges, counts, sizes and part files plus the unsummarised
   tail), `summarise_from` (explicit 1-based id to summarise from, guarded to
   the first unsummarised id), and `cache_delete_latest` (roll the cache back
@@ -350,12 +349,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The prior period is the work SINCE the last compaction boundary (#38) —
+- The prior period is the work SINCE the last compaction boundary —
   the docs state the boundary rule plainly for both flows.
 
 ### Removed
 
-- The deprecated implicit `summarise_current_session` form (#40): the
+- The deprecated implicit `summarise_current_session` form: the
   explicit tool surface is the whole surface.
 
 ## [0.15.0] - 2026-10-18
@@ -365,12 +364,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Summaries cached by default via a range ledger, and the profile cache on
   by default (#36, #37): repeated summary and profile reads serve from the
   cache; `profile_session` takes `cache: false` to force a recompute.
-- `summarise_current_session` (#35), replacing the deprecated
-  `compact_session` (#34).
+- `summarise_current_session`, replacing the deprecated
+  `compact_session`.
 
 ### Changed
 
-- One tool, one job (#34): the `full` flag is gone — the boundary a tool
+- One tool, one job: the `full` flag is gone — the boundary a tool
   reads from is the tool's own contract, not a caller's modifier.
 
 ### Fixed
@@ -491,7 +490,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `hours_back: 0` no longer fails every window-tool call (#25). The served
+- `hours_back: 0` no longer fails every window-tool call. The served
   schema states `minimum: 1` so a schema-honouring client cannot send it, and
   the handler reads `0` (and `null`) as "omitted" — the tool's default window,
   never the whole store. `all: true` with `hours_back: 0` reaches the whole
@@ -499,16 +498,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still rejected as the contradiction it is. `total_recall`'s `hours_back`
   reads `0` the same way, closing the last route to the adapter's unbounded
   mechanism except `all: true`.
-- `list_sessions` returns rows again (#25). The row count it renders is
+- `list_sessions` returns rows again. The row count it renders is
   derived from the response budget (`max_bytes`, default 16,384) instead of a
   fixed 200 fat rows that the 16 KiB flood cap replaced whole, so a default
   call returns rows and states `held_back`. A row larger than the whole
   budget is still handed to flood control, which is the escape hatch every
   other report has.
-- Unknown parameters are rejected by name on every tool (#25): `hour_back`
+- Unknown parameters are rejected by name on every tool: `hour_back`
   or `directorys` is answered with the unrecognised field and the fields the
   tool does accept, instead of running the call on the default scope.
-- Numeric inputs are validated in the house form on every tool (#25):
+- Numeric inputs are validated in the house form on every tool:
   negatives and over-ceiling values for `hours_back`, `limit`, `offset`,
   `max_bytes`, `max_record_bytes`, `line`, `start` and `end` return
   "<tool>: `<field>` is out of range — <cheap form>" instead of a raw serde
@@ -559,7 +558,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A session too large to send in one piece now costs a bounded prompt instead of
   a request that cannot be ingested: past the vendor's input ceiling it was a
   hard error, and under it the ingest alone outran the client's deadline, which
-  is why `total_recall` timed out on a multi-gigabyte store (issue #17).
+  is why `total_recall` timed out on a multi-gigabyte store.
   Truncation is tail-kept at a line and character boundary, never mid-character,
   and never silent.
 - The recent-rollouts table holds at most 200 rows, the most recent in the
@@ -584,7 +583,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - An omitted `session_id` deserialized as a hard failure instead of the
-  documented "Empty = most recent" default (issue #18). Six params structs
+  documented "Empty = most recent" default. Six params structs
   lacked `#[serde(default)]` on the field — profile, extract messages,
   extract user messages, extract by type, compact and total_recall — so
   `total_recall` with only `hours_back` failed with "missing field
@@ -759,11 +758,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`schemas/profile-cache.jtd`) compiled by `jtd-codegen`; a payload failing
   that gate is treated as corrupt. With the flag off, behaviour is
   byte-for-byte the pre-cache path and no cache file is created.
-- Cheap most-recent-session resolution (#11).
+- Cheap most-recent-session resolution.
 
 ### Fixed
 
-- Claude adapter against the real `~/.claude/projects` store (#13): nested
+- Claude adapter against the real `~/.claude/projects` store: nested
   project-dir session discovery, uuid-stem ids, `ai-title`, timestamps,
   directory, thinking blocks, array-form `tool_result`, `subagents/` excluded.
 

@@ -1,5 +1,5 @@
-//! Mtime-gated reindexing for file-backed harnesses (issue #62) and the
-//! side-path build with a non-destructive swap (issue #69). The fixture is a
+//! Mtime-gated reindexing for file-backed harnesses and the
+//! side-path build with a non-destructive swap. The fixture is a
 //! scratch copy of the shipped codex fixture store; the shadow index tree is
 //! written only inside the scratch root.
 
@@ -67,8 +67,7 @@ fn fresh_index_is_not_rebuilt_and_a_touched_payload_is() {
     let file = std::fs::File::options().write(true).open(&payload).unwrap();
     file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_900_000_000))
         .unwrap();
-    let decision =
-        total_recall::index::index_session_fresh(&adapter, &sid).expect("stale check");
+    let decision = total_recall::index::index_session_fresh(&adapter, &sid).expect("stale check");
     assert_eq!(decision, total_recall::index::ReindexDecision::Stale);
 
     let _ = child_cwd("index_freshness");
@@ -108,7 +107,10 @@ fn swap_happens_after_the_build() {
         .join("total-recall-meta.json");
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&meta).unwrap()).unwrap();
-    assert_eq!(meta["source_mtime"], 1_900_000_100, "meta carries the payload mtime it indexed");
+    assert_eq!(
+        meta["source_mtime"], 1_900_000_100,
+        "meta carries the payload mtime it indexed"
+    );
     assert!(
         meta["built_at"].as_u64().is_some(),
         "meta keeps built_at for the mtime gate"

@@ -278,11 +278,13 @@ fn extract_by_type_omitted_types_defaults_to_all() {
         "the meta echoes all seven folded types: {meta}"
     );
     // A vibe session has no todowrite access: the todo kind degrades to a
-    // skip notice, never a tool error (#65).
+    // skip notice, never a tool error.
     assert!(
         meta["notes"]
             .as_array()
-            .map(|n| n.iter().any(|s| s.as_str().unwrap_or("").contains("'todo' unavailable")))
+            .map(|n| n
+                .iter()
+                .any(|s| s.as_str().unwrap_or("").contains("'todo' unavailable")))
             .unwrap_or(false),
         "the todo skip is noticed, not silent: {meta}"
     );

@@ -1,4 +1,4 @@
-//! #31: `prior_period_summary` — an orientation summary of a prior period
+//! `prior_period_summary` — an orientation summary of a prior period
 //! of work. The pure builders (todo log with the churn note, the
 //! period's commits, the compaction-points FYI footer, the orientation
 //! warning, the assembly) and the boundary behaviour of the period

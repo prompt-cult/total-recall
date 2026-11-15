@@ -1,4 +1,4 @@
-//! Issue #53: Mistral Vibe v3.1.2 writes the session's records into the
+//! Mistral Vibe v3.1.2 writes the session's records into the
 //! unified store's chunk files (`unified/<uuid>/chunks/<sha256>.json`), not
 //! into the recovery journal. A reader that walks the journal alone sees the
 //! tail of a session: the live session held 129 user turns and the tool read
@@ -286,7 +286,7 @@ fn chunk_store_counts_are_the_session_s_own() {
 
 #[test]
 fn a_fresh_session_never_extracts_as_empty() {
-    // The regression of issue #53: a session whose journal was touched in the
+    // A session whose journal was touched in the
     // last 24 hours must not read as an empty session. The journal alone
     // holds one turn; the chunk store holds the session.
     let root = common::scratch::scratch("vibe_chunk_not_empty");
