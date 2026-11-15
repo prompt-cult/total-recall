@@ -110,8 +110,6 @@ pub enum Command {
     },
     /// Profile a specific rollout (file size, counts, events)
     Profile,
-    /// Extract all data that would be summarised from a rollout
-    Extract,
     /// Extract what the user said verbatim
     UserMessages,
     /// Raw extract of entries by type (user|assistant|tool|thinking), one
@@ -592,34 +590,6 @@ async fn main() -> Result<()> {
                         "  line {} (gap {}): {:?} — {}",
                         event.line_number, event.gap_lines, event.event_type, event.summary
                     );
-                }
-            }
-        }
-
-        Command::Extract => {
-            let messages = read_messages(adapter.as_ref(), &session_id, cli.full);
-            let messages = bound_cli_messages(
-                messages,
-                cli.limit,
-                cli.offset,
-                cli.max_bytes,
-                cli.max_record_bytes,
-            );
-            if cli.json || !cli.markdown {
-                for msg in &messages {
-                    let json = serde_json::to_string(msg)?;
-                    println!("{}", json);
-                }
-            } else {
-                for msg in &messages {
-                    println!("[{}]", msg.role.to_uppercase());
-                    if !msg.content.is_empty() {
-                        println!("{}", msg.content);
-                    }
-                    for tc in &msg.tool_calls_summary {
-                        println!("  -> {}", tc);
-                    }
-                    println!();
                 }
             }
         }

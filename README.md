@@ -471,7 +471,7 @@ $B --harness vibe --session 4836855e user-messages --markdown
 $B --harness vibe --session 4836855e extract-by-type --type user --type thinking
 # CLI extraction is unbounded by default; bound it explicitly when paging large
 # sessions (--limit/--offset/--max-bytes/--max-record-bytes, notice on stderr)
-$B --harness vibe --session 4836855e extract --limit 100 --offset 0
+$B --harness vibe --session 4836855e extract-by-type --type all --limit 100 --offset 0
 
 # Todo-list edits as a JSONL event stream (one {ts,action,todo} object per line)
 $B --harness opencode --session ses_ee8e8f72 todo-history
@@ -769,3 +769,32 @@ built from [`book.toml`](book.toml) and [`docs/src/`](docs/src) by
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0 |
 | [LICENSE-MIT](LICENSE-MIT) · [LICENSE-APACHE](LICENSE-APACHE) | dual licensed `MIT OR Apache-2.0` |
 | [docs/opencode-store-vacuum.md](docs/opencode-store-vacuum.md) | store-vacuum runbook (see [Operations](#operations)) |
+
+## Install from a local (repo) marketplace
+
+This repo is packaged as a Codex plugin and carries its own marketplace index:
+
+- `plugin.json` at the repo root (portable Agent Plugins schema)
+- `mcp.json` at the repo root — the MCP server (`total-recall mcp` over stdio, `HARNESS=codex` by default)
+- `skills/total-recall/SKILL.md` — the bundled skill
+- `.agents/plugins/marketplace.json` — the marketplace catalog
+
+The `total-recall` binary must be installed and on `PATH`
+(`cargo install --path .` or the release binary).
+
+From a local checkout:
+
+```bash
+codex plugin marketplace add /path/to/total-recall
+codex plugin list --marketplace total-recall
+codex plugin add total-recall@total-recall
+```
+
+Uninstall with `codex plugin remove total-recall@total-recall`.
+
+For a repo-scoped install (when a project already has a `total-recall`
+checkout), add `[plugins."total-recall@total-recall"] enabled = true` to the
+project's `.codex/config.toml`.
+
+The MCP server harness defaults to `codex`; override per server with the
+plugin's `mcp_servers` config or edit `env.HARNESS` in `mcp.json`.

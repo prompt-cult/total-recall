@@ -32,6 +32,10 @@ fn pin_mtimes() {
         1_800_000_000,
     );
     set(
+        "2026/11/12/rollout-2026-11-12T09-00-00-01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888.jsonl",
+        1_800_000_100,
+    );
+    set(
         "2026/11/11/rollout-2026-11-11T09-00-00-02bb2222-3333-4444-5555-666677778888.jsonl",
         1_700_000_000,
     );
@@ -118,13 +122,18 @@ fn test_read_codex_session_mmap() {
 fn test_codex_list_sessions() {
     pin_mtimes();
     let sessions = adapter().list_sessions();
-    assert_eq!(sessions.len(), 2, "should find both fixture sessions");
+    assert_eq!(sessions.len(), 3, "both fixture sessions plus the resumed segment");
 
-    // Sorted by start_time descending: session A (Nov 12) then B (Nov 11).
-    assert_eq!(sessions[0].session_id, SESSION_A);
-    assert_eq!(sessions[1].session_id, SESSION_B);
-
-    let a = &sessions[0];
+    // Sorted by start_time descending: the segment (newest mtime), then
+    // session A (Nov 12) then B (Nov 11).
+    let segment = &sessions[0];
+    assert_eq!(
+        segment.session_id,
+        format!("{SESSION_A}_aaaa2222-3333-4444-5555-666677778888")
+    );
+    assert_eq!(segment.user_count, 1);
+    assert_eq!(segment.assistant_count, 1);
+    let a = &sessions[1];
     assert_eq!(a.user_count, 2);
     assert_eq!(a.assistant_count, 3);
     assert_eq!(a.tool_count, 2);
@@ -140,7 +149,7 @@ fn test_codex_list_sessions() {
         Some("/Users/sample/codex-fixture-project")
     );
 
-    let b = &sessions[1];
+    let b = &sessions[2];
     assert_eq!(b.user_count, 1);
     assert_eq!(b.assistant_count, 1);
     assert_eq!(b.tool_count, 0);
@@ -150,9 +159,10 @@ fn test_codex_list_sessions() {
 #[test]
 fn test_codex_list_sessions_scoped_directory_filter() {
     let listing = adapter().list_sessions_scoped(0, Some("codex-fixture-project"));
-    assert_eq!(listing.sessions.len(), 1);
-    assert_eq!(listing.sessions[0].session_id, SESSION_A);
-    assert_eq!(listing.window_count, 1);
+    assert_eq!(listing.sessions.len(), 2);
+    assert_eq!(listing.sessions[0].session_id, format!("{SESSION_A}_aaaa2222-3333-4444-5555-666677778888"));
+    assert_eq!(listing.sessions[1].session_id, SESSION_A);
+    assert_eq!(listing.window_count, 2);
 
     let listing = adapter().list_sessions_scoped(0, Some("nothing-matches"));
     assert!(listing.sessions.is_empty());
@@ -162,17 +172,28 @@ fn test_codex_list_sessions_scoped_directory_filter() {
 #[test]
 fn test_codex_most_recent_session_id() {
     pin_mtimes();
+    // The resumed segment's pinned mtime is newest.
     assert_eq!(
         adapter().most_recent_session_id().as_deref(),
-        Some(SESSION_A)
+        Some("01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888")
     );
 }
 
 #[test]
 fn test_codex_resolve_canonical_id_partial() {
     let adapter = adapter();
+    let composite =
+        "01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888";
+    // A shared prefix resolves to the most recent match — the segment.
     assert_eq!(
         adapter.resolve_canonical_id("01aa1111").as_deref(),
+        Some(composite)
+    );
+    // The full composite id exact-matches itself.
+    assert_eq!(adapter.resolve_canonical_id(composite).as_deref(), Some(composite));
+    // The original rollout's full id exact-matches through the segment.
+    assert_eq!(
+        adapter.resolve_canonical_id(SESSION_A).as_deref(),
         Some(SESSION_A)
     );
     assert_eq!(
@@ -180,7 +201,10 @@ fn test_codex_resolve_canonical_id_partial() {
         Some(SESSION_B)
     );
     assert_eq!(adapter.resolve_canonical_id("zzzz"), None);
-    assert_eq!(adapter.resolve_canonical_id("").as_deref(), Some(SESSION_A));
+    assert_eq!(
+        adapter.resolve_canonical_id("").as_deref(),
+        Some(composite)
+    );
 }
 
 #[test]
@@ -302,4 +326,42 @@ fn test_codex_root_env_override() {
         "env override must mark from_env"
     );
     assert_eq!(adapter.read_session(SESSION_A).unwrap().len(), 8);
+}
+
+/// Resumed-segment rollouts (`rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`)
+/// carry the conversation uuid and a segment uuid; the composite
+/// `<conv-uuid>_<segment-uuid>` id must list, resolve by prefix and read —
+/// never silently dropped (issue #60).
+#[test]
+fn test_codex_resumed_segment_is_listed() {
+    pin_mtimes();
+    let ad = adapter();
+    let names: Vec<String> = ad
+        .list_sessions()
+        .into_iter()
+        .map(|s| s.session_id)
+        .collect();
+    let composite = format!("{SESSION_A}_aaaa2222-3333-4444-5555-666677778888");
+    assert!(
+        names.contains(&composite),
+        "resumed segment missing from listing; got: {names:?}"
+    );
+}
+
+#[test]
+fn test_codex_resumed_segment_reads_and_resolves() {
+    pin_mtimes();
+    let ad = adapter();
+    let composite = "01aa1111-2222-3333-4444-555566667777_aaaa2222-3333-4444-5555-666677778888";
+    let stamp = ad.resolve_canonical_id(composite).expect("resolve composite");
+    assert_eq!(stamp, composite, "canonical resolution returns the full composite id");
+    let messages = ad
+        .read_session(composite)
+        .expect("resumed segment read");
+    let roles: Vec<&str> = messages.iter().map(|m| m.role.as_str()).collect();
+    assert_eq!(roles, vec!["user", "assistant"]);
+    assert_eq!(messages[1].content, "Resumed and done.");
+    // A prefix of the conversation uuid still resolves (to the original
+    // rollout or a segment — most recent mtime wins either way).
+    assert!(ad.most_recent_session_id().is_some());
 }
