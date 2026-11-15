@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
+    BackendKind,
     CODEX_ROOT_ENV_VAR, EventType, InterestingEvent, ReadResult, RolloutAdapter, RolloutMessage,
     SessionListing, SessionProfile, SessionSummary, listing_by_mtime, mmap_error, mtime_in_window,
     no_session_error, read_error, resolve_root, slice_from_compaction, summarize_tool_call,
@@ -410,6 +411,9 @@ impl CodexAdapter {
                     parent_session_id: None,
                     child_sessions: Vec::new(),
                     has_tantivy_index: false,
+backend_kind: Some(BackendKind::File),
+                    ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+                    mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
                     aliases: Vec::new(),
                     read_error: Some(e),
                 };
@@ -438,6 +442,9 @@ impl CodexAdapter {
             parent_session_id: None,
             child_sessions: Vec::new(),
             has_tantivy_index: false,
+backend_kind: Some(BackendKind::File),
+            ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+            mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
             aliases: Vec::new(),
             read_error: None,
         }

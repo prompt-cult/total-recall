@@ -577,12 +577,33 @@ pub struct SessionSummary {
     /// is unique. Lets callers discover aliases without a second selectable
     /// row that would double-process the store.
     pub aliases: Vec<String>,
+    /// The kind of backing store the rollout lives in: a plain file tree or
+    /// a database. File-backed payloads carry optional filesystem ctime/mtime;
+    /// database-backed rows omit both.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_kind: Option<BackendKind>,
+    /// Payload file creation time (file-backed harnesses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ctime: Option<std::time::SystemTime>,
+    /// Payload file modification time (file-backed harnesses only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtime: Option<std::time::SystemTime>,
     /// Set when the rollout payload could not be read (permissions, I/O
     /// error) — the entry is still listed so damage is visible, with counts
     /// from whatever could be read. Absent for a healthy payload, and also
     /// absent when the payload file simply does not exist yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_error: Option<String>,
+}
+
+/// The kind of store backing a harness's rollouts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendKind {
+    /// A tree of rollout files on disk (codex, pi, vibe).
+    File,
+    /// A database file (opencode's SQLite store).
+    Database,
 }
 
 /// The per-row cap on navigation ids a rendered listing row carries: the most

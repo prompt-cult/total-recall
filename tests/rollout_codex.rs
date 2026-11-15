@@ -365,3 +365,22 @@ fn test_codex_resumed_segment_reads_and_resolves() {
     // rollout or a segment — most recent mtime wins either way).
     assert!(ad.most_recent_session_id().is_some());
 }
+
+/// File-backed harnesses carry backend_kind=file and the payload file's
+/// ctime/mtime on every summary row (issue #61).
+#[test]
+fn test_codex_summary_backend_kind_and_file_times() {
+    pin_mtimes();
+    let sessions = adapter().list_sessions();
+    let seg = sessions
+        .iter()
+        .find(|s| s.backend_kind.is_some())
+        .expect("file-backed rows carry backend_kind");
+    assert_eq!(seg.backend_kind, Some(total_recall::rollout::BackendKind::File));
+    assert_eq!(seg.mtime, Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_100)));
+    assert!(seg.ctime.is_some(), "ctime present on a real file");
+    // Serialized JSON: fields omitted for None-carrying rows.
+    let json = serde_json::to_string(&seg).unwrap();
+    assert!(json.contains("\"backend_kind\""), "backend_kind serialized: {json}");
+    assert!(json.contains("\"mtime\""));
+}

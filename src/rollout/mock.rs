@@ -74,6 +74,9 @@ fn summarize_payload(data_path: &std::path::Path) -> SessionSummary {
         parent_session_id: None,
         child_sessions: Vec::new(),
         has_tantivy_index: false,
+backend_kind: None,
+        ctime: None,
+        mtime: None,
         aliases: Vec::new(),
         read_error,
     }

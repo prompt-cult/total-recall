@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::{
+    BackendKind,
     EventType, InterestingEvent, MISTRAL_VIBE_ROOT_ENV_VAR, QaAnswerRecord, QaPair, ReadResult,
     RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
     VIBE_ROOT_ENV_VAR, listing_by_mtime, mmap_error, mtime_in_window, no_session_error,
@@ -385,6 +386,9 @@ impl VibeAdapter {
                     .map(str::to_string),
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
+backend_kind: Some(BackendKind::File),
+                ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+                mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
                 aliases: Vec::new(),
                 read_error,
             },
@@ -600,6 +604,9 @@ impl VibeAdapter {
                 parent_session_id,
                 child_sessions: Vec::new(),
                 has_tantivy_index: false,
+backend_kind: Some(BackendKind::File),
+                ctime: std::fs::metadata(path).and_then(|m| m.created()).ok(),
+                mtime: std::fs::metadata(path).and_then(|m| m.modified()).ok(),
                 aliases: Vec::new(),
                 read_error,
             },
