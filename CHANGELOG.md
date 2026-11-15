@@ -5,6 +5,55 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-11-14
+
+### Added
+
+- **he-said-she-said-they-did on the CLI** (#68). The per-session report was
+  MCP-only; the same JSONL record stream (meta, he_said, she_said, they_did,
+  inline compaction_boundary) is now the `he-said-she-said-they-did`
+  subcommand, served from the same report assembler (the default
+  flood-control cap applies; `--max-bytes` overrides).
+
+- **extract-by-type folds todo | compaction | questions** (#64 #65 #66).
+  `--type all` (and omission) covers every kind: the four message-derived
+  entry types plus todo edits (from the retired `todo-history`),
+  compaction points, and question/answer pairs (from the retired
+  `extract-qa-pairs`). A kind the harness cannot serve (e.g. todo history
+  on a harness without todowrite access) is skipped with a notice in the
+  meta (`notes`), never a tool error. The standalone CLI subcommand
+  `todo-history` and MCP tools `todo_history` and `extract_qa_pairs` are
+  retired.
+
+- **Mtime-gated reindexing with a side-path build and a search-pass
+  auto-reindex** (#62 #69). The shadow-index meta now records the payload
+  mtime it indexed (`source_mtime`); `index_session_fresh` gates on it, so
+  an index is rebuilt only when its payload changed. `index_session` builds
+  into `<index>.building` and swaps away the previous index only after the
+  replacement and its meta are on disk — a failed build leaves the old
+  index reading. Dream-search reindexes stale file-backed sessions during
+  the search pass, so a hit is never silently served from old content;
+  database-backed payloads cannot verify staleness and keep the explicit
+  `index_sessions` pass.
+
+### Fixed
+
+- **Codex resumed-segment rollouts are no longer silently dropped** (#60).
+  Modern codex writes resumed conversations as
+  `rollout-<ts>-<conv-uuid>_<segment-uuid>.jsonl`; the adapter now lists
+  each segment under its composite `<conv-uuid>_<segment-uuid>` id, reads
+  it, and resolves a conversation-uuid prefix to the most recent match —
+  with an exact id match always winning over a partial prefix.
+
+### Changed
+
+- `SessionSummary` rows carry `backend_kind` (`file` | `database`) and the
+  payload's `ctime`/`mtime` on file-backed harnesses (#61).
+- The retired CLI `extract` subcommand: `extract-by-type --type all` covers
+  the raw dump (#67).
+- Usage guidance in the skill: verbatim questions get extract-by-type, not
+  search; summaries only when asked to familiarise (#63).
+
 ## [0.26.0] - 2026-11-13
 
 ### Added
