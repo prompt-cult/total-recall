@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.2] - 2026-11-15
+
+### Fixed
+
+- **ListingRow carries `backend_kind`/`ctime`/`mtime`** (#75). The adapters
+  set the fields (#61, #62) but the listing render dropped them, so the v0.27.0
+  release notes overpromised: neither the CLI `list --json` rows nor the MCP
+  `list_sessions` rows carried the backend kind or the payload times. The row
+  now states its backend — a file-backed row (codex, pi, vibe) carries
+  `backend_kind: file` with ctime/mtime; a database-backed row (opencode)
+  carries `backend_kind: database` and omits both — and the row-shape test
+  pins the fields so a future render change cannot drop them again. Verified
+  live against all three stores, not just the fixtures.
+
 ## [0.27.1] - 2026-11-15
 
 ### Added

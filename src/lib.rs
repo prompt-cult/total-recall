@@ -32,7 +32,7 @@ pub use rollout::opencode::OpenCodeAdapter;
 pub use rollout::pi::PiAdapter;
 pub use rollout::vibe::VibeAdapter;
 pub use rollout::{
-    EventType, IDS_PER_LISTING_ROW, InterestingEvent, LISTING_ROW_CAP, ListingRow, QaOption,
-    QaPair, RolloutAdapter, RolloutMessage, SessionListing, SessionProfile, SessionSummary,
-    message_to_text, messages_to_text, summarize_tool_call,
+    BackendKind, EventType, IDS_PER_LISTING_ROW, InterestingEvent, LISTING_ROW_CAP, ListingRow,
+    QaOption, QaPair, RolloutAdapter, RolloutMessage, SessionListing, SessionProfile,
+    SessionSummary, message_to_text, messages_to_text, summarize_tool_call,
 };

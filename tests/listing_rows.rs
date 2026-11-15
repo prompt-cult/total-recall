@@ -25,9 +25,9 @@ fn fat_summary(children: usize, aliases: usize) -> SessionSummary {
             .map(|i| format!("ses_child{i:05}0000000000000000000aa"))
             .collect(),
         has_tantivy_index: true,
-        backend_kind: None,
-        ctime: None,
-        mtime: None,
+        backend_kind: Some(total_recall::BackendKind::File),
+        ctime: Some(std::time::SystemTime::UNIX_EPOCH),
+        mtime: Some(std::time::SystemTime::UNIX_EPOCH),
         aliases: (0..aliases)
             .map(|i| format!("session_2026100409{i:06}_abcdef"))
             .collect(),
@@ -140,14 +140,17 @@ fn the_row_keeps_every_field_a_caller_navigates_with() {
             "alias_count",
             "aliases",
             "assistant_count",
+            "backend_kind",
             "child_session_count",
             "child_sessions",
+            "ctime",
             "directory",
             "end_time",
             "file_size",
             "has_compaction",
             "has_tantivy_index",
             "line_count",
+            "mtime",
             "parent_session_id",
             "read_error",
             "session_id",
@@ -166,4 +169,26 @@ fn the_row_keeps_every_field_a_caller_navigates_with() {
 #[test]
 fn the_per_row_id_cap_is_ten() {
     assert_eq!(IDS_PER_LISTING_ROW, 10);
+}
+
+/// The row tells the caller which store it came from and which time fields to
+/// trust: a file-backed row (codex, pi, vibe) carries `backend_kind: file`
+/// with its ctime/mtime; a database-backed row (opencode) carries
+/// `backend_kind: database` and omits both times. Written for issue #75 —
+/// #61 set the fields on the summaries but the render dropped them.
+#[test]
+fn the_row_states_its_backend_and_its_trustworthy_times() {
+    let mut summary = fat_summary(0, 0);
+    let obj = serde_json::to_value(ListingRow::new(&summary)).unwrap();
+    assert_eq!(obj["backend_kind"], "file");
+    assert!(obj["ctime"].is_object(), "file-backed rows carry a ctime");
+    assert!(obj["mtime"].is_object(), "file-backed rows carry an mtime");
+
+    summary.backend_kind = Some(total_recall::BackendKind::Database);
+    summary.ctime = None;
+    summary.mtime = None;
+    let obj = serde_json::to_value(ListingRow::new(&summary)).unwrap();
+    assert_eq!(obj["backend_kind"], "database");
+    assert!(obj["ctime"].is_null(), "database rows carry no ctime");
+    assert!(obj["mtime"].is_null(), "database rows carry no mtime");
 }
