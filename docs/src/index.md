@@ -51,18 +51,17 @@ See [`index_sessions` / `do_android_dream_of_electric_sheep`](tools.md#indexing-
 |------|-----------------|
 | `harness` | the harness this server is bound to |
 | `help` | the release's `skills/total-recall/SKILL.md` — the tool surface and usage guide, served through the standard capped-text path |
-| `list_sessions` | every rollout: id, title, times, counts, byte size, parent/children, aliases, `has_tantivy_index` |
+| `list_sessions` | every rollout: id, title, times, counts, byte size, parent/children, aliases, `backend_kind`, `ctime`/`mtime`, `has_tantivy_index` |
 | `profile_session` | one rollout: size, line count, role counts, compaction markers, interesting events |
 | `extract_messages` | messages since the last compaction point (or the whole rollout) as a bounded JSON envelope |
 | `extract_user_messages` | the same envelope over verbatim user messages |
-| `extract_by_type` | a raw `type,timestamp,json` recovery dump, one record per line |
-| `extract_qa_pairs` | question/answer pairs from question-tool calls: the question, its options, the picked or typed answers |
+| `extract_by_type` | a raw `type,timestamp,json` recovery dump, one record per line, filtered by type: `user|assistant|tool|thinking` plus the folded derived kinds `todo|compaction|questions` (`"all"` includes everything; a kind the harness cannot serve is skipped with a notice in the meta, never an error) |
 | `index_sessions` | builds or refreshes a tantivy full-text index per session |
 | `do_android_dream_of_electric_sheep` | full-text search across those indexes, merged by score |
 | `summary_cache` | the per-session summary cache blocks: from/to ids and timestamps, message-type counts, size, part file — plus the unsummarised tail |
 | `summarise_from` | a structured summary of a session from an explicit unsummarised id: Accomplished, Current Work, Files, Next Steps, Key Decisions; guard: the id must be the first unsummarised one |
 | `cache_delete_latest` | roll the summary-cache high watermark back one block (rm ledger row + part file); returns the new cache status |
-| `he_said_she_said_they_did` | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only — no thinking, no tool results), THEY DID (every action incl. MCP/plugin/todo calls, arguments only) with compaction boundaries inline, plus the period covered, the compaction-point ids and the summary-cache blocks/high watermark |
+| `he_said_she_said_they_did` (CLI: `he-said-she-said-they-did`) | one full per-session report: HE SAID (verbatim user text), SHE SAID (assistant text only — no thinking, no tool results), THEY DID (every action incl. MCP/plugin/todo calls, arguments only) with compaction boundaries inline, plus the period covered, the compaction-point ids and the summary-cache blocks/high watermark |
 | `prior_period_summary` | orientation summary of a prior period: state summary + user goals + todo log + commits + a recent-rollouts table + plan files + orientation warning |
 Full parameter tables and the CLI equivalent of each tool (with the MCP-only
 exceptions named): [Tools](tools.md).
