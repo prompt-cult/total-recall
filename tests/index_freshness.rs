@@ -20,7 +20,7 @@ fn session_a() -> String {
 fn fixture_adapter() -> (common::scratch::ScratchRoot, CodexAdapter) {
     let dir = scratch("index_freshness");
     copy_fixture(&dir);
-    let root = std::path::PathBuf::from(dir.join("codex_sessions"));
+    let root = dir.join("codex_sessions");
     let adapter = CodexAdapter::with_root(&root);
     (dir, adapter)
 }
@@ -178,7 +178,7 @@ fn find_payload(adapter: &CodexAdapter, sid: &str, prefer_segment: bool) -> Path
                     stack.push(p);
                 } else if let Some(name) = p.file_name().and_then(|n| n.to_str())
                     && name.starts_with("rollout-")
-                    && name.contains(&sid)
+                    && name.contains(sid)
                     && want_segment(name)
                 {
                     return p;
@@ -195,7 +195,7 @@ fn find_payload(adapter: &CodexAdapter, sid: &str, prefer_segment: bool) -> Path
                 stack.push(p);
             } else if let Some(name) = p.file_name().and_then(|n| n.to_str())
                 && name.starts_with("rollout-")
-                && name.contains(&sid)
+                && name.contains(sid)
                 && !name.contains('_')
             {
                 return p;

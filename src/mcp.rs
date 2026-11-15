@@ -282,9 +282,6 @@ fn default_true() -> bool {
     true
 }
 
-/// The natural question/answer call indexes the last two days, like the
-/// other window tools; the whole store is `all: true`, explicit.
-
 /// The natural call indexes the last day, not the whole store; whole-store
 /// indexing is `all: true`, explicit.
 fn default_index_hours() -> u64 {
@@ -1858,19 +1855,6 @@ struct SectionRecord<'a> {
     text: &'a str,
 }
 
-/// One `todo_edit` stream record: the event's fields plus the record
-/// stream's `type` discriminator, `status` omitted on a removal exactly as
-/// the pure JSONL event line omits it.
-
-/// Assemble the `todo_history` response through the dual-stream sink at the
-/// tool's `max_bytes` param. Record 0 is the meta record
-/// `{"type":"meta","tool":"todo_history","session_id":"…","harness":"…", "full":bool,"events":N,"max_bytes":N}`;
-/// every data record is a `todo_edit` — the event's fields plus the `type` discriminator — in ts
-/// order. The same records stream as pure JSONL to the overflow file:
-/// over `max_bytes` the fitting-prefix array is followed by the EOF marker
-/// naming that file, which holds ALL records; under the cap the bare array
-/// alone is returned and nothing is retained.
-
 /// One cache-status block record: the block's own serde fields (from_id/
 /// from_ts/to_id/to_ts, the user/assistant/tool/thinking counts, chars,
 /// tokens_est, part_file) flattened under the record stream's `type`
@@ -1958,11 +1942,6 @@ fn profile_report(harness: &str, profile: &crate::rollout::SessionProfile) -> St
     }
     sink.finish()
 }
-
-/// One Q/A stream record: the pair's fields plus the record stream's `type`
-/// discriminator and the session context; `ts`/`header` omitted when the
-/// format carries none, `held_back` present only on the session's last
-/// record when the per-session cap dropped pairs.
 
 /// Read a session window respecting `full`, propagating read damage as a tool
 /// error. A payload that cannot be read is never reported as an empty session.

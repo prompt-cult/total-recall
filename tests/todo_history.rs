@@ -11,7 +11,7 @@ mod common;
 
 use common::scratch::{child_cwd, scratch};
 use rusqlite::Connection;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 use std::path::Path;
 use total_recall::RolloutAdapter;
@@ -533,28 +533,6 @@ impl Mcp {
                 .unwrap_or("")
                 .to_string(),
         )
-    }
-
-    fn tools_list(&mut self) -> Value {
-        let id = self.next;
-        self.next += 1;
-        self.send(&json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}));
-        self.read_until_id(id)["result"]["tools"].clone()
-    }
-
-    /// The SERVED input schema's properties for one tool.
-    fn schema(&mut self, name: &str) -> Map<String, Value> {
-        let tools = self.tools_list();
-        let tool = tools
-            .as_array()
-            .expect("tools array")
-            .iter()
-            .find(|t| t["name"].as_str() == Some(name))
-            .unwrap_or_else(|| panic!("{name} is registered"));
-        tool["inputSchema"]["properties"]
-            .as_object()
-            .unwrap_or_else(|| panic!("{name} serves a properties object"))
-            .clone()
     }
 }
 
