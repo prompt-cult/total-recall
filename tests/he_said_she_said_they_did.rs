@@ -557,7 +557,7 @@ fn cli_action_mirrors_the_mcp_report() {
     let session = "01aa1111-2222-3333-4444-555566667777";
     let out = Command::new(env!("CARGO_BIN_EXE_total-recall"))
         .args(["--harness", "codex", "--session", session, "he-said-she-said-they-did"])
-        .current_dir(child_cwd())
+        .current_dir(child_cwd("he-said-cli"))
         .env("TOTAL_RECALL_CODEX_ROOT", &root)
         .env_remove("INCEPTION_API_KEY")
         .env_remove("MISTRAL_API_KEY")
