@@ -13,20 +13,36 @@ name: pages
 on:
   push:
     branches: [main]
+    # The book is built from book.toml + docs/src only, so a push that touches
+    # none of those cannot change the site. `*.md` matches root-level markdown
+    # only (`*` does not cross `/`), so docs/src/**/*.md still rebuilds the
+    # site, and `pull_request` stays unfiltered so docs checks run on every PR.
+    paths-ignore:
+      - '*.md'
+      - 'src/**'
+      - 'tests/**'
+      - 'benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
-# One deployment at a time; the last push to main is the one that ships.
+# Scoped per ref and cancelling, so a superseded push to main stops a deploy of
+# older content and a PR's docs build no longer queues behind (or gets dropped
+# by) a main deployment sharing one `pages` group.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # `cargo install mdbook --locked` compiles mdBook from source on every run,
+    # which dominates the job; the book build and link check are seconds.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -78,6 +94,7 @@ jobs:
     needs: build
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Least privilege: the build job only ever reads the repository, and only
     # the deployment needs the Pages token and the OIDC exchange.
     permissions:
