@@ -6,6 +6,15 @@ on:
   push:
     branches: [main]
 
+# Push-triggered and PR-synced: a superseded run for the same ref can never
+# change this commit's result, so the older one is cancelled instead of billed.
+# No `paths-ignore` here, deliberately: this workflow is the only producer of
+# the `test (<os>)` status contexts required on `main`, and a filtered run
+# reports no context at all, which leaves a docs-only PR unmergeable.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
@@ -13,6 +22,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, blacksmith-4vcpu-windows-2025]
     runs-on: ${{ matrix.os }}
+    # Tests, clippy and rustfmt over three runners; the slowest leg is the
+    # cold Windows build. 30 minutes is generous for it and still bounds a hang.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
