@@ -281,7 +281,7 @@ that fails that gate (or whose `event_type` strings are not known
 the validator after changing the schema:
 
 ```bash
-cargo install --locked --git https://github.com/prompt-cult/json-type-definition-RFC-8927 --rev 767806d42f3ff4654503a6207fe8a18d75fe8211 jtd-codegen
+cargo install --locked --git https://github.com/prompt-cult/json-type-definition-RFC-8927 --rev 7a3cbe9d5fb28288fc3b0fc59a5bbef6d37e88bf jtd-codegen
 jtd-codegen --target rust schemas/profile-cache.jtd > src/profile_cache_types.rs
 ```
 
