@@ -472,6 +472,12 @@ pub trait RolloutAdapter: Send + Sync {
     /// store answers with one indexed LIKE query); the default returns None
     /// and the caller passes the id through, exactly as `resolve_session`
     /// does for every other tool.
+    ///
+    /// DEPRECATED (doc-level): superseded by [`RolloutAdapter::resolve_location`],
+    /// which also returns the concrete store path. The four private
+    /// per-harness resolution algorithms (codex/pi `resolve_path`, opencode
+    /// `resolve_session_id`, vibe's `resolve_session_dir` walk) are superseded
+    /// by `resolve_location` once call sites move; this method stays for them.
     fn resolve_canonical_id(&self, _session_id: &str) -> Option<String> {
         None
     }
@@ -482,6 +488,11 @@ pub trait RolloutAdapter: Send + Sync {
     /// time-updated source, 15 s tolerance); otherwise the profile is computed
     /// as today and the cache is rewritten. Errors when the session cannot be
     /// resolved or its payload cannot be read — never an all-zero profile.
+    ///
+    /// DEPRECATED (doc-level): the profile-cache staleness heuristic (15 s
+    /// tolerance against a cheap source stamp) is superseded by
+    /// [`RolloutAdapter::payload_stamp`] + a clock check, which give one
+    /// uniform per-session stamp across harnesses.
     fn profile_session_opts(&self, session_id: &str, cache: bool) -> ReadResult<SessionProfile>;
 
     /// Extract only user messages (verbatim)
@@ -525,6 +536,86 @@ pub trait RolloutAdapter: Send + Sync {
         Ok(qa_pairs_from_messages(&messages))
     }
 
+    // --- Law 1/2 seam (additive; unused by live paths until columnar/pointer
+    // --- work lands). Each method has a default so a harness that has not
+    // --- been migrated yet keeps compiling and behaving exactly as before.
+
+    /// The law-1 session map: which sessions exist, which folder/repo each
+    /// belongs to, start/end dates and last-modified (seconds since Unix
+    /// epoch). Live — computed at call time, never cached — and uncapped in
+    /// shape, unlike the bounded, presentation-shaped
+    /// [`RolloutAdapter::list_sessions_scoped`] listing.
+    ///
+    /// Default: temporary bridge from
+    /// [`RolloutAdapter::list_sessions_scoped`] (so it inherits that listing's
+    /// [`LISTING_ROW_CAP`] until a harness overrides it natively). Harnesses
+    /// override with their cheap store-side aggregate.
+    fn session_map(&self, scope: &SessionMapScope) -> Vec<MapEntry> {
+        let listing =
+            self.list_sessions_scoped(scope.hours_back.unwrap_or(0), scope.directory.as_deref());
+        listing
+            .sessions
+            .into_iter()
+            .map(map_entry_from_summary)
+            .collect()
+    }
+
+    /// Law 2 — the clock check: the per-session last-touched stamp, seconds
+    /// since Unix epoch, for validating intermediates against time. Unknown
+    /// ⇒ treated as absent (`None`).
+    fn payload_stamp(&self, _session_id: &str) -> Option<i64> {
+        None
+    }
+
+    /// Canonical identity and where it lives: resolve a (possibly partial)
+    /// session id to `(canonical_id, concrete store path)`. Serves sid://
+    /// resolution and cache keying.
+    ///
+    /// Default: not implemented on this harness.
+    fn resolve_location(&self, _session_id: &str) -> ReadResult<(String, PathBuf)> {
+        Err(format!(
+            "resolve_location is not implemented on this harness ({})",
+            self.name()
+        ))
+    }
+
+    /// The record-level seam for columnar builds and sid:// `record=` keys:
+    /// `(seq, record_key, role, timestamp, kind)`, with a stable identity —
+    /// the same session always yields the same keys.
+    ///
+    /// Default: one record per normalized message
+    /// ([`RolloutAdapter::read_session`]), `record_key` = the index string and
+    /// `kind` mirrors the normalized role (thinking rides inside the assistant
+    /// record). Harnesses with native fidelity override (part keys on sqlite,
+    /// line numbers on JSONL).
+    fn record_stream(&self, session_id: &str) -> ReadResult<Vec<RecordRef>> {
+        let messages = self.read_session(session_id)?;
+        Ok(messages
+            .iter()
+            .enumerate()
+            .map(|(i, m)| RecordRef {
+                seq: i as u64,
+                record_key: i.to_string(),
+                role: m.role.clone(),
+                ts: m.timestamp.as_deref().and_then(timestamp_to_epoch_secs),
+                kind: m.role.clone(),
+            })
+            .collect())
+    }
+
+    /// Root directory for co-located columnar/intermediate caches (laws 6/7):
+    /// a sibling of the rollout store, never inside it.
+    ///
+    /// Default: anchors on [`RolloutAdapter::shadow_index_root`], which every
+    /// adapter implements — the shadow root sits beside the store root, so the
+    /// shadow root's parent holds this root as a sibling of the store root.
+    fn intermediate_root(&self) -> PathBuf {
+        self.shadow_index_root()
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(".tr_intermediates")
+    }
+
     /// Every `todowrite` flush of a session, in order, for `todo_history`:
     /// the whole todo list as each flush wrote it, with the ISO8601
     /// timestamp of the message that carried it. `full` reads the entire
@@ -544,6 +635,11 @@ pub trait RolloutAdapter: Send + Sync {
 
     /// Root directory for the disposable per-session full-text shadow index
     /// (`<root>/<session_id>/`). Sibling of the rollout store, never inside it.
+    ///
+    /// DEPRECATED (doc-level): the tantivy search-pass auto-reindex and the
+    /// summary range ledger's independent freshness regime are superseded by
+    /// [`RolloutAdapter::payload_stamp`] + a clock check — one stamp per
+    /// session, valid or stale, everywhere.
     fn shadow_index_root(&self) -> PathBuf;
 
     /// Whether this adapter's storage root came from its `TOTAL_RECALL_<H>_ROOT`
@@ -570,6 +666,9 @@ pub struct SessionSummary {
     pub directory: Option<String>,
     pub parent_session_id: Option<String>,
     pub child_sessions: Vec<String>,
+    /// DEPRECATED (doc-level): computed from cache state at render time;
+    /// superseded by [`RolloutAdapter::session_map`] (live, lean, uncapped).
+    /// Kept until listing callers move; do not add new readers.
     pub has_tantivy_index: bool,
     /// Other directory/session names that resolve to the same underlying
     /// rollout payload as this canonical entry (e.g. a resumed session that
@@ -604,6 +703,171 @@ pub enum BackendKind {
     File,
     /// A database file (opencode's SQLite store).
     Database,
+}
+
+// --- Law 1/2 additive seam (session map, stamps, location, record stream) ----
+// Everything below is PURE ADDITIVE: it extends the adapter surface for laws
+// 1 and 2 and touches no existing method, behavior or caller. The default
+// implementations are temporary bridges; harnesses override them natively as
+// the per-harness work lands.
+
+/// The scope of a [`RolloutAdapter::session_map`] call: an optional recency
+/// window and an optional directory filter. `None` for a field means no bound
+/// — the whole store, live and uncapped.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionMapScope {
+    /// Only sessions last touched within this many hours (`None` = no bound).
+    pub hours_back: Option<u64>,
+    /// Only sessions whose directory contains this substring (`None` = no
+    /// filter).
+    pub directory: Option<String>,
+}
+
+/// One row of the law-1 session map: lean identity, placement and
+/// seconds-since-epoch timestamps. The map is live (never cached) and
+/// uncapped — unlike the bounded, presentation-shaped [`SessionListing`].
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct MapEntry {
+    /// The canonical session id (the id every shadow-root artefact is keyed
+    /// by).
+    pub canonical_id: String,
+    /// The session's working directory, when the harness records one.
+    pub folder: Option<PathBuf>,
+    /// The repository root, when the harness records one.
+    pub repo: Option<PathBuf>,
+    /// Session start, seconds since Unix epoch.
+    pub start: Option<i64>,
+    /// Session end, seconds since Unix epoch.
+    pub end: Option<i64>,
+    /// Last touch, seconds since Unix epoch.
+    pub last_modified: Option<i64>,
+    /// Which store kind backs this session.
+    pub backend_kind: BackendKind,
+}
+
+/// One record of a session's record stream: a stable identity (sequence
+/// number + key), role, timestamp and kind — the seam columnar builds and
+/// sid:// `record=` keys consume.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RecordRef {
+    /// Position of the record in the session's stream.
+    pub seq: u64,
+    /// Stable per-record key (line number on JSONL, part key on sqlite).
+    pub record_key: String,
+    /// Normalized role ("user" | "assistant" | "tool").
+    pub role: String,
+    /// Record time, seconds since Unix epoch, when known.
+    pub ts: Option<i64>,
+    /// Record kind (mirrors the normalized role in the default derivation).
+    pub kind: String,
+}
+
+/// Bridge a [`SessionSummary`] to its law-1 [`MapEntry`]. This is the
+/// temporary default source for [`RolloutAdapter::session_map`]: it maps the
+/// bounded listing's summaries without re-reading any payload. Fallbacks: a
+/// folder is carried through as-is, a repo is never known at this layer
+/// (`None`), start/end come from the summary's ISO strings when parseable,
+/// last_modified prefers mtime over ctime, and an undeclared backend kind
+/// falls back to [`BackendKind::File`] (no harness stores rollouts outside a
+/// file tree or a database).
+fn map_entry_from_summary(summary: SessionSummary) -> MapEntry {
+    let last_modified = summary.mtime.or(summary.ctime).and_then(system_time_secs);
+    MapEntry {
+        canonical_id: summary.session_id,
+        folder: summary.directory.map(PathBuf::from),
+        repo: None,
+        start: timestamp_to_epoch_secs(&summary.start_time),
+        end: timestamp_to_epoch_secs(&summary.end_time),
+        last_modified,
+        backend_kind: summary.backend_kind.unwrap_or(BackendKind::File),
+    }
+}
+
+/// A [`std::time::SystemTime`] as seconds since Unix epoch.
+fn system_time_secs(t: std::time::SystemTime) -> Option<i64> {
+    t.duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs() as i64)
+}
+
+/// Seconds since Unix epoch for a timestamp string: a bare integer-seconds
+/// string, or ISO8601 (as the harnesses emit). Anything else is `None` (law
+/// 2: unknown ⇒ treat as absent).
+fn timestamp_to_epoch_secs(s: &str) -> Option<i64> {
+    let t = s.trim();
+    if !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()) {
+        return t.parse::<i64>().ok();
+    }
+    iso8601_to_epoch_secs(t)
+}
+
+/// Parse `YYYY-MM-DD'T'HH:MM:SS[.frac][Z|±HH:MM]` to seconds since Unix
+/// epoch, proleptic Gregorian (leap-second `:60` collapses to `:59`).
+fn iso8601_to_epoch_secs(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let field = |range: std::ops::Range<usize>| -> Option<i64> {
+        std::str::from_utf8(&b[range]).ok()?.parse::<i64>().ok()
+    };
+    let year = field(0..4)?;
+    let month = field(5..7)?;
+    let day = field(8..10)?;
+    let hour = field(11..13)?;
+    let minute = field(14..16)?;
+    let sec = field(17..19)?;
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || sec > 60
+    {
+        return None;
+    }
+    let sec = sec.min(59);
+    let mut rest = &b[19..];
+    if rest.first() == Some(&b'.') {
+        rest = &rest[1..];
+        while rest.first().is_some_and(|c| c.is_ascii_digit()) {
+            rest = &rest[1..];
+        }
+    }
+    let mut offset_secs = 0i64;
+    if let Some((&first, tail)) = rest.split_first() {
+        match first {
+            b'Z' => {}
+            b'+' | b'-' => {
+                if tail.len() < 5 {
+                    return None;
+                }
+                let oh = std::str::from_utf8(&tail[..2]).ok()?.parse::<i64>().ok()?;
+                let om = std::str::from_utf8(&tail[3..5]).ok()?.parse::<i64>().ok()?;
+                if oh > 23 || om > 59 {
+                    return None;
+                }
+                offset_secs = oh * 3600 + om * 60;
+                if first == b'-' {
+                    offset_secs = -offset_secs;
+                }
+            }
+            _ => return None,
+        }
+    }
+    let days = days_from_civil(year, month as u32, day as u32);
+    Some(days * 86400 + hour * 3600 + minute * 60 + sec - offset_secs)
+}
+
+/// Days since 1970-01-01 for a proleptic Gregorian date (civil-days
+/// algorithm). Exact for the range the harnesses emit; year must stay within
+/// ±292 million of the epoch.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) as i64 + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
 }
 
 /// The per-row cap on navigation ids a rendered listing row carries: the most
@@ -662,6 +926,10 @@ pub struct ListingRow {
     #[serde(skip_serializing_if = "is_zero_count")]
     pub child_session_count: usize,
     pub has_tantivy_index: bool,
+    /// DEPRECATED (doc-level): the summary-cache marker, computed from cache
+    /// state at render time; superseded by [`RolloutAdapter::session_map`]
+    /// (live, lean, uncapped). Kept until listing callers move; do not add
+    /// new readers.
     /// What the session's summary cache covers through, set by the render
     /// layer (never by the adapters): the last block's `to_id`/`to_ts`. Absent
     /// when nothing is cached — a lean row carries no weight.
@@ -795,6 +1063,9 @@ pub struct SessionProfile {
     pub first_ts: Option<String>,
     pub last_ts: Option<String>,
     pub role_counts: HashMap<String, u64>,
+    /// DEPRECATED (doc-level): computed from cache state at render time;
+    /// superseded by [`RolloutAdapter::session_map`] (live, lean, uncapped).
+    /// Kept until callers move; do not add new readers.
     pub has_tantivy_index: bool,
     pub interesting_events: Vec<InterestingEvent>,
 }

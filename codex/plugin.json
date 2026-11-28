@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "total-recall",
-  "version": "0.28.0",
+  "version": "0.28.1",
   "description": "Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store",
   "author": {
     "name": "prompt-cult"
