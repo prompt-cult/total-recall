@@ -4,3 +4,5 @@
 target/
 .tantivy/
 _book/
+# Private deployment notes (see agent.txt)
+.notes
