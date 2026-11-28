@@ -80,7 +80,7 @@ form: `total-recall chat "hello"`.
 [[mcp_servers]]
 name = "total-recall"
 transport = "stdio"
-command = "/Users/consensussolutions/.vibe/bin/total-recall-<version>"
+command = "~/.vibe/bin/total-recall-<version>"
 args = ["mcp"]
 
 [mcp_servers.env]
@@ -96,7 +96,7 @@ INCEPTION_API_KEY = "sk_..."
 "mcp": {
   "total-recall": {
     "type": "local",
-    "command": ["/Users/consensussolutions/.config/opencode/bin/total-recall-<version>", "mcp"],
+    "command": ["~/.config/opencode/bin/total-recall-<version>", "mcp"],
     "environment": {"HARNESS": "opencode", "INCEPTION_API_KEY": "sk_..."}
   }
 }
