@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.28.1] - 2026-11-28
 
+### Fixed
+
+- **extract-by-type tool entries carry call identity** (#86). The `tool`
+  record re-attaches the call's name and arguments from the preceding
+  assistant record — `tool_call_name`, `tool_call_input` and the full
+  `tool_calls` list — as additive fields; existing fields are never
+  rewritten. The vibe unified-store path gets the same treatment.
+- **extract-by-type no longer hides the compaction slice** (#87). A non-full
+  extract reports the window in the MCP meta
+  (`window: {begins_at_compaction, elided_messages}`) and the CLI prints an
+  explicit note naming the elided pre-compaction count; `--full` is
+  unchanged.
+
 ### Added
 
 - **Additive law groundwork — no behavior changes, contracts preserved.** This
