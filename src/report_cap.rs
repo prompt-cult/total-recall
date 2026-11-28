@@ -171,9 +171,10 @@ pub fn line_histogram(
         cmd.arg(format!("-vend={end}"));
     }
     cmd.arg(file);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("cannot spawn awk -f: {e}"))?;
+    let output = match cmd.output() {
+        Ok(output) => output,
+        Err(_) => return rust_line_histogram(file, mode, line, start, end),
+    };
     let _ = fs::remove_file(&script);
     if !output.status.success() {
         return Err(format!(
@@ -182,6 +183,110 @@ pub fn line_histogram(
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Portable fallback for hosts that do not ship an `awk` executable (notably
+/// Windows). Keep the same output shape as the vendored script so overflow
+/// markers and the MCP paging tool remain useful without an extra runtime.
+fn rust_line_histogram(
+    file: &Path,
+    mode: Option<&str>,
+    line: Option<u64>,
+    start: Option<u64>,
+    end: Option<u64>,
+) -> Result<String, String> {
+    let content =
+        fs::read_to_string(file).map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+    let lines: Vec<&str> = content.lines().collect();
+
+    if mode == Some("extract") {
+        if let Some(line) = line {
+            let index = line.checked_sub(1).and_then(|n| usize::try_from(n).ok());
+            return index
+                .and_then(|i| lines.get(i).copied())
+                .map(|text| format!("{text}\n"))
+                .ok_or_else(|| format!("line {line} out of range (1-{})", lines.len()));
+        }
+        if let (Some(start), Some(end)) = (start, end) {
+            if start > end {
+                return Err(format!("start {start} > end {end}"));
+            }
+            let first = start.saturating_sub(1) as usize;
+            let last = end.min(lines.len() as u64) as usize;
+            if first >= last {
+                return Err(format!("start {start} > end {end}"));
+            }
+            return Ok(lines[first..last].join("\n") + "\n");
+        }
+        return Err("extract mode requires line or start and end".to_string());
+    }
+
+    let total_lines = lines.len();
+    let sizes: Vec<usize> = lines.iter().map(|line| line.chars().count()).collect();
+    let total_bytes: usize = sizes.iter().sum();
+    let num_buckets = total_lines.min(10);
+    let bucket_size = if total_lines <= 10 {
+        1
+    } else {
+        total_lines / 10
+    };
+    let mut buckets = [0usize; 10];
+    for (index, size) in sizes.iter().enumerate() {
+        let bucket = if total_lines <= 10 {
+            index
+        } else {
+            (index / bucket_size).min(9)
+        };
+        buckets[bucket] += size;
+    }
+    let max_bytes = buckets[..num_buckets].iter().copied().max().unwrap_or(0);
+    let mut out = format!(
+        "File: {}\nTotal bytes: {total_bytes}\nTotal lines: {total_lines}\n\nBucket Distribution:\n\n",
+        file.display()
+    );
+    if total_lines == 0 {
+        out.push_str("Empty file\n");
+        return Ok(out);
+    }
+    out.push_str("Line Range      | Bytes        | Distribution\n");
+    out.push_str("─────────────────┼──────────────┼──────────────────────────────────────────\n");
+    for (bucket, bucket_bytes) in buckets.iter().enumerate() {
+        let (first, last) = if total_lines <= 10 {
+            if bucket < total_lines {
+                (bucket + 1, bucket + 1)
+            } else {
+                (0, 0)
+            }
+        } else {
+            let first = bucket * bucket_size + 1;
+            (
+                first,
+                if bucket == 9 {
+                    total_lines
+                } else {
+                    (bucket + 1) * bucket_size
+                },
+            )
+        };
+        let range = if first == 0 {
+            "      -".to_string()
+        } else if first == last {
+            format!("{first:>7}")
+        } else {
+            format!("{first}-{last}")
+        };
+        let bar_len = bucket_bytes
+            .saturating_mul(40)
+            .checked_div(max_bytes)
+            .unwrap_or(0);
+        out.push_str(&format!(
+            "{range:<15} | {:>12} | {}\n",
+            bucket_bytes,
+            "█".repeat(bar_len)
+        ));
+    }
+    out.push_str("─────────────────┼──────────────┼──────────────────────────────────────────\n");
+    Ok(out)
 }
 
 /// Per-process sequence for overflow filenames: two overflowing calls in the

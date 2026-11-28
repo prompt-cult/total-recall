@@ -192,6 +192,7 @@ pub struct ChatOnce {
 /// missing. This runs BEFORE any provider construction, so the setup help is
 /// never buried under a mid-flow API failure.
 pub fn check_inception_key() -> Result<(), String> {
+    #[cfg(feature = "mercury")]
     let _ = dotenvy::dotenv();
     let key = std::env::var("INCEPTION_API_KEY");
     match key {

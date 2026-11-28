@@ -148,6 +148,12 @@ pub enum Command {
     /// the work after that boundary
     #[command(name = "prior-period-summary")]
     PriorPeriodSummary,
+    /// Compatibility alias for the prior-period compaction summary.
+    #[command(name = "recall")]
+    Recall,
+    /// Compatibility alias for the prior-period compaction summary.
+    #[command(name = "compact")]
+    Compact,
     /// THE one-call key check: chat once with Mercury and print the reply,
     /// the elapsed time and the token counts. Missing or empty
     /// INCEPTION_API_KEY fails at the front door naming the setup places —
@@ -772,7 +778,7 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
 
-        Command::PriorPeriodSummary => {
+        Command::PriorPeriodSummary | Command::Recall | Command::Compact => {
             // The full session feeds the compaction footer; the slice since
             // the session's last compaction boundary — the context a
             // compaction consumed — feeds the state summary, the commits and
