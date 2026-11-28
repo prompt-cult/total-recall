@@ -218,9 +218,30 @@ pub fn index_session(adapter: &dyn RolloutAdapter, session_id: &str) -> Result<I
                 .map_err(|e| format!("failed to add document: {}", e))?;
             doc_count += 1;
         }
-        writer
-            .commit()
-            .map_err(|e| format!("index commit failed: {}", e))?;
+        let mut commit_error = None;
+        for attempt in 0..5 {
+            match writer.commit() {
+                Ok(_) => {
+                    commit_error = None;
+                    break;
+                }
+                Err(e)
+                    if cfg!(windows)
+                        && e.to_string().contains("Access is denied")
+                        && attempt < 4 =>
+                {
+                    commit_error = Some(e);
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(e) => {
+                    commit_error = Some(e);
+                    break;
+                }
+            }
+        }
+        if let Some(e) = commit_error {
+            return Err(format!("index commit failed: {e}"));
+        }
         // Every tantivy handle to `building` must be released before the
         // swap: Windows refuses to rename a directory anyone still holds.
         // Every tantivy handle to `building` must be released before the

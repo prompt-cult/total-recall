@@ -139,6 +139,7 @@ fn search_auto_reindexes_stale_file_backed_sessions() {
     let file = std::fs::File::options().write(true).open(&payload).unwrap();
     file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_900_000_200))
         .unwrap();
+    drop(file);
     std::fs::write(&payload, std::fs::read_to_string(&payload).unwrap()
         + r#"{"timestamp": "2026-11-12T10:00:00.000Z", "ordinal": 99, "type": "response_item", "payload": {"type": "message", "status": "completed", "role": "user", "content": [{"type": "input_text", "text": "zebra quagga searchprobe"}]}}"# + "\n")
         .unwrap();

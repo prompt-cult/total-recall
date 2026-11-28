@@ -264,17 +264,26 @@ async fn retry_after_zero_retries_without_waiting() {
     // milliseconds alone; under full-suite load they can exceed any tight
     // bound (this test flaked at <1s twice), but only a REAL fallback sleep
     // can push the elapsed past 3s — the load-robust form of the same pin.
-    let t0 = Instant::now();
     let out = p.compact("system", "hello").await.expect("must succeed");
-    let elapsed = t0.elapsed();
     assert_eq!(out, "RESP-unknown");
     assert_eq!(mock.request_count(), 3, "must have retried twice");
+
     // Retry-After: 0 is a server instruction to come back immediately; it
     // must override the exponential fallback (which would be 1s + 2s here).
-    assert!(
-        elapsed < Duration::from_secs(3),
-        "Retry-After: 0 must not sleep the fallback (1s + 2s), got {elapsed:?}"
-    );
+    // Pin that with inter-arrival gaps rather than absolute wall clock: a
+    // first-connect stall (firewall/local-network verification) can delay
+    // the FIRST request by seconds without any fallback sleep ever running,
+    // so a tight total-elapsed bound false-fails on healthy machines. Only
+    // a real fallback sleep produces a ~1s gap between consecutive requests.
+    let arrivals = mock.arrivals.lock().unwrap().clone();
+    assert_eq!(arrivals.len(), 3, "must have seen exactly three requests");
+    for pair in arrivals.windows(2) {
+        let gap = pair[1] - pair[0];
+        assert!(
+            gap < 500,
+            "Retry-After: 0 must not sleep the fallback: {gap}ms gap between requests"
+        );
+    }
 }
 
 #[tokio::test]
