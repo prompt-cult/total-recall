@@ -1,4 +1,5 @@
 pub mod bound;
+pub mod clip;
 pub mod harness;
 pub mod index;
 pub mod jsonl_sink;
@@ -11,6 +12,7 @@ pub mod recall;
 pub mod redact;
 pub mod report_cap;
 pub mod rollout;
+pub mod sid_uri;
 pub mod summary_cache;
 pub mod todo_history;
 

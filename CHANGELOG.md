@@ -5,6 +5,39 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-11-28
+
+### Fixed
+
+- **extract-by-type tool entries carry call identity** (#86). The `tool`
+  record re-attaches the call's name and arguments from the preceding
+  assistant record — `tool_call_name`, `tool_call_input` and the full
+  `tool_calls` list — as additive fields; existing fields are never
+  rewritten. The vibe unified-store path gets the same treatment.
+- **extract-by-type no longer hides the compaction slice** (#87). A non-full
+  extract reports the window in the MCP meta
+  (`window: {begins_at_compaction, elided_messages}`) and the CLI prints an
+  explicit note naming the elided pre-compaction count; `--full` is
+  unchanged.
+
+### Added
+
+- **Additive law groundwork — no behavior changes, contracts preserved.** This
+  point release lands three purely additive, fully tested building blocks that
+  no live code path uses yet:
+  - **`sid://` pointer parser** (`src/sid_uri.rs`) — total, strict parser for
+    the pointer grammar from the #89 law ticket: `sid://<session-id>?record=<record-id>`,
+    backend-neutral `record` key, 4096-byte bound, typed errors, seeded
+    pseudo-fuzz tests.
+  - **Clipping library** (`src/clip.rs`) — reusable static/dynamic bounds under
+    Law 0 (Conservation of Context Remaining): front/end clip, byte-bucket
+    row driver, canonical clip marker, and the catalog of the repo's existing
+    size constants.
+  - **`RolloutAdapter` trait extensions for laws 1 & 2** — `session_map`,
+    `payload_stamp`, `resolve_location`, `record_stream`, `intermediate_root`
+    (with default implementations), plus doc-level deprecation notes on the
+    machinery they supersede. Nothing removed; no existing callers changed.
+
 ## [0.28.0] - 2026-11-28
 
 ### Added
