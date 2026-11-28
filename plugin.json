@@ -1,0 +1,27 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "total-recall",
+  "version": "0.26.0",
+  "description": "Total-recall MCP tool for fast compaction and log mining of session rollouts as a long-term memory store",
+  "author": {
+    "name": "prompt-cult"
+  },
+  "homepage": "https://github.com/prompt-cult/total-recall",
+  "repository": "https://github.com/prompt-cult/total-recall",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "rollouts", "compaction", "mcp", "session-mining"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Total Recall",
+        "shortDescription": "Fast summary, caching, and mining of agent session rollouts",
+        "longDescription": "Total-recall is an MCP tool for reading agent session rollouts as a long-term memory store. It summarises sessions with Inception Mercury 3, caches summarised and extracted blocks, lists the rollout set, and lets agents page past compactions and time ranges across harnesses (opencode, vibe, codex, pi).",
+        "developerName": "prompt-cult",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://github.com/prompt-cult/total-recall"
+      },
+      "onboardingSkill": "./skills/total-recall/SKILL.md"
+    }
+  }
+}

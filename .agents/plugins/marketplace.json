@@ -1,0 +1,20 @@
+{
+  "name": "total-recall",
+  "interface": {
+    "displayName": "Total Recall"
+  },
+  "plugins": [
+    {
+      "name": "total-recall",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
