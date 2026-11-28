@@ -1110,6 +1110,19 @@ impl TotalRecallServer {
             .collect();
 
         // Bounded extraction: the sink is this tool's flood control.
+        let window = if params.full {
+            crate::rollout::CompactionWindow {
+                begins_at_compaction: false,
+                elided_messages: 0,
+            }
+        } else {
+            adapter
+                .compaction_window(&session_id)
+                .unwrap_or(crate::rollout::CompactionWindow {
+                    begins_at_compaction: false,
+                    elided_messages: 0,
+                })
+        };
         Ok(CallToolResult::success(vec![ContentBlock::text(
             extract_by_type_records(
                 &session_id,
@@ -1118,6 +1131,7 @@ impl TotalRecallServer {
                 &selected,
                 &filtered,
                 &notes,
+                &window,
                 limit,
                 offset,
                 max_bytes,
@@ -2043,6 +2057,7 @@ fn extract_by_type_records(
     selected_types: &[String],
     entries: &[&crate::rollout::RolloutEntry],
     notes: &[String],
+    window: &crate::rollout::CompactionWindow,
     limit: usize,
     offset: Option<usize>,
     max_bytes: usize,
@@ -2074,6 +2089,7 @@ fn extract_by_type_records(
         "full": full,
         "types": selected_types,
         "notes": notes,
+        "window": window,
         "bounds": {
             "total_records": total,
             "offset": start,

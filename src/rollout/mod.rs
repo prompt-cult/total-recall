@@ -65,16 +65,30 @@ pub fn entries_from_messages<'a>(
     messages: impl IntoIterator<Item = &'a RolloutMessage>,
 ) -> Vec<RolloutEntry> {
     let mut out = Vec::new();
+    // The most recent assistant message's tool-call summaries identify the
+    // tool entries that follow it: the normalized stream keeps call identity
+    // on the assistant (tool_calls_summary), not on the tool record, so the
+    // tool entry re-attaches it (best-effort, additive fields).
+    let mut pending_tool_calls: Vec<String> = Vec::new();
+    let mut next_tool_call = 0usize;
     for m in messages {
+        if m.role == "assistant" && !m.tool_calls_summary.is_empty() {
+            pending_tool_calls = m.tool_calls_summary.clone();
+            next_tool_call = 0;
+        }
         let entry_type = match m.role.as_str() {
             "user" | "assistant" | "tool" => m.role.clone(),
             _ => continue,
         };
+        let mut record = serde_json::to_value(m).unwrap_or(serde_json::Value::Null);
+        if entry_type == "tool" {
+            attach_tool_call_identity(&mut record, &pending_tool_calls, &mut next_tool_call);
+        }
         out.push(RolloutEntry {
             index: out.len(),
             entry_type,
             timestamp: m.timestamp.clone(),
-            record: serde_json::to_value(m).unwrap_or(serde_json::Value::Null),
+            record,
         });
         if let Some(t) = &m.thinking
             && !t.is_empty()
@@ -521,6 +535,15 @@ pub trait RolloutAdapter: Send + Sync {
             .filter(|m| include_injected || !m.injected)
             .collect();
         Ok(entries_from_messages(selected.iter().copied()))
+    }
+
+    /// The compaction-window fact for a non-full read (see
+    /// [`CompactionWindow`]): whether the read serves only the post-compaction
+    /// segment and how many messages it elides. Additive — used by
+    /// extract-by-type to report the slice rather than hide it (#87).
+    fn compaction_window(&self, session_id: &str) -> ReadResult<CompactionWindow> {
+        let messages = self.read_session(session_id)?;
+        Ok(compaction_window_of(&messages))
     }
 
     /// Question/answer pairs of a session, chronologically: each question a
@@ -1091,6 +1114,76 @@ pub enum EventType {
 }
 
 /// Summarize a tool call into a compact one-line description.
+/// The compaction-window fact for a non-full read: did the slice begin at a
+/// compaction boundary, and how many messages were elided in front of it?
+/// Reported by extract-by-type so the boundary is never silent (#87).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct CompactionWindow {
+    pub begins_at_compaction: bool,
+    pub elided_messages: usize,
+}
+
+/// Compute [`CompactionWindow`] from a message stream using the shared
+/// substring marker (the same rule as
+/// [`RolloutAdapter::compaction_markers`]).
+pub fn compaction_window_of(messages: &[RolloutMessage]) -> CompactionWindow {
+    match messages
+        .iter()
+        .rposition(|m| m.content.contains("context compaction"))
+    {
+        Some(i) => CompactionWindow {
+            begins_at_compaction: true,
+            elided_messages: i + 1,
+        },
+        None => CompactionWindow {
+            begins_at_compaction: false,
+            elided_messages: 0,
+        },
+    }
+}
+
+/// Split a tool-call summary line (as produced by [`summarize_tool_call`])
+/// into its call name and argument text, best-effort: `bash: …` form first,
+/// then `name(args)`, else the whole line as the name with no args.
+pub fn parse_tool_call_summary(summary: &str) -> (String, Option<String>) {
+    let s = summary.trim();
+    if let Some(cmd) = s.strip_prefix("bash:") {
+        return ("bash".to_string(), Some(cmd.trim().to_string()));
+    }
+    if let Some(open) = s.find('(') {
+        let name = s[..open].trim();
+        let rest = s[open + 1..].trim();
+        let args = rest.strip_suffix(')').map(str::trim).unwrap_or(rest);
+        return (name.to_string(), Some(args.to_string()));
+    }
+    (s.to_string(), None)
+}
+
+/// Attach tool-call identity to a tool-entry record from the assistant
+/// message that preceded it (the `tool_calls_summary` list). Pure additive
+/// metadata — never rewrites existing fields. `cursor` advances so multiple
+/// tool entries consume the pending call list in order.
+pub fn attach_tool_call_identity(
+    record: &mut serde_json::Value,
+    pending: &[String],
+    cursor: &mut usize,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let idx = (*cursor).min(pending.len() - 1);
+    let (name, args) = parse_tool_call_summary(&pending[idx]);
+    *cursor = cursor.saturating_add(1);
+    if let serde_json::Value::Object(map) = record {
+        map.insert(
+            "tool_call_name".to_string(),
+            serde_json::Value::String(name),
+        );
+        map.insert("tool_call_input".to_string(), serde_json::json!(args));
+        map.insert("tool_calls".to_string(), serde_json::json!(pending));
+    }
+}
+
 pub fn summarize_tool_call(name: &str, args_str: &str) -> String {
     let args: serde_json::Value = match serde_json::from_str(args_str) {
         Ok(v) => v,

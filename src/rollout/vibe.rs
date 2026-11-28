@@ -1500,6 +1500,8 @@ fn unified_entries(
         injected_compaction_start(&messages)
     };
     let mut out = Vec::new();
+    let mut pending_tool_calls: Vec<String> = Vec::new();
+    let mut next_tool_call = 0usize;
     for m in messages.into_iter().skip(start) {
         if !include_injected && m.injected {
             continue;
@@ -1507,10 +1509,17 @@ fn unified_entries(
         if !matches!(m.role.as_str(), "user" | "assistant" | "tool") {
             continue;
         }
-        let record = match serde_json::to_value(&m) {
+        if m.role == "assistant" && !m.tool_calls_summary.is_empty() {
+            pending_tool_calls = m.tool_calls_summary.clone();
+            next_tool_call = 0;
+        }
+        let mut record = match serde_json::to_value(&m) {
             Ok(v) => v,
             Err(_) => continue,
         };
+        if m.role == "tool" {
+            super::attach_tool_call_identity(&mut record, &pending_tool_calls, &mut next_tool_call);
+        }
         out.push(super::RolloutEntry {
             index: out.len(),
             entry_type: m.role.clone(),

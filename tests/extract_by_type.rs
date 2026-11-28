@@ -365,3 +365,45 @@ fn extract_by_type_tiny_max_bytes_overflows_to_the_file() {
     }
     reap_mcp(&mut child, &cwd);
 }
+
+#[test]
+fn extract_by_type_reports_compaction_window_when_not_full() {
+    // #87: a non-full extract must not silently serve only the post-compaction
+    // segment — the meta carries the window (begins_at_compaction + elided).
+    let root = scratch("compaction-window");
+    let lines = vec![
+        "{\"role\":\"user\",\"content\":\"before\",\"timestamp\":\"2026-09-15T09:59:55Z\"}".to_string(),
+        "{\"role\":\"assistant\",\"content\":\"context compaction\",\"timestamp\":\"2026-09-15T09:59:56Z\"}".to_string(),
+        "{\"role\":\"user\",\"content\":\"after\",\"timestamp\":\"2026-09-15T09:59:57Z\"}".to_string(),
+        "{\"role\":\"assistant\",\"content\":\"answer\",\"timestamp\":\"2026-09-15T09:59:58Z\"}".to_string(),
+    ];
+    make_session(&root, "session_20260915_095955_51a9645a", &lines);
+    let (mut child, mut reader, mut stdin, cwd) = spawn_mcp(&root);
+    init(&mut reader, &mut stdin);
+    send(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":false,"types":["all"]}}}),
+    );
+    let resp = read_id(&mut reader, 2);
+    let (meta, _records) = parsed_stream(&text_of(&resp));
+    assert_eq!(
+        meta["window"]["begins_at_compaction"], true,
+        "non-full extract reports it starts at the compaction boundary: {meta}"
+    );
+    assert_eq!(
+        meta["window"]["elided_messages"], 2,
+        "the two pre-compaction messages are counted: {meta}"
+    );
+    // Full read: window is a plain full-session read.
+    send(
+        &mut stdin,
+        &serde_json::json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"extract_by_type","arguments":{"session_id":"51a9645a","full":true,"types":["all"]}}}),
+    );
+    let resp = read_id(&mut reader, 3);
+    let (meta, _records) = parsed_stream(&text_of(&resp));
+    assert_eq!(
+        meta["window"]["begins_at_compaction"], false,
+        "full extract has no compaction slice: {meta}"
+    );
+    reap_mcp(&mut child, &cwd);
+}

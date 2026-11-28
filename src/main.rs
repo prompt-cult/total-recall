@@ -670,6 +670,17 @@ async fn main() -> Result<()> {
                 .iter()
                 .filter(|e| want_all || types.contains(&e.entry_type))
                 .collect();
+            // Report the compaction window for a non-full extract (#87): the
+            // slice is never silent.
+            if !cli.full
+                && let Ok(w) = adapter.compaction_window(&session_id)
+                && w.begins_at_compaction
+            {
+                eprintln!(
+                    "note: extract-by-type begins at the last compaction ({} pre-compaction message(s) elided); pass --full for the whole session",
+                    w.elided_messages
+                );
+            }
             // CLI: unbounded unless --limit/--max-bytes given.
             let limit = if cli.limit == 0 {
                 filtered.len().max(1)
