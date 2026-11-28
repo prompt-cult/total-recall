@@ -795,14 +795,15 @@ built from [`book.toml`](book.toml) and [`docs/src/`](docs/src) by
 | [LICENSE-MIT](LICENSE-MIT) · [LICENSE-APACHE](LICENSE-APACHE) | dual licensed `MIT OR Apache-2.0` |
 | [docs/opencode-store-vacuum.md](docs/opencode-store-vacuum.md) | store-vacuum runbook (see [Operations](#operations)) |
 
-## Install from a local (repo) marketplace
+## Install as a Codex plugin (local marketplace)
 
-This repo is packaged as a Codex plugin and carries its own marketplace index:
+This repo is a multi-harness tool; the Codex plugin packaging lives only
+under [`codex/`](codex/README.md). Everything needed to install it as a
+Codex plugin from a local checkout:
 
-- `plugin.json` at the repo root (portable Agent Plugins schema)
-- `mcp.json` at the repo root — the MCP server (`total-recall mcp` over stdio, `HARNESS=codex` by default)
+- `codex/plugin.json` — the portable Agent Plugins manifest
+- `codex/marketplace.json` — the marketplace catalog
 - `skills/total-recall/SKILL.md` — the bundled skill
-- `.agents/plugins/marketplace.json` — the marketplace catalog
 
 The `total-recall` binary must be installed and on `PATH`
 (`cargo install --path .` or the release binary).
@@ -810,7 +811,7 @@ The `total-recall` binary must be installed and on `PATH`
 From a local checkout:
 
 ```bash
-codex plugin marketplace add /path/to/total-recall
+codex plugin marketplace add /path/to/total-recall/codex
 codex plugin list --marketplace total-recall
 codex plugin add total-recall@total-recall
 ```
@@ -821,5 +822,6 @@ For a repo-scoped install (when a project already has a `total-recall`
 checkout), add `[plugins."total-recall@total-recall"] enabled = true` to the
 project's `.codex/config.toml`.
 
-The MCP server harness defaults to `codex`; override per server with the
-plugin's `mcp_servers` config or edit `env.HARNESS` in `mcp.json`.
+Generic MCP / CLI install instructions for every harness live in
+[`docs/src/mcp-setup.md`](docs/src/mcp-setup.md) — the Codex plugin is only
+one deployment modality.

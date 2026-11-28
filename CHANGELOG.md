@@ -5,6 +5,34 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-11-28
+
+### Added
+
+- **Codex plugin surface moved to `codex/`**. The Codex-specific packaging
+  (`plugin.json`, `marketplace.json`, and a folder README) now lives in its
+  own directory instead of the repo root. The repo root is back to being
+  about the multi-harness tool itself; generic MCP/CLI install instructions
+  stay in the docs.
+- **Version alignment for the plugin manifest**: `codex/plugin.json` now
+  matches the release version instead of a stale pin.
+
+### Changed
+
+- **Root `mcp.json` removed**. The committed MCP declaration hardcoded
+  `HARNESS=codex` on a multi-harness tool; a harness-specific MCP config
+  has no place at the repo root. Harness selection remains a runtime choice
+  (`total-recall mcp --harness <name>` or `HARNESS`).
+
+### Fixed
+
+- **Doc hygiene**: replaced the author's absolute home path with `~`
+  placeholders in `docs/src/mcp-setup.md`.
+- **Flaky retry test**: `retry_after_zero_retries_without_waiting` now pins
+  `Retry-After: 0` behaviour with inter-arrival gaps instead of an absolute
+  wall-clock bound, so a first-connect stall on the host machine cannot
+  false-fail the suite.
+
 ## [0.27.2] - 2026-11-15
 
 ### Fixed
