@@ -1,10 +1,11 @@
 # total-recall
 
-Fast compaction and log mining of agent session rollouts, as an MCP server
-and a CLI. Reads the session store a CLI coding agent already writes on your
-machine, and turns it into a queryable long-term memory: compaction summaries
-through [Inception Mercury 3](https://www.inceptionlabs.ai), a diffusion LLM
-running at 1,068 tokens/sec.
+Total recall for your agents. Rollouts passed by reference. Session history
+mined as long-term memory on every harness you run.
+
+Fast log mining of agent session rollouts, as an MCP server or a CLI. Reads
+the session store a coding agent already writes on your machine and turns it
+into a queryable long-term memory.
 
 Two surfaces, one binary. `total-recall mcp` is an MCP stdio server, so an
 agent calls the tools directly. `total-recall <subcommand>` is a CLI over the
@@ -13,17 +14,24 @@ loop.
 
 ## Why
 
-Every CLI coding agent hits
-context limits on long sessions. Their built-in compaction is slow and uses
-expensive frontier models. Mercury 3 does the same job at 1,068 tok/s for
-$0.10/M input and $0.35/M output (prices as-at the Mercury 3 launch,
-October 2026). Augment Code
-[moved compaction to Mercury and cut latency 82%](https://www.inceptionlabs.ai/blog/introducing-mercury-2-5)
-(150s to 27s) and costs 90%.
+The NOOA paper ([arXiv:2607.20709](https://arxiv.org/abs/2607.20709))
+advocates for pass-by-reference over the historic rollouts. We do not
+serialize program state into the prompt. The model sees a bounded preview of
+each event of the past, be it user text, agent thinking or tool calls. Large
+events such as tool call results are linked to. Aggressive caching is used
+to speed up queries. Every coding agent already writes the full rollout to
+disk. Those harness-specific files are the long-term memory. total-recall
+has pluggable backends that read those storage files to provide agents with
+tooling to query into months or years of history. The window is for working.
+The long-term harness store is for remembering.
 
-Log mining needs no LLM at all. Every index, profile, extract and search tool
-works in a vendor-free build with no API key: see
-[Configuration](configuration.md#build-features).
+Log mining needs no LLM at all. Every profile, extract and search tool works
+in a vendor-free build with no API key: see
+[Configuration](configuration.md#build-features). Compaction summaries are
+opt-in through the fast [Inception Mercury 3](https://www.inceptionlabs.ai),
+a diffusion LLM at 1,068 tok/s. Feel free to send a PR to expand the model
+set or feature set, to give us agents that have total recall and bring
+self-sovereign continuous LLM improvements to the masses!
 
 ## Supported harnesses
 
