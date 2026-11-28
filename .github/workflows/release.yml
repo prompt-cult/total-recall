@@ -7,9 +7,18 @@ on:
 permissions:
   contents: write
 
+# Tag-triggered, so path filters are inert here and none are added. This group
+# only serialises two runs for the *same* tag (a re-pushed tag would otherwise
+# race `gh release create` and fail on the second asset upload); it never
+# cancels an in-flight release, which is why cancel-in-progress stays false.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -50,6 +59,8 @@ jobs:
             platform: linux
             triple: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
+    # Five release builds, including the macOS and Windows legs.
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -111,6 +122,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
